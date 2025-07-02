@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Mercado Livre - Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .endpoints {
+            display: grid;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        .endpoint {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #007bff;
+            text-align: left;
+        }
+        .endpoint h3 {
+            margin: 0 0 10px 0;
+            color: #007bff;
+        }
+        .endpoint p {
+            margin: 0;
+            color: #666;
+        }
+        .endpoint a, .endpoint button {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 600;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .endpoint a:hover, .endpoint button:hover {
+            text-decoration: underline;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .status.active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .token-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛒 API Mercado Livre</h1>
+        <p>Servidor Node.js rodando com sucesso!</p>
+        
+        <div class="endpoints">
+            <div class="endpoint">
+                <h3>🔑 Gerenciar Token <span class="status warning">IMPORTANTE</span></h3>
+                <p>Verificar e renovar ACCESS_TOKEN</p>
+                <div class="token-actions">
+                    <button onclick="verificarToken()">🔍 Verificar Token</button>
+                    <button onclick="renovarToken()">🔄 Renovar Token</button>
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🎯 Remover Promoções <span class="status active">ATIVO</span></h3>
+                <p>Interface para remover promoções de anúncios</p>
+                <a href="/remover-promocao">Acessar Interface</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🔧 Debug <span class="status active">ATIVO</span></h3>
+                <p>Verificar endpoints disponíveis</p>
+                <a href="/debug/routes">Ver Rotas</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function verificarToken() {
+            try {
+                const response = await fetch('/verificar-token');
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Erro: ' + error.message);
+            }
+        }
+
+        async function renovarToken() {
+            try {
+                const response = await fetch('/renovar-token-automatico', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Erro: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remover Promoções - ML</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            max-width: 900px; 
+            margin: 50px auto; 
+            padding: 20px; 
+            background: #f8f9fa;
+        }
+        .container { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        h1 { 
+            color: #dc3545; 
+            text-align: center; 
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .form-group { 
+            margin-bottom: 25px; 
+        }
+        label { 
+            display: block; 
+            margin-bottom: 8px; 
+            font-weight: 600; 
+            color: #333;
+        }
+        input, textarea { 
+            width: 100%; 
+            padding: 12px; 
+            border: 2px solid #e9ecef; 
+            border-radius: 8px; 
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+            box-sizing: border-box;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        button { 
+            background: #dc3545; 
+            color: white; 
+            padding: 15px 30px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            margin-right: 15px; 
+            margin-bottom: 15px;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        button:hover { 
+            background: #c82333; 
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220,53,69,0.3);
+        }
+        .btn-secondary { 
+            background: #6c757d; 
+        }
+        .btn-secondary:hover { 
+            background: #545b62; 
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+        .result { 
+            margin-top: 30px; 
+            padding: 20px; 
+            border-radius: 10px; 
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .success { 
+            background: #d4edda; 
+            border: 2px solid #c3e6cb; 
+            color: #155724; 
+        }
+        .error { 
+            background: #f8d7da; 
+            border: 2px solid #f5c6cb; 
+            color: #721c24; 
+        }
+        .info { 
+            background: #d1ecf1; 
+            border: 2px solid #bee5eb; 
+            color: #0c5460; 
+        }
+        small {
+            color: #6c757d;
+            font-size: 14px;
+            margin-top: 5px;
+            display: block;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 25px;
+            background: #e9ecef;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Remover Promoções</h1>
+        
+        <div class="form-group">
+            <label for="mlbId">MLB ID do Anúncio:</label>
+            <input type="text" id="mlbId" placeholder="Ex: MLB1234567890" />
+            <small>Digite o código MLB do anúncio (encontrado na URL)</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="mlbIds">Múltiplos MLB IDs (um por linha):</label>
+            <textarea id="mlbIds" rows="6" placeholder="MLB1234567890&#10;MLB0987654321&#10;MLB1122334455"></textarea>
+            <small>Para remover promoções de vários anúncios de uma vez</small>
+        </div>
+        
+        <button onclick="removerUnico()">🎯 Remover Único</button>
+        <button class="btn-warning" onclick="removerLote()">🚀 Remover em Lote</button>
+        <button class="btn-secondary" onclick="verificarStatus()">📊 Status</button>
+        <button class="btn-secondary" onclick="limpar()">🧹 Limpar</button>
+        
+        <div id="resultado"></div>
+    </div>
+
+    <script>
+        let currentProcessId = null;
+        let monitorInterval = null;
+
+        console.log('Script carregado com sucesso!');
+
+        async function removerUnico() {
+            console.log('Função removerUnico chamada');
+            
+            const mlbId = document.getElementById('mlbId').value.trim();
+            console.log('MLB ID:', mlbId);
+            
+            if (!mlbId) {
+                alert('Digite um MLB ID');
+                return;
+            }
+
+            const resultado = document.getElementById('resultado');
+            resultado.innerHTML = '<div class="result info">🔄 Removendo promoção...</div>';
+
+            try {
+                console.log('Enviando requisição para remover promoção...');
+                
+                const response = await fetch('/anuncio/remover-promocao', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mlb_id: mlbId })
+                });
+
+                console.log('Resposta recebida:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Dados:', data);
+
+                if (data.success) {
+                    const metodos = data.metodos_tentados ? data.metodos_tentados.join(', ') : '';
+                    resultado.innerHTML = '<div class="result success">✅ SUCESSO!\n\n' +
+                        'Anúncio: ' + (data.titulo || 'N/A') + '\n' +
+                        'MLB: ' + data.mlb_id + '\n' +
+                        'Status: ' + data.message + '\n' +
+                        'Preço antes: R$ ' + (data.preco_antes || 'N/A') + '\n' +
+                        'Preço depois: R$ ' + (data.preco_depois || 'N/A') + '\n' +
+                        'Ainda tem promoção: ' + (data.ainda_tem_promocao ? 'SIM' : 'NÃO') + '\n' +
+                        (metodos ? 'Métodos: ' + metodos : '') + '</div>';
+                } else {
+                    resultado.innerHTML = '<div class="result error">❌ ERRO\n\n' +
+                        (data.message || data.error) + '\n' +
+                        (data.mlb_id ? 'MLB: ' + data.mlb_id : '') + '</div>';
+                }
+            } catch (error) {
+                console.error('Erro na requisição:', error);
+                resultado.innerHTML = '<div class="result error">❌ Erro: ' + error.message + '</div>';
+            }
+        }
+
+        async function removerLote() {
+            console.log('Função removerLote chamada');
+            
+            const mlbIdsText = document.getElementById('mlbIds').value.trim();
+            if (!mlbIdsText) {
+                alert('Digite os MLB IDs');
+                return;
+            }
+
+            const mlbIds = mlbIdsText.split('\n').map(id => id.trim()).filter(id => id);
+            console.log('MLB IDs para processar:', mlbIds);
+            
+            const resultado = document.getElementById('resultado');
+            resultado.innerHTML = '<div class="result info">🚀 Iniciando remoção em lote...\n' +
+                'Total: ' + mlbIds.length + ' anúncios\n\n' +
+                '<div class="progress-bar">' +
+                    '<div class="progress-fill" id="progressFill">0%</div>' +
+                '</div></div>';
+
+            try {
+                const response = await fetch('/anuncios/remover-promocoes-lote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mlb_ids: mlbIds, delay_entre_remocoes: 3000 })
+                });
+
+                const data = await response.json();
+                console.log('Resposta do lote:', data);
+
+                if (data.success) {
+                    currentProcessId = data.process_id;
+                    monitorarProgresso(data.process_id);
+                } else {
+                    resultado.innerHTML = '<div class="result error">❌ Erro: ' + data.error + '</div>';
+                }
+            } catch (error) {
+                console.error('Erro no lote:', error);
+                resultado.innerHTML = '<div class="result error">❌ Erro: ' + error.message + '</div>';
+            }
+        }
+
+        async function verificarStatus() {
+            console.log('Verificando status para:', currentProcessId);
+            
+            if (!currentProcessId) {
+                alert('Nenhum processamento ativo');
+                return;
+            }
+
+            try {
+                const response = await fetch('/anuncios/status-remocao/' + currentProcessId);
+                const data = await response.json();
+
+                const resultado = document.getElementById('resultado');
+                const concluido = data.status === 'concluido' ? 
+                    '\nConcluído: ' + new Date(data.concluido_em).toLocaleString('pt-BR') : '';
+                
+                resultado.innerHTML = '<div class="result info">📊 STATUS DO PROCESSAMENTO\n\n' +
+                    'Process ID: ' + data.id + '\n' +
+                    'Status: ' + data.status + '\n' +
+                    'Progresso: ' + data.progresso + '%\n' +
+                    'Processados: ' + data.processados + '/' + data.total_anuncios + '\n' +
+                    'Sucessos: ' + data.sucessos + '\n' +
+                    'Erros: ' + data.erros + '\n' +
+                    'Iniciado: ' + new Date(data.iniciado_em).toLocaleString('pt-BR') + concluido + '</div>';
+            } catch (error) {
+                console.error('Erro ao verificar status:', error);
+                document.getElementById('resultado').innerHTML = '<div class="result error">❌ Erro: ' + error.message + '</div>';
+            }
+        }
+
+        function monitorarProgresso(processId) {
+            console.log('Iniciando monitoramento para:', processId);
+            
+            if (monitorInterval) clearInterval(monitorInterval);
+            
+            monitorInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/anuncios/status-remocao/' + processId);
+                    const data = await response.json();
+
+                    const progressFill = document.getElementById('progressFill');
+                    if (progressFill) {
+                        progressFill.style.width = data.progresso + '%';
+                        progressFill.textContent = data.progresso + '%';
+                    }
+
+                    if (data.status === 'concluido' || data.status === 'erro') {
+                        console.log('Processamento finalizado:', data.status);
+                        clearInterval(monitorInterval);
+                        verificarStatus();
+                    }
+                } catch (error) {
+                    console.error('Erro no monitoramento:', error);
+                }
+            }, 3000);
+        }
+
+        function limpar() {
+            console.log('Limpando interface');
+            
+            document.getElementById('resultado').innerHTML = '';
+            if (monitorInterval) {
+                clearInterval(monitorInterval);
+                monitorInterval = null;
+            }
+            currentProcessId = null;
+            document.getElementById('mlbId').value = '';
+            document.getElementById('mlbIds').value = '';
+        }
+
+        // Verificar se as funções estão disponíveis
+        window.addEventListener('load', function() {
+            console.log('Página carregada completamente');
+            console.log('Funções disponíveis:', {
+                removerUnico: typeof removerUnico,
+                removerLote: typeof removerLote,
+                verificarStatus: typeof verificarStatus,
+                limpar: typeof limpar
+            });
+        });
+
+        window.addEventListener('beforeunload', function() {
+            if (monitorInterval) clearInterval(monitorInterval);
+        });
+    </script>
+</body>
+</html>
