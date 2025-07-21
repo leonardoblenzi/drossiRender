@@ -35,7 +35,15 @@ try {
   console.log('✅ HtmlRoutes carregado');
 } catch (error) {
   console.error('❌ Erro ao carregar HtmlRoutes:', error.message);
-  
+}
+
+try{
+  const criarPromocaoRoutes = require('./routes/criarPromocaoRoutes');
+  app.use('/api/criar-promocao', criarPromocaoRoutes);
+  console.log('✅ CriarPromocaoRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar CriarPromocaoRoutes:', error.message); 
+
   // Fallback para rota principal
   app.get('/', (req, res) => {
     res.send(`
@@ -45,6 +53,25 @@ try {
       <p><a href="/test-basic">🔧 Teste Básico</a></p>
     `);
   });
+}
+
+// ✅ NOVA FUNCIONALIDADE: Pesquisa em Descrições
+try {
+  const pesquisaDescricaoRoutes = require('./routes/pesquisaDescricaoRoutes');
+  app.use('/api/pesquisa-descricao', pesquisaDescricaoRoutes);
+  console.log('✅ PesquisaDescricaoRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar PesquisaDescricaoRoutes:', error.message);
+}
+
+// ✅ ROTA PARA A INTERFACE HTML DE PESQUISA
+try {
+  app.get('/pesquisa-descricao', (req, res) => {
+    res.sendFile(path.join(__dirname, 'views/pesquisa-descricao.html'));
+  });
+  console.log('✅ Rota de interface de pesquisa carregada');
+} catch (error) {
+  console.error('❌ Erro ao carregar rota de interface de pesquisa:', error.message);
 }
 
 // Rota de teste sempre disponível
@@ -83,6 +110,7 @@ app.use((req, res) => {
       'GET /test-basic',
       'GET /test',
       'GET /remover-promocao',
+      'GET /pesquisa-descricao',
       'GET /debug/routes'
     ]
   });
@@ -91,16 +119,17 @@ app.use((req, res) => {
 // Iniciar servidor
 const server = app.listen(PORT, () => {
   console.log('🚀 ================================');
-  console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+  console.log(`�� Servidor rodando em http://localhost:${PORT}`);
   console.log('🚀 ================================');
   console.log('📋 Endpoints disponíveis:');
   console.log(`   • http://localhost:${PORT}/ - Dashboard principal`);
   console.log(`   • http://localhost:${PORT}/test-basic - Teste JSON`);
   console.log(`   • http://localhost:${PORT}/test - Teste HTML`);
   console.log(`   • http://localhost:${PORT}/remover-promocao - Interface de remoção`);
+  console.log(`   • http://localhost:${PORT}/pesquisa-descricao - Pesquisa em descrições`);
   console.log(`   • http://localhost:${PORT}/debug/routes - Debug de rotas`);
   console.log('🚀 ================================');
-  console.log('🔧 Configuração:');
+  console.log('�� Configuração:');
   console.log(`   • Porta: ${PORT}`);
   console.log(`   • Ambiente: ${process.env.NODE_ENV || 'development'}`);
   console.log(`   • Token configurado: ${process.env.ACCESS_TOKEN ? '✅ SIM' : '❌ NÃO'}`);

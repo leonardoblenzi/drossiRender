@@ -92,6 +92,48 @@ class PromocaoCSVManager {
       caminho: this.arquivoCSV
     };
   }
+
+  // Adicionar este método ao csvManager existente
+async processarCSVPromocoes(filePath) {
+    return new Promise((resolve, reject) => {
+        const results = [];
+        let linha = 0;
+        
+        fs.createReadStream(filePath)
+            .pipe(csv({
+                headers: ['id', 'price', 'start_date', 'end_date', 'promotion_id'],
+                skipEmptyLines: true
+            }))
+            .on('data', (data) => {
+                linha++;
+                if (linha === 1) return; // Pular cabeçalho
+                
+                // Validar e limpar dados
+                const item = {
+                    id: data.id?.trim(),
+                    price: data.price?.trim(),
+                    start_date: data.start_date?.trim(),
+                    end_date: data.end_date?.trim(),
+                    promotionId: data.promotion_id?.trim(),
+                    linha: linha
+                };
+                
+                if (item.id) {
+                    results.push(item);
+                }
+            })
+            .on('end', () => {
+                // Limpar arquivo temporário
+                fs.unlink(filePath, (err) => {
+                    if (err) console.error('Erro ao deletar arquivo temporário:', err);
+                });
+                resolve(results);
+            })
+            .on('error', (error) => {
+                reject(error);
+            });
+    });
+}
 }
 
 module.exports = PromocaoCSVManager;

@@ -145,6 +145,11 @@ class HtmlController {
     }
   }
 
+  // Adicionar este método ao HtmlController existente
+criarPromocao(req, res) {
+    res.sendFile(path.join(__dirname, '../views/criar-promocao.html'));
+}
+
   static debugRoutes(req, res) {
     const routes = [];
     
