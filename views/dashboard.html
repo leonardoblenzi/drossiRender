@@ -59,6 +59,11 @@
             border-left-color: #17a2b8;
             background: linear-gradient(135deg, #f7fdff 0%, #d1ecf1 100%);
         }
+        /* Cor para o novo card de Keyword Analytics */
+        .endpoint.keyword-analytics {
+            border-left-color: #6f42c1; /* Roxo mais escuro */
+            background: linear-gradient(135deg, #f8f7ff 0%, #e7e3ff 100%);
+        }
         .endpoint h3 {
             margin: 0 0 10px 0;
             color: #333;
@@ -105,6 +110,13 @@
         .endpoint.search a:hover {
             background-color: rgba(23,162,184,0.1);
         }
+        /* Cor do link para Keyword Analytics */
+        .endpoint.keyword-analytics a {
+            color: #6f42c1;
+        }
+        .endpoint.keyword-analytics a:hover {
+            background-color: rgba(111,66,193,0.1);
+        }
         .status {
             display: inline-block;
             padding: 5px 10px;
@@ -147,7 +159,7 @@
     <div class="container">
         <h1>🛒 API Mercado Livre</h1>
         <p>Servidor Node.js rodando com sucesso!</p>
-        
+
         <div class="endpoints">
             <div class="endpoint">
                 <h3>🔑 Gerenciar Token <span class="status warning">IMPORTANTE</span></h3>
@@ -157,7 +169,7 @@
                     <button onclick="renovarToken()">🔄 Renovar Token</button>
                 </div>
             </div>
-            
+
             <div class="endpoint promotion">
                 <h3>🎯 Criar Promoções <span class="status active">ATIVO</span></h3>
                 <p>Crie promoções unitárias ou em massa com diferentes tipos de campanhas</p>
@@ -170,28 +182,36 @@
                 <a href="/remover-promocao">🔧 Acessar Interface</a>
             </div>
 
-            <!-- ✅ NOVA FUNCIONALIDADE: Pesquisa em Descrições -->
-            <div class="endpoint search new">
+            <div class="endpoint search">
                 <h3>
                     🔍 Pesquisa em Descrições 
-                    <span class="feature-highlight">NOVO</span>
-                    <span class="status new">BETA</span>
+                    <span class="status active">ATIVO</span>
                 </h3>
                 <p>Pesquise texto específico nas descrições de múltiplos MLBs. Ideal para encontrar produtos com características específicas ou verificar informações em lote.</p>
                 <a href="/pesquisa-descricao">🔎 Iniciar Pesquisa</a>
             </div>
-            
+
+            <div class="endpoint keyword-analytics new">
+                <h3>
+                    📈 Análise de Palavra-chave e Tendências 
+                    <span class="feature-highlight">NOVO</span>
+                    <span class="status new">BETA</span>
+                </h3>
+                <p>Busque por uma palavra-chave principal e descubra as palavras mais relacionadas e tendências de busca no MercadoLibre e Google Trends (simulado).</p>
+                <a href="/keyword-analytics">📊 Acessar Análise</a>
+            </div>
+
             <div class="endpoint">
                 <h3>🔧 Debug & Monitoramento <span class="status active">ATIVO</span></h3>
                 <p>Verificar endpoints disponíveis e status do sistema</p>
                 <a href="/debug/routes">📊 Ver Rotas</a>
             </div>
 
-            <!-- Card informativo sobre as funcionalidades -->
             <div class="endpoint new" style="grid-column: 1 / -1; border-left-color: #6f42c1; background: linear-gradient(135deg, #f8f7ff 0%, #e7e3ff 100%);">
                 <h3>📋 Funcionalidades Disponíveis</h3>
                 <p><strong>🎯 Promoções:</strong> Criar e remover promoções com suporte a campanhas automáticas e manuais</p>
                 <p><strong>🔍 Pesquisa:</strong> Buscar texto específico em títulos, descrições e atributos de produtos</p>
+                <p><strong>📈 Análise de Palavras-chave:</strong> Análise de tendências e palavras-chave relacionadas para otimização de anúncios.</p>
                 <p><strong>🔄 Processamento em Lote:</strong> Todas as operações suportam processamento de múltiplos itens</p>
                 <p><strong>📊 Monitoramento:</strong> Acompanhe o status das operações em tempo real</p>
             </div>
@@ -232,18 +252,15 @@
             }
         }
 
-        // Adicionar efeito visual para destacar nova funcionalidade
         document.addEventListener('DOMContentLoaded', function() {
-            const newFeature = document.querySelector('.endpoint.search.new');
-            if (newFeature) {
-                // Efeito de destaque sutil
+            const newFeatures = document.querySelectorAll('.endpoint.new');
+            newFeatures.forEach((feature, index) => {
                 setTimeout(() => {
-                    newFeature.style.animation = 'pulse 2s ease-in-out 3';
-                }, 1000);
-            }
+                    feature.style.animation = 'pulse 2s ease-in-out 2';
+                }, 1000 + (index * 500));
+            });
         });
 
-        // CSS para animação de pulse
         const style = document.createElement('style');
         style.textContent = `
             @keyframes pulse {

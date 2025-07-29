@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análise de Palavra-chave - Google Trends</title>
+    <link rel="stylesheet" href="/css/keyword-analytics.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📈 Análise de Palavra-chave e Tendências (Google Trends)</h1>
+            <p>Descubra as palavras-chave mais buscadas e suas tendências no Google.</p>
+        </div>
+
+        <div class="controls">
+            <div class="input-group">
+                <label for="searchKeyword">Palavra-chave Principal:</label>
+                <input type="text" id="searchKeyword" placeholder="Ex: 'sofá', 'churrasqueira', 'monitor gamer'">
+                </div>
+            <button class="btn btn-primary" onclick="searchKeywordTrends()">Buscar Tendências</button>
+            <button class="btn btn-secondary" onclick="clearKeywordCache(event)">Limpar Cache (Futuro)</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p>Consultando Google Trends... Isso pode levar alguns segundos.</p>
+        </div>
+
+        <div class="results" id="results" style="display: none;">
+            <div class="result-header" id="resultHeader"></div>
+            <div class="keyword-list" id="keywordList">
+                </div>
+        </div>
+
+        <div class="error-message" id="errorMessage" style="display: none;">
+            </div>
+    </div>
+
+    <script src="/js/keyword-analytics.js"></script>
+</body>
+</html>

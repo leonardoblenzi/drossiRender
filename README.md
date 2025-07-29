@@ -53,3 +53,58 @@ drossiAPI
    └─ remover-promocao.html
 
 ```
+```
+drossiAPI
+├─ .env
+├─ config
+│  └─ config.js
+├─ controllers
+│  ├─ CriarPromocaoController.js
+│  ├─ HtmlController.js
+│  ├─ keywordAnalyticsController.js
+│  ├─ pesquisaDescricaoController.js
+│  ├─ PromocaoController.js
+│  └─ TokenController.js
+├─ index.js
+├─ middleware
+│  └─ authMiddleware.js
+├─ package-lock.json
+├─ package.json
+├─ public
+│  ├─ css
+│  │  ├─ criar-promocao.css
+│  │  ├─ dashboard.css
+│  │  ├─ keyword-analytics.css
+│  │  └─ remover-promocao.css
+│  └─ js
+│     ├─ criar-promocao.js
+│     ├─ dashboard.js
+│     ├─ keyword-analytics.js
+│     └─ remover-promocao.js
+├─ README.md
+├─ routes
+│  ├─ criarPromocaoRoutes.js
+│  ├─ htmlRoutes.js
+│  ├─ keywordAnalyticsRoutes.js
+│  ├─ pesquisaDescricaoRoutes.js
+│  ├─ promocaoRoutes.js
+│  └─ tokenRoutes.js
+├─ services
+│  ├─ criarPromocaoService.js
+│  ├─ csvManager.js
+│  ├─ keywordAnalyticsService.js
+│  ├─ pesquisaDescricaoService.js
+│  ├─ promocaoService.js
+│  └─ tokenService.js
+├─ test-controller.js
+├─ uploads
+├─ utils
+│  └─ helper.js
+└─ views
+   ├─ criar-promocao.html
+   ├─ dashboard.html
+   ├─ keyword-analytics.html
+   ├─ pesquisa-descricao.html
+   └─ remover-promocao.html
+
+```
