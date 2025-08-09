@@ -77,7 +77,7 @@ try {
 // ✅ ROTA PARA A INTERFACE HTML DE PESQUISA
 try {
     app.get('/pesquisa-descricao', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public/pesquisa-descricao.html')); // Assegure que o caminho está correto
+        res.sendFile(path.join(__dirname, './views/pesquisa-descricao.html')); // Assegure que o caminho está correto
     });
     console.log('✅ Rota de interface de pesquisa carregada');
 } catch (error) {
