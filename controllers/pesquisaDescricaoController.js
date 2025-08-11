@@ -1,186 +1,102 @@
 const PesquisaDescricaoService = require('../services/pesquisaDescricaoService');
-const { v4: uuidv4 } = require('uuid');
 
-// Armazenar processamentos em memória (em produção, usar Redis ou BD)
-const processamentosPesquisa = {};
+console.log('🔄 Carregando PesquisaDescricaoController...');
 
 class PesquisaDescricaoController {
-  
-  // Pesquisar texto em lista de MLBs
-  static async pesquisarTexto(req, res) {
-    try {
-      const { mlb_ids, texto_pesquisa, processar_em_lote = false, analise_detalhada = true } = req.body;
+    constructor() {
+        console.log('🏗️ Construindo PesquisaDescricaoController...');
+    }
 
-      // Validações
-      if (!mlb_ids || !Array.isArray(mlb_ids) || mlb_ids.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Lista de MLB IDs é obrigatória e deve ser um array não vazio'
-        });
-      }
+    async pesquisar(req, res) {
+        console.log('🎯 Método pesquisar chamado!');
+        try {
+            const { mlb_ids, texto, detectar_dois_volumes } = req.body;
 
-      if (!texto_pesquisa || texto_pesquisa.trim() === '') {
-        return res.status(400).json({
-          success: false,
-          message: 'Texto de pesquisa é obrigatório'
-        });
-      }
+            if (!mlb_ids || !Array.isArray(mlb_ids) || mlb_ids.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'É necessário fornecer uma lista de MLB IDs válida'
+                });
+            }
 
-      // Limpar e validar MLBs
-      const mlbsLimpos = mlb_ids
-        .map(mlb => mlb.toString().trim())
-        .filter(mlb => mlb.length > 0)
-        .filter(mlb => mlb.startsWith('MLB'));
+            if (!detectar_dois_volumes && !texto) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'É necessário ativar pelo menos uma opção: detectar_dois_volumes ou fornecer texto para pesquisa'
+                });
+            }
 
-      if (mlbsLimpos.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Nenhum MLB ID válido encontrado (devem começar com "MLB")'
-        });
-      }
+            if (detectar_dois_volumes && texto) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Não é possível usar detecção de dois volumes e pesquisa de texto simultaneamente.'
+                });
+            }
 
-      console.log(`🔍 Pesquisando "${texto_pesquisa}" em ${mlbsLimpos.length} MLBs...`);
+            const inicio = Date.now();
+            let resultados;
 
-      // Se for processamento em lote (para muitos MLBs)
-      if (processar_em_lote || mlbsLimpos.length > 10) {
-        const processId = uuidv4();
-        
-        processamentosPesquisa[processId] = {
-          id: processId,
-          status: 'iniciado',
-          criado_em: new Date(),
-          total_mlbs: mlbsLimpos.length,
-          texto_pesquisado: texto_pesquisa,
-          analise_detalhada: analise_detalhada,
-          resultados: null,
-          erro: null
-        };
+            if (detectar_dois_volumes) {
+                console.log('📦 Executando detecção de dois volumes...');
+                resultados = await PesquisaDescricaoService.detectarProdutosDoisVolumes(mlb_ids);
+            } else {
+                console.log('🔍 Executando pesquisa de texto...');
+                if (!texto || texto.trim().length === 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Texto para pesquisa é obrigatório quando não estiver usando detecção de dois volumes'
+                    });
+                }
+                resultados = await PesquisaDescricaoService.pesquisarTextoEmDescricoes(mlb_ids, texto.trim());
+            }
 
-        // Processar em background
-        PesquisaDescricaoService.processarPesquisaLote(
-          processId, 
-          mlbsLimpos, 
-          texto_pesquisa, 
-          processamentosPesquisa
-        ).catch(error => {
-          console.error('❌ Erro no processamento em lote:', error);
-          processamentosPesquisa[processId].status = 'erro';
-          processamentosPesquisa[processId].erro = error.message;
-        });
+            const fim = Date.now();
+            const tempoExecucao = `${((fim - inicio) / 1000).toFixed(2)}s`;
 
-        return res.json({
-          success: true,
-          message: 'Processamento iniciado em background',
-          process_id: processId,
-          total_mlbs: mlbsLimpos.length,
-          status_url: `/api/pesquisa-descricao/status/${processId}`
-        });
-      }
+            const totalProcessados = resultados.length;
+            let totalEncontrados;
 
-      // Processamento direto (para poucos MLBs)
-      const resultado = await PesquisaDescricaoService.pesquisarTextoEmDescricoes(
-        mlbsLimpos, 
-        texto_pesquisa
-      );
+            if (detectar_dois_volumes) {
+                totalEncontrados = resultados.filter(r => 
+                    r.deteccao_dois_volumes && r.deteccao_dois_volumes.detectado
+                ).length;
+            } else {
+                totalEncontrados = resultados.filter(r => r.encontrado).length;
+            }
 
-      if (resultado.success) {
-        // Adicionar análise de relevância para cada item encontrado
-        resultado.resultados.mlbs_com_texto.forEach(item => {
-          if (item.analise_detalhada) {
-            item.relevancia = PesquisaDescricaoService.analisarRelevancia(
-              item.analise_detalhada, 
-              texto_pesquisa
-            );
-          }
-        });
+            console.log(`✅ Pesquisa concluída: ${totalEncontrados}/${totalProcessados} encontrados em ${tempoExecucao}`);
 
+            res.json({
+                success: true,
+                resultados,
+                total_processados: totalProcessados,
+                total_encontrados: totalEncontrados,
+                tempo_execucao: tempoExecucao,
+                tipo_pesquisa: detectar_dois_volumes ? 'deteccao_dois_volumes' : 'pesquisa_texto'
+            });
+
+        } catch (error) {
+            console.error('❌ Erro no controller:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Erro interno do servidor',
+                error: error.message
+            });
+        }
+    }
+
+    async teste(req, res) {
+        console.log('�� Método teste chamado!');
         res.json({
-          success: true,
-          message: 'Pesquisa detalhada concluída com sucesso',
-          ...resultado.resultados
+            message: 'Controller funcionando!',
+            timestamp: new Date().toISOString(),
+            metodos_disponiveis: ['pesquisar', 'teste']
         });
-      } else {
-        res.status(500).json(resultado);
-      }
-
-    } catch (error) {
-      console.error('❌ Erro no controller de pesquisa:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Erro interno do servidor',
-        error: error.message
-      });
     }
-  }
-
-  // Consultar status do processamento em lote
-  static async consultarStatus(req, res) {
-    try {
-      const { processId } = req.params;
-
-      if (!processamentosPesquisa[processId]) {
-        return res.status(404).json({
-          success: false,
-          message: 'Processamento não encontrado'
-        });
-      }
-
-      const status = processamentosPesquisa[processId];
-
-      res.json({
-        success: true,
-        process_id: processId,
-        status: status.status,
-        criado_em: status.criado_em,
-        concluido_em: status.concluido_em,
-        total_mlbs: status.total_mlbs,
-        texto_pesquisado: status.texto_pesquisado,
-        analise_detalhada: status.analise_detalhada,
-        resultados: status.resultados,
-        erro: status.erro
-      });
-
-    } catch (error) {
-      console.error('❌ Erro ao consultar status:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Erro interno do servidor',
-        error: error.message
-      });
-    }
-  }
-
-  // Listar todos os processamentos
-  static async listarProcessamentos(req, res) {
-    try {
-      const processamentos = Object.values(processamentosPesquisa)
-        .map(p => ({
-          id: p.id,
-          status: p.status,
-          criado_em: p.criado_em,
-          concluido_em: p.concluido_em,
-          total_mlbs: p.total_mlbs,
-          texto_pesquisado: p.texto_pesquisado,
-          analise_detalhada: p.analise_detalhada,
-          tem_resultados: !!p.resultados
-        }))
-        .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
-
-      res.json({
-        success: true,
-        total_processamentos: processamentos.length,
-        processamentos: processamentos
-      });
-
-    } catch (error) {
-      console.error('❌ Erro ao listar processamentos:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Erro interno do servidor',
-        error: error.message
-      });
-    }
-  }
 }
 
-module.exports = PesquisaDescricaoController;
+const instance = new PesquisaDescricaoController();
+console.log('✅ PesquisaDescricaoController criado com sucesso');
+console.log('📋 Métodos da instância:', Object.getOwnPropertyNames(Object.getPrototypeOf(instance)));
+
+module.exports = instance;

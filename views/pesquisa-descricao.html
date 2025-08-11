@@ -3,937 +3,192 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔍 Pesquisa em Descrições - MercadoLibre</title>
+    <title>Pesquisa por Descrição - drossiAPI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+            background-color: #f8f9fa;
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
         }
-
-        .header {
-            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
+        .btn-primary {
+            background-color: #007bff;
+            border-color: #007bff;
         }
-
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
+        .btn-primary:hover {
+            background-color: #0056b3;
+            border-color: #0056b3;
         }
-
-        .header p {
-            font-size: 1.1em;
-            opacity: 0.9;
-        }
-
-        .content {
-            padding: 40px;
-        }
-
-        .form-section {
-            background: #f8f9fa;
-            padding: 30px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            border-left: 5px solid #17a2b8;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        .form-group input, .form-group textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        .form-group input:focus, .form-group textarea:focus {
-            outline: none;
-            border-color: #17a2b8;
-            box-shadow: 0 0 0 3px rgba(23, 162, 184, 0.1);
-        }
-
-        .form-group textarea {
-            resize: vertical;
-            min-height: 120px;
-            font-family: 'Courier New', monospace;
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-top: 15px;
-        }
-
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-            margin: 0;
-        }
-
-        .btn {
-            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(23, 162, 184, 0.3);
-        }
-
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-        }
-
         .loading {
             display: none;
-            text-align: center;
-            padding: 20px;
-            color: #17a2b8;
         }
-
-        .loading.show {
-            display: block;
+        .result-item {
+            border-left: 4px solid #007bff;
+            background-color: #f8f9fa;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            border-radius: 0.375rem;
         }
-
-        .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #17a2b8;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 10px;
+        .result-item.encontrado {
+            border-left-color: #28a745;
+            background-color: #d4edda;
         }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .result-item.nao-encontrado {
+            border-left-color: #dc3545;
+            background-color: #f8d7da;
         }
-
-        .results {
-            display: none;
-            margin-top: 30px;
+        .progress {
+            height: 25px;
+            margin-bottom: 1rem;
         }
-
-        .results.show {
-            display: block;
+        .checkbox-container {
+            background-color: #e9ecef;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
         }
-
-        .summary {
-            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-            padding: 25px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            border-left: 5px solid #2196f3;
+        .form-check {
+            margin-bottom: 0.5rem;
         }
-
-        .summary h3 {
-            color: #1976d2;
-            margin-bottom: 15px;
-            font-size: 1.5em;
+        .form-check:last-child {
+            margin-bottom: 0;
         }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
+        .detection-highlight {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 0.25rem;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
         }
-
-        .stat-item {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #17a2b8;
-        }
-
-        .stat-label {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 5px;
-        }
-                .tabs {
-            display: flex;
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 5px;
-            margin-bottom: 20px;
-        }
-
-        .tab {
-            flex: 1;
-            padding: 12px;
-            text-align: center;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-
-        .tab.active {
-            background: white;
-            color: #17a2b8;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .item-card {
-            background: white;
-            border: 1px solid #e9ecef;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.05);
-            transition: all 0.3s;
-        }
-
-        .item-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 25px rgba(0,0,0,0.1);
-        }
-
-        .item-card.encontrado {
-            border-left: 5px solid #28a745;
-        }
-
-        .item-card.nao-encontrado {
-            border-left: 5px solid #ffc107;
-        }
-
-        .item-card.erro {
-            border-left: 5px solid #dc3545;
-        }
-
-        .item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-        }
-
-        .item-title {
-            font-size: 1.2em;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
-        }
-
-        .item-status {
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 0.8em;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .status-encontrado {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-nao-encontrado {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .status-erro {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .item-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .detail-item {
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 8px;
-        }
-
-        .detail-label {
-            font-size: 0.8em;
-            color: #666;
-            text-transform: uppercase;
-            font-weight: 600;
-        }
-
-        .detail-value {
-            font-size: 1.1em;
-            color: #333;
-            margin-top: 2px;
-        }
-
-        .ocorrencias-section {
-            background: #e8f5e8;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 15px;
-        }
-
-        .ocorrencias-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .ocorrencias-title {
-            font-weight: 600;
-            color: #155724;
-        }
-
-        .ocorrencias-count {
-            background: #28a745;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 0.9em;
-            font-weight: 600;
-        }
-
-        .trecho {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            border-left: 3px solid #28a745;
-        }
-
-        .trecho-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .trecho-numero {
-            font-size: 0.8em;
-            color: #666;
-            font-weight: 600;
-        }
-
-        .trecho-posicao {
-            font-size: 0.8em;
-            color: #17a2b8;
-            background: #e3f2fd;
-            padding: 2px 8px;
-            border-radius: 10px;
-        }
-
-        .trecho-texto {
-            line-height: 1.6;
-            color: #333;
-        }
-
-        .trecho-contexto {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #e9ecef;
-            font-size: 0.9em;
-            color: #666;
-        }
-
-        .highlight {
-            background: #fff3cd;
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-weight: 600;
-            color: #856404;
-        }
-
-        .relevancia {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 0.8em;
-            font-weight: 600;
-            margin-left: 10px;
-        }
-
-        .relevancia-muito_alta {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .relevancia-alta {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-
-        .relevancia-media {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .relevancia-baixa {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .estatisticas-detalhadas {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-        }
-
-        .estatisticas-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .estatistica-item {
-            text-align: center;
-            padding: 10px;
-            background: white;
-            border-radius: 6px;
-        }
-
-        .estatistica-valor {
-            font-size: 1.2em;
-            font-weight: 600;
-            color: #17a2b8;
-        }
-
-        .estatistica-label {
-            font-size: 0.8em;
-            color: #666;
-            margin-top: 2px;
-        }
-
-        .btn-download {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            z-index: 1000;
-            border-radius: 50px;
-            padding: 15px 25px;
-            box-shadow: 0 10px 30px rgba(23, 162, 184, 0.3);
-        }
-
-        .error-message {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 8px;
-            border-left: 5px solid #dc3545;
-            margin-top: 20px;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                margin: 10px;
-                border-radius: 15px;
-            }
-
-            .content {
-                padding: 20px;
-            }
-
-            .header {
-                padding: 20px;
-            }
-
-            .header h1 {
-                font-size: 2em;
-            }
-
-            .stats {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .item-details {
-                grid-template-columns: 1fr;
-            }
-
-            .btn-download {
-                bottom: 20px;
-                right: 20px;
-            }
+        .volume-detected {
+            border-left-color: #ffc107;
+            background-color: #fff3cd;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🔍 Pesquisa Detalhada em Descrições</h1>
-            <p>Encontre texto específico em múltiplos produtos do MercadoLibre com análise avançada</p>
-        </div>
-
-        <div class="content">
-            <!-- Formulário de Pesquisa -->
-            <div class="form-section">
-                <h3>📝 Configurar Pesquisa</h3>
-                <form id="pesquisaForm">
-                    <div class="form-group">
-                        <label for="textoPesquisa">🔍 Texto para Pesquisar:</label>
-                        <input type="text" id="textoPesquisa" name="textoPesquisa" 
-                               placeholder="Ex: madeira eucalipto, couro premium, etc." required>
+    <div class="container mt-4">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h4 class="mb-0">
+                            <i class="fas fa-search me-2"></i>
+                            Pesquisa por Descrição
+                        </h4>
                     </div>
+                    <div class="card-body">
+                        <form id="pesquisaForm">
+                            <div class="mb-3">
+                                <label for="mlbs" class="form-label">
+                                    <i class="fas fa-list me-1"></i>
+                                    MLBs (um por linha)
+                                </label>
+                                <textarea 
+                                    class="form-control" 
+                                    id="mlbs" 
+                                    name="mlbs" 
+                                    rows="5" 
+                                    placeholder="MLB1234567890&#10;MLB0987654321&#10;MLB1122334455"
+                                    required
+                                ></textarea>
+                                <div class="form-text">
+                                    Digite um MLB por linha. Exemplo: MLB1234567890
+                                </div>
+                            </div>
 
-                    <div class="form-group">
-                        <label for="mlbIds">📦 MLBs para Pesquisar (um por linha):</label>
-                        <textarea id="mlbIds" name="mlbIds" 
-                                  placeholder="MLB1234567890&#10;MLB0987654321&#10;MLB1122334455" required></textarea>
-                        <small style="color: #666; margin-top: 5px; display: block;">
-                            💡 Cole uma lista de MLBs, um por linha. Use apenas MLBs da sua própria conta.
-                        </small>
+                            <div class="checkbox-container">
+                                <h6 class="mb-3">
+                                    <i class="fas fa-cog me-1"></i>
+                                    Opções de Pesquisa
+                                </h6>
+                                
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="detectarDoisVolumes" name="detectar_dois_volumes">
+                                    <label class="form-check-label" for="detectarDoisVolumes">
+                                        <i class="fas fa-boxes me-1"></i>
+                                        <strong>Detectar produtos com 2 volumes</strong>
+                                        <small class="text-muted d-block">
+                                            Identifica automaticamente produtos que são enviados em dois volumes/caixas
+                                        </small>
+                                    </label>
+                                </div>
+
+                                <div id="pesquisaTextoContainer">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="habilitarPesquisaTexto" name="habilitar_pesquisa_texto">
+                                        <label class="form-check-label" for="habilitarPesquisaTexto">
+                                            <i class="fas fa-search me-1"></i>
+                                            <strong>Pesquisar texto específico</strong>
+                                            <small class="text-muted d-block">
+                                                Busca por palavras ou frases específicas nas descrições
+                                            </small>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-3" id="textoContainer" style="display: none;">
+                                        <label for="texto" class="form-label">
+                                            <i class="fas fa-font me-1"></i>
+                                            Texto para pesquisar
+                                        </label>
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            id="texto" 
+                                            name="texto" 
+                                            placeholder="Digite o texto que deseja encontrar nas descrições"
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-search me-2"></i>
+                                    Iniciar Pesquisa
+                                </button>
+                            </div>
+                        </form>
+
+                        <div id="loading" class="loading text-center mt-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Carregando...</span>
+                            </div>
+                            <p class="mt-2">Processando pesquisa...</p>
+                            <div class="progress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" 
+                                     style="width: 0%" 
+                                     id="progressBar">
+                                </div>
+                            </div>
+                            <p id="progressText">Iniciando...</p>
+                        </div>
+
+                        <div id="resultados" class="mt-4" style="display: none;">
+                            <h5>
+                                <i class="fas fa-chart-bar me-2"></i>
+                                Resultados
+                            </h5>
+                            <div id="resumo" class="alert alert-info"></div>
+                            <div id="listaResultados"></div>
+                            <div id="downloadSection" style="display: none;" class="mt-3">
+                                <button id="downloadBtn" class="btn btn-success">
+                                    <i class="fas fa-download me-2"></i>
+                                    Baixar Resultados (.txt)
+                                </button>
+                            </div>
+                        </div>
                     </div>
-
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="analiseDetalhada" checked>
-                        <label for="analiseDetalhada">📊 Análise detalhada (recomendado)</label>
-                    </div>
-
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="processarLote">
-                        <label for="processarLote">⚡ Processar em lote (para muitos MLBs)</label>
-                    </div>
-
-                    <button type="submit" class="btn" id="btnPesquisar">
-                        🔍 Iniciar Pesquisa Detalhada
-                    </button>
-                </form>
-            </div>
-                        <!-- Loading -->
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p>🔍 Analisando descrições detalhadamente...</p>
-                <p id="loadingDetails">Isso pode levar alguns minutos dependendo da quantidade de MLBs.</p>
-            </div>
-
-            <!-- Resultados -->
-            <div class="results" id="results">
-                <!-- Resumo será inserido aqui -->
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Botão de Download -->
-    <button class="btn btn-success btn-download" id="btnDownload" style="display: none;">
-        📥 Baixar Resultados (JSON)
-    </button>
-
-    <script>
-        let ultimosResultados = null;
-
-        // Configurar formulário
-        document.getElementById('pesquisaForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const textoPesquisa = document.getElementById('textoPesquisa').value.trim();
-            const mlbIdsText = document.getElementById('mlbIds').value.trim();
-            const analiseDetalhada = document.getElementById('analiseDetalhada').checked;
-            const processarLote = document.getElementById('processarLote').checked;
-
-            if (!textoPesquisa || !mlbIdsText) {
-                alert('❌ Por favor, preencha todos os campos obrigatórios.');
-                return;
-            }
-
-            // Processar lista de MLBs
-            const mlbIds = mlbIdsText
-                .split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0)
-                .filter(line => line.startsWith('MLB'));
-
-            if (mlbIds.length === 0) {
-                alert('❌ Nenhum MLB válido encontrado. Certifique-se de que começam com "MLB".');
-                return;
-            }
-
-            console.log('🔍 Iniciando pesquisa:', { textoPesquisa, mlbIds: mlbIds.length, analiseDetalhada, processarLote });
-
-            // Mostrar loading
-            document.getElementById('loading').classList.add('show');
-            document.getElementById('results').classList.remove('show');
-            document.getElementById('btnDownload').style.display = 'none';
-            document.getElementById('btnPesquisar').disabled = true;
-
-            try {
-                const response = await fetch('/api/pesquisa-descricao/pesquisar', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        mlb_ids: mlbIds,
-                        texto_pesquisa: textoPesquisa,
-                        processar_em_lote: processarLote,
-                        analise_detalhada: analiseDetalhada
-                    })
-                });
-
-                const data = await response.json();
-                console.log('📊 Resposta da API:', data);
-
-                if (data.success) {
-                    if (data.process_id) {
-                        // Processamento em lote - monitorar status
-                        monitorarProcessamento(data.process_id);
-                    } else {
-                        // Resultado direto
-                        ultimosResultados = data;
-                        exibirResultados(data);
-                    }
-                } else {
-                    throw new Error(data.message || 'Erro desconhecido');
-                }
-
-            } catch (error) {
-                console.error('❌ Erro na pesquisa:', error);
-                document.getElementById('loading').classList.remove('show');
-                document.getElementById('btnPesquisar').disabled = false;
-                
-                document.getElementById('results').innerHTML = `
-                    <div class="error-message">
-                        <h3>❌ Erro na Pesquisa</h3>
-                        <p><strong>Detalhes:</strong> ${error.message}</p>
-                        <p>Verifique se os MLBs pertencem à sua conta e tente novamente.</p>
-                    </div>
-                `;
-                document.getElementById('results').classList.add('show');
-            }
-        });
-
-        // Monitorar processamento em lote
-        async function monitorarProcessamento(processId) {
-            const maxTentativas = 60; // 5 minutos máximo
-            let tentativas = 0;
-
-            const verificarStatus = async () => {
-                try {
-                    const response = await fetch(`/api/pesquisa-descricao/status/${processId}`);
-                    const data = await response.json();
-
-                    console.log(`📊 Status do processamento: ${data.status}`);
-
-                    if (data.status === 'concluido') {
-                        ultimosResultados = data.resultados;
-                        exibirResultados(data.resultados);
-                        return;
-                    } else if (data.status === 'erro') {
-                        throw new Error(data.erro || 'Erro no processamento');
-                    } else if (tentativas >= maxTentativas) {
-                        throw new Error('Timeout: Processamento demorou mais que o esperado');
-                    }
-
-                    // Atualizar loading
-                    document.getElementById('loadingDetails').textContent = 
-                        `Status: ${data.status} | Tentativa ${tentativas + 1}/${maxTentativas}`;
-
-                    tentativas++;
-                    setTimeout(verificarStatus, 5000); // Verificar a cada 5 segundos
-
-                } catch (error) {
-                    console.error('❌ Erro ao monitorar processamento:', error);
-                    document.getElementById('loading').classList.remove('show');
-                    document.getElementById('btnPesquisar').disabled = false;
-                    
-                    document.getElementById('results').innerHTML = `
-                        <div class="error-message">
-                            <h3>❌ Erro no Processamento</h3>
-                            <p><strong>Detalhes:</strong> ${error.message}</p>
-                        </div>
-                    `;
-                    document.getElementById('results').classList.add('show');
-                }
-            };
-
-            verificarStatus();
-        }
-
-        // Exibir resultados detalhados
-        function exibirResultados(data) {
-            document.getElementById('loading').classList.remove('show');
-            document.getElementById('btnPesquisar').disabled = false;
-
-            const resultsDiv = document.getElementById('results');
-            
-            // Resumo
-            const resumoHtml = `
-                <div class="summary">
-                    <h3>📊 Resumo da Pesquisa Detalhada</h3>
-                    <p><strong>Texto pesquisado:</strong> "${data.texto_pesquisado}"</p>
-                    ${data.estatisticas_gerais ? `
-                        <p><strong>Total de ocorrências encontradas:</strong> ${data.estatisticas_gerais.total_ocorrencias}</p>
-                        <p><strong>Densidade média:</strong> ${data.estatisticas_gerais.densidade_media} ocorrências por 1000 palavras</p>
-                    ` : ''}
-                    
-                    <div class="stats">
-                        <div class="stat-item">
-                            <div class="stat-number">${data.resumo.encontrados}</div>
-                            <div class="stat-label">Encontrados</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number">${data.resumo.nao_encontrados}</div>
-                            <div class="stat-label">Não Encontrados</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number">${data.resumo.erros}</div>
-                            <div class="stat-label">Erros</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number">${data.total_mlbs_pesquisados}</div>
-                            <div class="stat-label">Total</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tabs">
-                    <div class="tab active" onclick="mostrarTab('encontrados')">✅ Encontrados</div>
-                    <div class="tab" onclick="mostrarTab('nao-encontrados')">❌ Não Encontrados</div>
-                    <div class="tab" onclick="mostrarTab('erros')">⚠️ Erros</div>
-                </div>
-            `;
-
-            // Conteúdo das abas
-            const tabsHtml = `
-                <div id="tab-encontrados" class="tab-content active">
-                    ${data.mlbs_com_texto.map(item => criarCardItem(item, 'encontrado')).join('')}
-                </div>
-                <div id="tab-nao-encontrados" class="tab-content">
-                    ${data.mlbs_sem_texto.map(item => criarCardItem(item, 'nao-encontrado')).join('')}
-                </div>
-                <div id="tab-erros" class="tab-content">
-                    ${data.mlbs_com_erro.map(item => criarCardErro(item)).join('')}
-                </div>
-            `;
-
-            resultsDiv.innerHTML = resumoHtml + tabsHtml;
-            resultsDiv.classList.add('show');
-            
-            // Mostrar botão de download
-            document.getElementById('btnDownload').style.display = 'block';
-        }
-
-        // Criar card para item encontrado/não encontrado
-        function criarCardItem(item, tipo) {
-            const relevanciaHtml = item.relevancia ? `
-                <span class="relevancia relevancia-${item.relevancia.nivel}">
-                    ${item.relevancia.descricao} (${item.relevancia.pontuacao}pts)
-                </span>
-            ` : '';
-
-            const ocorrenciasHtml = item.analise_detalhada ? `
-                <div class="ocorrencias-section">
-                    <div class="ocorrencias-header">
-                        <span class="ocorrencias-title">🔍 Análise Detalhada de Ocorrências</span>
-                        <span class="ocorrencias-count">${item.analise_detalhada.total_ocorrencias} ocorrências</span>
-                    </div>
-                    
-                    ${item.analise_detalhada.estatisticas ? `
-                        <div class="estatisticas-detalhadas">
-                            <strong>📈 Estatísticas:</strong>
-                            <div class="estatisticas-grid">
-                                <div class="estatistica-item">
-                                    <div class="estatistica-valor">${item.analise_detalhada.estatisticas.densidade_por_1000_chars}</div>
-                                    <div class="estatistica-label">por 1000 chars</div>
-                                </div>
-                                <div class="estatistica-item">
-                                    <div class="estatistica-valor">${item.analise_detalhada.estatisticas.densidade_por_100_palavras}</div>
-                                    <div class="estatistica-label">por 100 palavras</div>
-                                </div>
-                                <div class="estatistica-item">
-                                    <div class="estatistica-valor">${item.analise_detalhada.estatisticas.distribuicao}</div>
-                                    <div class="estatistica-label">distribuição</div>
-                                </div>
-                                <div class="estatistica-item">
-                                    <div class="estatistica-valor">${item.analise_detalhada.estatisticas.espalhamento}</div>
-                                    <div class="estatistica-label">espalhamento</div>
-                                </div>
-                            </div>
-                        </div>
-                    ` : ''}
-                    
-                    ${item.analise_detalhada.trechos.map((trecho, index) => `
-                        <div class="trecho">
-                            <div class="trecho-header">
-                                <span class="trecho-numero">Ocorrência ${trecho.ocorrencia}</span>
-                                <span class="trecho-posicao">${trecho.posicao_percentual} do texto | ${trecho.secao}</span>
-                            </div>
-                            <div class="trecho-texto">${trecho.trecho}</div>
-                            ${trecho.contexto ? `
-                                <div class="trecho-contexto">
-                                    <strong>Contexto:</strong><br>
-                                    <strong>Antes:</strong> ...${trecho.contexto.antes}<br>
-                                    <strong>Depois:</strong> ${trecho.contexto.depois}...
-                                </div>
-                            ` : ''}
-                        </div>
-                    `).join('')}
-                </div>
-            ` : '';
-
-            return `
-                <div class="item-card ${tipo}">
-                    <div class="item-header">
-                        <div>
-                            <div class="item-title">${item.titulo}</div>
-                            ${relevanciaHtml}
-                        </div>
-                        <span class="item-status status-${tipo}">
-                            ${tipo === 'encontrado' ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}
-                        </span>
-                    </div>
-                    
-                    <div class="item-details">
-                        <div class="detail-item">
-                            <div class="detail-label">MLB</div>
-                            <div class="detail-value">${item.mlb_id}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Preço</div>
-                            <div class="detail-value">R\$ ${item.preco?.toFixed(2) || 'N/A'}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value">${item.status}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">URL</div>
-                            <div class="detail-value">
-                                <a href="${item.url_item}" >Ver Produto</a>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    ${ocorrenciasHtml}
-                </div>
-            `;
-        }
-
-        // Criar card para erro
-        function criarCardErro(item) {
-            return `
-                <div class="item-card erro">
-                    <div class="item-header">
-                        <div class="item-title">MLB: ${item.mlb_id}</div>
-                        <span class="item-status status-erro">ERRO</span>
-                    </div>
-                    <div class="item-details">
-                        <div class="detail-item">
-                            <div class="detail-label">Erro</div>
-                            <div class="detail-value">${item.erro}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Motivo</div>
-                            <div class="detail-value">${item.motivo}</div>
-                        </div>
-                        ${item.detalhes ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Detalhes</div>
-                                <div class="detail-value">${item.detalhes}</div>
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }
-
-        // Alternar entre abas
-        function mostrarTab(tabName) {
-            // Remover active de todas as abas
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
-            // Ativar aba selecionada
-            event.target.classList.add('active');
-            document.getElementById(`tab-${tabName}`).classList.add('active');
-        }
-
-        // Download dos resultados
-        document.getElementById('btnDownload').addEventListener('click', function() {
-            if (!ultimosResultados) {
-                alert('❌ Nenhum resultado para download.');
-                return;
-            }
-
-            const dataStr = JSON.stringify(ultimosResultados, null, 2);
-            const dataBlob = new Blob([dataStr], {type: 'application/json'});
-            
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(dataBlob);
-            link.download = `pesquisa-descricoes-${new Date().toISOString().slice(0,10)}.json`;
-            link.click();
-        });
-
-        // Adicionar exemplos no carregamento da página
-        window.addEventListener('load', function() {
-            document.getElementById('textoPesquisa').placeholder = 'Ex: eucalipto, madeira, couro premium, base metálica';
-            document.getElementById('mlbIds').placeholder = 'MLB3608025787\nMLB5365948072\nMLB1234567890';
-        });
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/pesquisa-descricao.js"></script>
 </body>
 </html>
