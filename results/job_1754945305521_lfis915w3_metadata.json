@@ -1,0 +1,12 @@
+{
+  "job_id": "job_1754945305521_lfis915w3",
+  "total_mlbs": 9,
+  "opcoes": {
+    "tipo_processamento": "detectar_dois_volumes"
+  },
+  "criado_em": "2025-08-11T20:48:25.525Z",
+  "status": "iniciado",
+  "processados": 0,
+  "sucessos": 0,
+  "erros": 0
+}

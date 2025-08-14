@@ -61,8 +61,13 @@
         }
         /* Cor para o novo card de Keyword Analytics */
         .endpoint.keyword-analytics {
-            border-left-color: #6f42c1; /* Roxo mais escuro */
+            border-left-color: #6f42c1;
             background: linear-gradient(135deg, #f8f7ff 0%, #e7e3ff 100%);
+        }
+        /* NOVO: Cor para Processos em Execução */
+        .endpoint.processos {
+            border-left-color: #fd7e14;
+            background: linear-gradient(135deg, #fff8f5 0%, #ffe8d6 100%);
         }
         .endpoint h3 {
             margin: 0 0 10px 0;
@@ -117,6 +122,13 @@
         .endpoint.keyword-analytics a:hover {
             background-color: rgba(111,66,193,0.1);
         }
+        /* NOVO: Cor do link para Processos */
+        .endpoint.processos a {
+            color: #fd7e14;
+        }
+        .endpoint.processos a:hover {
+            background-color: rgba(253,126,20,0.1);
+        }
         .status {
             display: inline-block;
             padding: 5px 10px;
@@ -152,6 +164,196 @@
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+        }
+
+        /* NOVO: Estilos para o contador de processos */
+        .process-counter {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #fd7e14;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .process-counter.pulsing {
+            animation: pulse-orange 2s infinite;
+        }
+        @keyframes pulse-orange {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        /* NOVO: Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px 10px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h3 {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            opacity: 0.7;
+        }
+        .modal-body {
+            padding: 20px;
+        }
+        .stats-mini {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .stat-mini {
+            text-align: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 3px solid #007bff;
+        }
+        .stat-mini h4 {
+            margin: 0;
+            font-size: 1.5em;
+            color: #333;
+        }
+        .stat-mini p {
+            margin: 5px 0 0 0;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .process-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+        }
+        .process-item.processando {
+            border-left-color: #28a745;
+            background: linear-gradient(135deg, #f8fff9 0%, #e8f5e8 100%);
+        }
+        .process-item.aguardando {
+            border-left-color: #ffc107;
+            background: linear-gradient(135deg, #fffdf7 0%, #fff3cd 100%);
+        }
+        .process-item.concluido {
+            border-left-color: #6c757d;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        }
+        .process-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .process-title {
+            font-weight: 600;
+            color: #333;
+        }
+        .process-status {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .process-status.processando {
+            background: #d4edda;
+            color: #155724;
+        }
+        .process-status.aguardando {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .process-status.concluido {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            transition: width 0.3s ease;
+        }
+        .process-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-small:hover {
+            opacity: 0.8;
         }
     </style>
 </head>
@@ -191,6 +393,23 @@
                 <a href="/pesquisa-descricao">🔎 Iniciar Pesquisa</a>
             </div>
 
+            <!-- NOVO: Card de Processos em Execução -->
+            <div class="endpoint processos">
+                <h3>
+                    ⚙️ Processos em Execução 
+                    <span class="feature-highlight">NOVO</span>
+                    <span class="status active">ATIVO</span>
+                    <span id="process-counter" class="process-counter" style="display: none;">
+                        <span id="counter-number">0</span> ativos
+                    </span>
+                </h3>
+                <p>Monitore e gerencie todos os processos de pesquisa em massa em tempo real. Acompanhe progresso, baixe resultados e controle a fila de processamento.</p>
+                <div class="token-actions">
+                    <button onclick="abrirModalProcessos()">📊 Ver Processos</button>
+                    <button onclick="iniciarNovoProcesso()">➕ Novo Processo</button>
+                </div>
+            </div>
+
             <div class="endpoint keyword-analytics new">
                 <h3>
                     📈 Análise de Palavra-chave e Tendências 
@@ -211,14 +430,63 @@
                 <h3>📋 Funcionalidades Disponíveis</h3>
                 <p><strong>🎯 Promoções:</strong> Criar e remover promoções com suporte a campanhas automáticas e manuais</p>
                 <p><strong>🔍 Pesquisa:</strong> Buscar texto específico em títulos, descrições e atributos de produtos</p>
-                <p><strong>📈 Análise de Palavras-chave:</strong> Análise de tendências e palavras-chave relacionadas para otimização de anúncios.</p>
+                <p><strong>⚙️ Processos em Massa:</strong> Sistema de filas para processamento de grandes volumes de MLBs em background</p>
+                <p><strong>📈 Análise de Palavras-chave:</strong> Análise de tendências e palavras-chave relacionadas para otimização de anúncios</p>
                 <p><strong>🔄 Processamento em Lote:</strong> Todas as operações suportam processamento de múltiplos itens</p>
                 <p><strong>📊 Monitoramento:</strong> Acompanhe o status das operações em tempo real</p>
             </div>
         </div>
     </div>
 
+    <!-- NOVO: Modal para Processos -->
+    <div id="modal-processos" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>
+                    ⚙️ Processos em Execução
+                </h3>
+                <span class="close" onclick="fecharModalProcessos()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="stats-mini" id="stats-processos">
+                    <div class="stat-mini">
+                        <h4 id="total-processando">0</h4>
+                        <p>Processando</p>
+                    </div>
+                    <div class="stat-mini">
+                        <h4 id="total-aguardando">0</h4>
+                        <p>Na Fila</p>
+                    </div>
+                    <div class="stat-mini">
+                        <h4 id="total-concluidos">0</h4>
+                        <p>Concluídos</p>
+                    </div>
+                    <div class="stat-mini">
+                        <h4 id="total-erros">0</h4>
+                        <p>Com Erros</p>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin: 20px 0;">
+                    <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">
+                        ➕ Novo Processo
+                    </button>
+                    <button class="btn-small btn-warning" onclick="atualizarProcessos()">
+                        🔄 Atualizar
+                    </button>
+                </div>
+
+                <div id="lista-processos">
+                    <div style="text-align: center; padding: 20px;">
+                        <p>🔄 Carregando processos...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Funções originais mantidas
         async function verificarToken() {
             try {
                 const response = await fetch('/verificar-token');
@@ -252,6 +520,175 @@
             }
         }
 
+        // NOVAS FUNÇÕES para Processos
+        let intervalAtualizacao;
+
+        async function abrirModalProcessos() {
+            document.getElementById('modal-processos').style.display = 'block';
+            await atualizarProcessos();
+            
+            // Atualizar automaticamente a cada 5 segundos
+            intervalAtualizacao = setInterval(atualizarProcessos, 5000);
+        }
+
+        function fecharModalProcessos() {
+            document.getElementById('modal-processos').style.display = 'none';
+            if (intervalAtualizacao) {
+                clearInterval(intervalAtualizacao);
+            }
+        }
+
+        async function atualizarProcessos() {
+            try {
+                const response = await fetch('/api/pesquisa-descricao/jobs?limite=20');
+                const data = await response.json();
+                
+                if (data.success) {
+                    atualizarEstatisticas(data.estatisticas_gerais);
+                    exibirProcessos(data.jobs);
+                    atualizarContadorDashboard(data.jobs);
+                }
+            } catch (error) {
+                console.error('Erro ao atualizar processos:', error);
+            }
+        }
+
+        function atualizarEstatisticas(stats) {
+            document.getElementById('total-processando').textContent = stats.processando_agora || 0;
+            document.getElementById('total-aguardando').textContent = stats.fila_aguardando || 0;
+            document.getElementById('total-concluidos').textContent = stats.concluidos_recentes || 0;
+            document.getElementById('total-erros').textContent = stats.falharam_recentes || 0;
+        }
+
+        function exibirProcessos(jobs) {
+            const container = document.getElementById('lista-processos');
+            
+            if (jobs.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 40px;">
+                        <p>📭 Nenhum processo encontrado</p>
+                        <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">
+                            ➕ Iniciar Primeiro Processo
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = jobs.map(job => `
+                <div class="process-item ${job.status}">
+                    <div class="process-header">
+                        <div class="process-title">
+                            📋 ${job.job_id}
+                        </div>
+                        <div class="process-status ${job.status}">
+                            ${job.status}
+                        </div>
+                    </div>
+                    
+                    <div style="font-size: 14px; color: #666; margin: 5px 0;">
+                        📊 ${job.concluidos + job.falharam}/${job.total_mlbs} MLBs processados
+                        ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ''}
+                    </div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${job.progresso_percentual}%"></div>
+                    </div>
+                    
+                    <div class="process-actions">
+                        <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id}')">
+                            📊 Detalhes
+                        </button>
+                        ${job.status === 'concluido' ? `
+                            <a href="/api/pesquisa-descricao/download/${job.job_id}" class="btn-small btn-success">
+                                📥 Download
+                            </a>
+                        ` : ''}
+                        ${job.status === 'processando' || job.status === 'aguardando' ? `
+                            <button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id}')">
+                                🚫 Cancelar
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function atualizarContadorDashboard(jobs) {
+            const ativos = jobs.filter(job => job.status === 'processando' || job.status === 'aguardando').length;
+            const counter = document.getElementById('process-counter');
+            const counterNumber = document.getElementById('counter-number');
+            
+            if (ativos > 0) {
+                counter.style.display = 'inline-flex';
+                counter.classList.add('pulsing');
+                counterNumber.textContent = ativos;
+            } else {
+                counter.style.display = 'none';
+                counter.classList.remove('pulsing');
+            }
+        }
+
+        async function verDetalhesProcesso(jobId) {
+            try {
+                const response = await fetch(`/api/pesquisa-descricao/status/${jobId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const job = data.status;
+                    alert(`📊 Detalhes do Processo: ${jobId}
+                    
+Status: ${job.status}
+Progresso: ${job.progresso_percentual}%
+Total MLBs: ${job.total_mlbs}
+Processados: ${job.concluidos + job.falharam}
+Sucessos: ${job.concluidos}
+Erros: ${job.falharam}
+Tempo decorrido: ${job.tempo_decorrido}
+${job.tempo_estimado_restante ? `Tempo restante: ${job.tempo_estimado_restante}` : ''}
+                    `);
+                }
+            } catch (error) {
+                alert('❌ Erro ao obter detalhes: ' + error.message);
+            }
+        }
+
+        async function cancelarProcesso(jobId) {
+            if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/pesquisa-descricao/cancelar/${jobId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ Processo cancelado com sucesso!');
+                    atualizarProcessos();
+                } else {
+                    alert('❌ Erro ao cancelar: ' + data.message);
+                }
+            } catch (error) {
+                alert('❌ Erro: ' + error.message);
+            }
+        }
+
+        function iniciarNovoProcesso() {
+            // Redirecionar para a página de pesquisa com parâmetro para abrir modal de processo em massa
+            window.location.href = '/pesquisa-descricao?novo_processo=true';
+        }
+
+        // Fechar modal ao clicar fora
+        window.onclick = function(event) {
+            const modal = document.getElementById('modal-processos');
+            if (event.target === modal) {
+                fecharModalProcessos();
+            }
+        }
+
+        // Animação original mantida
         document.addEventListener('DOMContentLoaded', function() {
             const newFeatures = document.querySelectorAll('.endpoint.new');
             newFeatures.forEach((feature, index) => {
@@ -259,6 +696,9 @@
                     feature.style.animation = 'pulse 2s ease-in-out 2';
                 }, 1000 + (index * 500));
             });
+
+            // NOVO: Atualizar contador de processos no carregamento
+            atualizarProcessos();
         });
 
         const style = document.createElement('style');
