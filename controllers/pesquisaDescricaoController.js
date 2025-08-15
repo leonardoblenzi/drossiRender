@@ -40,14 +40,21 @@ class PesquisaDescricaoController {
 
             const totalEncontrados = resultados.filter(r => r.encontrado).length;
 
+                        // filtra só mlb + encontrado
+            const simples = resultados.map(r => ({
+            mlb: r.mlb,
+            encontrado: r.encontrado
+            }));
+
             res.json({
-                success: true,
-                processamento: 'direto',
-                resultados,
-                total_processados: resultados.length,
-                total_encontrados: totalEncontrados,
-                tempo_processamento: `${((Date.now() - req.startTime) / 1000).toFixed(2)}s`
+            success: true,
+            processamento: 'direto',
+            resultados: simples,
+            total_processados: simples.length,
+            total_encontrados: simples.filter(r => r.encontrado).length,
+            tempo_processamento: `${((Date.now() - req.startTime) / 1000).toFixed(2)}s`
             });
+
 
         } catch (error) {
             console.error('❌ Erro na pesquisa:', error);
@@ -117,18 +124,25 @@ class PesquisaDescricaoController {
                 const totalEncontrados = resultados.filter(r => r.encontrado).length;
                 const tempoProcessamento = ((Date.now() - startTime) / 1000).toFixed(2);
 
+                const simples = resultados.map(r => ({
+                    mlb: r.mlb,
+                    encontrado: r.encontrado
+                }));
+                const achados = simples.filter(r => r.encontrado).length;
+
                 return res.json({
                     success: true,
                     processamento: 'direto',
-                    resultados,
-                    total_processados: resultados.length,
-                    total_encontrados: totalEncontrados,
+                    resultados: simples,
+                    total_processados: simples.length,
+                    total_encontrados: achados,
                     tempo_processamento: `${tempoProcessamento}s`,
                     estatisticas: {
-                        taxa_sucesso: Math.round((resultados.length / validacao.total_validos) * 100),
-                        taxa_deteccao: resultados.length > 0 ? Math.round((totalEncontrados / resultados.length) * 100) : 0
+                    taxa_sucesso: Math.round((simples.length / validacao.total_validos) * 100),
+                    taxa_deteccao: simples.length ? Math.round((achados / simples.length) * 100) : 0
                     }
                 });
+
             }
 
             // Processamento em background

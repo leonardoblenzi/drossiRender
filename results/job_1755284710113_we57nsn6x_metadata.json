@@ -1,10 +1,10 @@
 {
-  "job_id": "job_1755268052249_j37j6wjdk",
+  "job_id": "job_1755284710113_we57nsn6x",
   "total_mlbs": 1,
   "opcoes": {
     "tipo_processamento": "detectar_dois_volumes"
   },
-  "criado_em": "2025-08-15T14:27:32.250Z",
+  "criado_em": "2025-08-15T19:05:10.113Z",
   "status": "iniciado",
   "processados": 0,
   "sucessos": 0,

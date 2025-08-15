@@ -285,26 +285,25 @@ class QueueService {
         }
     }
 
-    async salvarResultado(job_id, mlb, resultado, status, erro = null) {
-        const timestamp = new Date().toISOString();
-        const linha = JSON.stringify({
-            mlb,
-            resultado,
-            status,
-            erro,
-            timestamp
-        }) + '\n';
+   async salvarResultado(job_id, mlb, resultado, status, erro = null) {
+  // Só mantemos MLB + encontrado (boolean)
+  const linhaData = {
+    mlb,
+    encontrado: status === 'success' && !!resultado?.encontrado
+  }
+  const linha = JSON.stringify(linhaData) + '\n'
 
-        // Salvar no arquivo principal
-        const arquivo = path.join(__dirname, '../results', `${job_id}_resultados.jsonl`);
-        await fs.appendFile(arquivo, linha);
+  // salva no arquivo principal
+  const arquivo = path.join(__dirname, '../results', `${job_id}_resultados.jsonl`)
+  await fs.appendFile(arquivo, linha)
 
-        // Se for erro, salvar também no arquivo de erros
-        if (status === 'error') {
-            const arquivoErros = path.join(__dirname, '../results', `${job_id}_erros.jsonl`);
-            await fs.appendFile(arquivoErros, linha);
-        }
-    }
+  // Se quiser manter o arquivo de erros separado, faça a mesma lógica:
+  if (status !== 'success') {
+    const arquivoErros = path.join(__dirname, '../results', `${job_id}_erros.jsonl`)
+    await fs.appendFile(arquivoErros, linha)
+  }
+}
+
 
     async limparJobsAntigos(diasParaManter = 7) {
         try {
@@ -423,10 +422,9 @@ class QueueService {
       .map(linha => JSON.parse(linha))
       .map(r => ({
         mlb: r.mlb,
-        status: r.status,                // ‘success’ ou ‘error’
-        encontrado: !!(r.resultado?.encontrado),
-        timestamp: r.timestamp
-      }));
+        encontrado: r.encontrado
+        }));
+
 
     return {
       total_resultados: linhas.length,
@@ -444,27 +442,24 @@ class QueueService {
 
     // Obter estatísticas de um job específico
     async obterEstatisticasJob(job_id) {
-        try {
-            const resultados = await this.obterResultadosParciais(job_id, 999999); // Todos os resultados
-            
-            const sucessos = resultados.resultados.filter(r => r.status === 'success').length;
-            const erros = resultados.resultados.filter(r => r.status === 'error').length;
-            const encontrados = resultados.resultados.filter(r => r.status === 'success' && r.resultado?.encontrado).length;
+        const { resultados, total_resultados } = await this.obterResultadosParciais(job_id, 999999);
+        const encontrados = resultados.filter(r => r.encontrado).length;
+        // opcionalmente trate “sucessos” igual a total_resultados se quiser
+        const sucessos = total_resultados;  
 
-            return {
-                job_id,
-                total_processados: resultados.total_resultados,
-                sucessos,
-                erros,
-                encontrados,
-                taxa_sucesso: sucessos > 0 ? Math.round((sucessos / (sucessos + erros)) * 100) : 0,
-                taxa_deteccao: sucessos > 0 ? Math.round((encontrados / sucessos) * 100) : 0
-            };
-
-        } catch (error) {
-            throw new Error(`Erro ao obter estatísticas do job ${job_id}: ${error.message}`);
+        return {
+            job_id,
+            total_processados: total_resultados,
+            sucessos,
+            erros: 0,               // não faz mais sentido
+            encontrados,
+            taxa_sucesso: 100,      // todos são “sucesso” no sense antigo
+            taxa_deteccao: total_resultados
+            ? Math.round((encontrados / total_resultados) * 100)
+            : 0
+        };
         }
-    }
+
 
     // Reprocessar MLBs que falharam
     async reprocessarErros(job_id) {

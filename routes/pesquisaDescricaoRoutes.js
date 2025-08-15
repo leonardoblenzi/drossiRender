@@ -230,14 +230,13 @@ router.post('/retomar', async (req, res, next) => {
 });
 
 // ========== DOWNLOAD ==========
+// rota: GET /download/:job_id — auto-download do resultados
 router.get('/download/:job_id', async (req, res, next) => {
   try {
     const { job_id } = req.params;
     validateJobId(job_id);
 
     const dir = await getResultDir(job_id);
-
-    // Lista arquivos disponíveis para download
     let files;
     try {
       files = await fs.readdir(dir);
@@ -252,13 +251,20 @@ router.get('/download/:job_id', async (req, res, next) => {
       return res.status(404).json({ ok: false, message: 'Nenhum arquivo encontrado para este job.' });
     }
 
-    // Se houver um único arquivo, já envia direto
+    // Se houver apenas 1 arquivo, baixa ele
     if (files.length === 1) {
       const filePath = path.join(dir, files[0]);
       return res.download(filePath, files[0]);
     }
 
-    // Senão, retorna lista para o cliente escolher via /download/:job_id/:filename
+    // Se houver vários, tenta baixar automaticamente o file de resultados
+    const resultadosFile = files.find(f => f.endsWith('_resultados.jsonl'));
+    if (resultadosFile) {
+      const filePath = path.join(dir, resultadosFile);
+      return res.download(filePath, resultadosFile);
+    }
+
+    // Caso não ache o resultados.jsonl, cai de volta para a listagem
     return res.json({
       ok: true,
       message: 'Vários arquivos disponíveis. Baixe usando /download/:job_id/:filename.',
@@ -268,6 +274,7 @@ router.get('/download/:job_id', async (req, res, next) => {
     next(err);
   }
 });
+
 
 router.get('/download/:job_id/:filename', async (req, res, next) => {
   try {
