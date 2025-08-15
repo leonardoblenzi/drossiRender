@@ -196,49 +196,58 @@ class QueueService {
         }
     }
 
-    async obterStatusJob(job_id) {
-        try {
-            // Ler metadata do arquivo
-            const arquivo = path.join(__dirname, '../results', `${job_id}_metadata.json`);
-            const metadata = JSON.parse(await fs.readFile(arquivo, 'utf8'));
+   async obterStatusJob(job_id) {
+  // lê metadata
+  const metaPath = path.join(__dirname, '../results', `${job_id}_metadata.json`);
+  const metadata = JSON.parse(await fs.readFile(metaPath, 'utf8'));
 
-            // Contar jobs na fila
-            const waiting = await this.mlbQueue.getWaiting();
-            const active = await this.mlbQueue.getActive();
-            const completed = await this.mlbQueue.getCompleted();
-            const failed = await this.mlbQueue.getFailed();
+  // pega contagens da fila
+  const [waiting, active, completed, failed] = await Promise.all([
+    this.mlbQueue.getWaiting(),
+    this.mlbQueue.getActive(),
+    this.mlbQueue.getCompleted(),
+    this.mlbQueue.getFailed()
+  ]);
+  const filterByJob = arr => arr.filter(j => j.data.job_id === job_id).length;
+  const aguardando = filterByJob(waiting);
+  const processando = filterByJob(active);
+  const concluidos = filterByJob(completed);
+  const falharam = filterByJob(failed);
+  const totalJobs = aguardando + processando + concluidos + falharam;
+  const progresso = totalJobs > 0
+    ? Math.round(((concluidos + falharam) / totalJobs) * 100)
+    : 0;
 
-            const jobsDoJob = (jobs) => jobs.filter(job => job.data.job_id === job_id);
+  // obtem resultados detalhados para calcular taxas
+  const { total_resultados, resultados } = await this.obterResultadosParciais(job_id, 999999);
+  const sucessos = resultados.filter(r => r.status === 'success').length;
+  const encontrados = resultados.filter(r => r.encontrado).length;
 
-            const aguardando = jobsDoJob(waiting).length;
-            const processando = jobsDoJob(active).length;
-            const concluidos = jobsDoJob(completed).length;
-            const falharam = jobsDoJob(failed).length;
+  return {
+    job_id,
+    status: progresso === 100
+      ? 'concluido'
+      : processando > 0
+        ? 'processando'
+        : 'aguardando',
+    progresso_percentual: progresso,
+    total_mlbs: metadata.total_mlbs,
+    aguardando,
+    processando,
+    concluidos,
+    falharam,
+    criado_em: metadata.criado_em,
+    tempo_decorrido: this.calcularTempoDecorrido(metadata.criado_em),
+    tempo_estimado_restante: this.calcularTempoRestante(aguardando + processando),
+    total_processados: total_resultados,
+    total_sucessos: sucessos,
+    total_encontrados: encontrados,
+    taxa_sucesso: total_resultados > 0 ? Math.round((sucessos / total_resultados) * 100) : 0,
+    taxa_deteccao: total_resultados > 0 ? Math.round((encontrados / total_resultados) * 100) : 0,
+    arquivos_disponiveis: await this.listarArquivosJob(job_id)
+  };
+}
 
-            const total = aguardando + processando + concluidos + falharam;
-            const progresso = total > 0 ? Math.round(((concluidos + falharam) / total) * 100) : 0;
-
-            const status = {
-                job_id,
-                status: progresso === 100 ? 'concluido' : processando > 0 ? 'processando' : 'aguardando',
-                progresso_percentual: progresso,
-                total_mlbs: metadata.total_mlbs,
-                aguardando,
-                processando,
-                concluidos,
-                falharam,
-                criado_em: metadata.criado_em,
-                tempo_decorrido: this.calcularTempoDecorrido(metadata.criado_em),
-                tempo_estimado_restante: this.calcularTempoRestante(aguardando + processando),
-                arquivos_disponiveis: await this.listarArquivosJob(job_id)
-            };
-
-            return status;
-
-        } catch (error) {
-            throw new Error(`Job ${job_id} não encontrado`);
-        }
-    }
 
     calcularTempoDecorrido(inicio) {
         const agora = new Date();
@@ -402,41 +411,36 @@ class QueueService {
         }
     }
 
-    // Obter resultados parciais de um job
-    async obterResultadosParciais(job_id, limite = 100) {
-        try {
-            const arquivo = path.join(__dirname, '../results', `${job_id}_resultados.jsonl`);
-            const conteudo = await fs.readFile(arquivo, 'utf8');
-            
-            const linhas = conteudo.trim().split('\n');
-            const resultados = linhas
-                .slice(-limite) // Pegar os últimos N resultados
-                .map(linha => {
-                    try {
-                        return JSON.parse(linha);
-                    } catch {
-                        return null;
-                    }
-                })
-                .filter(resultado => resultado !== null);
+   async obterResultadosParciais(job_id, limite = 100) {
+  try {
+    const arquivo = path.join(__dirname, '../results', `${job_id}_resultados.jsonl`);
+    const conteudo = await fs.readFile(arquivo, 'utf8');
+    const linhas = conteudo.trim().split('\n');
 
-            return {
-                total_resultados: linhas.length,
-                resultados_retornados: resultados.length,
-                resultados
-            };
+    // Parse e mapeia somente os campos úteis
+    const resultados = linhas
+      .slice(-limite)                    // últimos N registros
+      .map(linha => JSON.parse(linha))
+      .map(r => ({
+        mlb: r.mlb,
+        status: r.status,                // ‘success’ ou ‘error’
+        encontrado: !!(r.resultado?.encontrado),
+        timestamp: r.timestamp
+      }));
 
-        } catch (error) {
-            if (error.code === 'ENOENT') {
-                return {
-                    total_resultados: 0,
-                    resultados_retornados: 0,
-                    resultados: []
-                };
-            }
-            throw error;
-        }
+    return {
+      total_resultados: linhas.length,
+      resultados_retornados: resultados.length,
+      resultados
+    };
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return { total_resultados: 0, resultados_retornados: 0, resultados: [] };
     }
+    throw error;
+  }
+}
+
 
     // Obter estatísticas de um job específico
     async obterEstatisticasJob(job_id) {
