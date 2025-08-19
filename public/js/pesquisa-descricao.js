@@ -1,1692 +1,574 @@
-// Variáveis globais
+// public/js/pesquisa-descricao.js  (v3.2)
+// Arquivo completo, resiliente a páginas sem "Pesquisa Rápida" e sem abas.
+// Mantém Processamento em Massa + Monitoramento + Modais + Downloads.
+// ---------------------------------------------------------------
+
+// ===== Variáveis globais =====
 let modoProcessamentoSelecionado = null;
-let currentJobId = null; // Para uso no modal de resultados
 let intervalMonitoramento = null;
-let jobAtualMonitorando = null;
+let currentJobId = null;          // usado em download de resultados
+let cacheJobs = [];               // lista de jobs para filtros
 
-// Inicialização
-document.addEventListener('DOMContentLoaded', function() {
-    // Verificar se deve abrir modal de novo processo (vindo do dashboard)
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('novo_processo') === 'true') {
-        abrirTab('processamento-massa');
-        setTimeout(() => {
-            abrirModalNovoProcesso();
-        }, 500);
-    }
+// ===== Utilitários DOM seguros =====
+const $ = (id) => document.getElementById(id);
+const text = (id, value) => { const el = $(id); if (el) el.textContent = value; };
+const show = (id, on = true) => { const el = $(id); if (el) el.style.display = on ? 'block' : 'none'; };
+const on = (id, evt, fn) => { const el = $(id); if (el) el.addEventListener(evt, fn); };
 
-    // Inicializar contadores
-    contarMLBsRapida();
-    contarMLBsMassa();
-    
-    // Carregar monitoramento se estiver na aba
-    if (document.getElementById('monitoramento').classList.contains('active')) {
-        atualizarMonitoramento();
-    }
+// ===== Inicialização =====
+document.addEventListener('DOMContentLoaded', () => {
+  // Se vier do dashboard com ?novo_processo=true, abre modal
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('novo_processo') === 'true') {
+    abrirModalNovoProcesso();
+  }
+
+  // Só chama contadores da área RÁPIDA se os campos existirem
+  if ($('mlbs-rapida')) contarMLBsRapida();
+  if ($('mlbs-massa'))  contarMLBsMassa();
+
+  // Começa monitoramento imediatamente (não depende de "abas")
+  atualizarMonitoramento();
+  iniciarMonitoramentoAutomatico();
+
+  // Listeners opcionais (só colocados se os elementos existirem)
+  on('form-pesquisa-rapida', 'submit', async (e) => { e.preventDefault(); await executarPesquisaRapida(); });
+  on('form-processamento-massa', 'submit', async (e) => { e.preventDefault(); await executarProcessamentoMassa(); });
+
+  on('tipo-modal', 'change', function () {
+    const grupo = $('grupo-texto-modal');
+    if (grupo) grupo.style.display = (this.value === 'pesquisar_texto') ? 'block' : 'none';
+  });
 });
 
-// Gerenciamento de Tabs
+// ===== Abas (tolerante a páginas sem abas) =====
 function abrirTab(tabId) {
-    // Remover classe active de todas as tabs
-    document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    
-    // Ativar tab selecionada
-    event.target.classList.add('active');
-    document.getElementById(tabId).classList.add('active');
-    
-    // Ações específicas por tab
-    if (tabId === 'monitoramento') {
-        atualizarMonitoramento();
-        iniciarMonitoramentoAutomatico();
-    } else {
-        pararMonitoramentoAutomatico();
-    }
+  const allTabs = document.querySelectorAll('.tab-content');
+  if (allTabs && allTabs.length) {
+    allTabs.forEach(t => t.classList.remove('active'));
+    const chosen = $(tabId);
+    if (chosen) chosen.classList.add('active');
+  }
+  if (tabId === 'monitoramento') {
+    atualizarMonitoramento();
+    iniciarMonitoramentoAutomatico();
+  } else {
+    pararMonitoramentoAutomatico();
+  }
 }
 
-// Pesquisa Rápida
+// ====== Pesquisa Rápida (opcional) ======
 function alterarTipoPesquisaRapida() {
-    const tipo = document.getElementById('tipo-pesquisa-rapida').value;
-    const grupoTexto = document.getElementById('grupo-texto-rapida');
-    
-    if (tipo === 'pesquisar_texto') {
-        grupoTexto.style.display = 'block';
-        document.getElementById('texto-pesquisa-rapida').required = true;
-    } else {
-        grupoTexto.style.display = 'none';
-        document.getElementById('texto-pesquisa-rapida').required = false;
-    }
+  const tipo = $('tipo-pesquisa-rapida')?.value;
+  const grupo = $('grupo-texto-rapida');
+  if (!grupo) return;
+  if (tipo === 'pesquisar_texto') {
+    grupo.style.display = 'block';
+    const txt = $('texto-pesquisa-rapida'); if (txt) txt.required = true;
+  } else {
+    grupo.style.display = 'none';
+    const txt = $('texto-pesquisa-rapida'); if (txt) txt.required = false;
+  }
 }
 
 function contarMLBsRapida() {
-    const texto = document.getElementById('mlbs-rapida').value;
-    const resultado = contarMLBs(texto);
-    
-    document.getElementById('total-mlbs-rapida').textContent = resultado.total;
-    document.getElementById('validos-mlbs-rapida').textContent = resultado.validos;
-    document.getElementById('invalidos-mlbs-rapida').textContent = resultado.invalidos;
-    
-    const statusLimite = document.getElementById('status-limite-rapida');
+  const campo = $('mlbs-rapida');
+  if (!campo) return;
+  const resultado = contarMLBs(campo.value);
+  text('total-mlbs-rapida', resultado.total);
+  text('validos-mlbs-rapida', resultado.validos);
+  text('invalidos-mlbs-rapida', resultado.invalidos);
+
+  const status = $('status-limite-rapida');
+  if (status) {
     if (resultado.total > 50) {
-        statusLimite.textContent = 'Excede limite! Use Processamento em Massa';
-        statusLimite.style.background = '#dc3545';
-        statusLimite.style.color = 'white';
+      status.textContent = 'Excede limite! Use Processamento em Massa';
+      status.style.background = '#dc3545'; status.style.color = '#fff';
     } else {
-        statusLimite.textContent = 'Limite: 50 MLBs';
-        statusLimite.style.background = '#e9ecef';
-        statusLimite.style.color = '#495057';
+      status.textContent = 'Limite: 50 MLBs';
+      status.style.background = '#e9ecef'; status.style.color = '#495057';
     }
+  }
 }
 
 function limparFormularioRapida() {
-    document.getElementById('form-pesquisa-rapida').reset();
-    document.getElementById('grupo-texto-rapida').style.display = 'none';
-    contarMLBsRapida();
-    fecharResultados();
+  const form = $('form-pesquisa-rapida');
+  if (form) form.reset();
+  const grupo = $('grupo-texto-rapida'); if (grupo) grupo.style.display = 'none';
+  contarMLBsRapida();
+  fecharResultados();
 }
 
-// Processamento em Massa
+// ===== Processamento em Massa =====
 function selecionarModo(modo) {
-    // Remover seleção anterior
-    document.querySelectorAll('.processing-mode').forEach(el => {
-        el.classList.remove('selected');
-    });
-    
-    // Selecionar novo modo
-    document.getElementById(`modo-${modo}`).classList.add('selected');
-    modoProcessamentoSelecionado = modo;
-    
-    atualizarModoProcessamento();
+  document.querySelectorAll('.processing-mode').forEach(el => el.classList.remove('selected'));
+  const box = $('modo-' + modo);
+  if (box) box.classList.add('selected');
+  modoProcessamentoSelecionado = modo;
+  atualizarModoProcessamento();
 }
 
 function atualizarModoProcessamento() {
-    const total = parseInt(document.getElementById('total-mlbs-massa').textContent) || 0;
-    const forcaBackground = document.getElementById('forcar-background-massa').checked;
-    const statusElement = document.getElementById('status-processamento-massa');
-    
-    let modo, cor;
-    
-    if (forcaBackground || total > 100) {
-        modo = 'Background';
-        cor = '#667eea';
-        selecionarModo('background');
-    } else if (modoProcessamentoSelecionado === 'direto' || (total <= 100 && total > 0)) {
-        modo = 'Direto';
-        cor = '#28a745';
-        if (!modoProcessamentoSelecionado) selecionarModo('direto');
-    } else {
-        modo = 'Não Selecionado';
-        cor = '#6c757d';
-    }
-    
-    statusElement.textContent = `Modo: ${modo}`;
-    statusElement.style.background = cor;
-    statusElement.style.color = 'white';
+  const total = parseInt(($('total-mlbs-massa')?.textContent || '0'), 10);
+  const statusEl = $('status-processamento-massa');
+  const forcar = $('forcar-background-massa')?.checked;
+
+  let modo = 'Não Selecionado';
+  let cor  = '#6c757d';
+
+  if (forcar || total > 100) {
+    modo = 'Background'; cor = '#667eea';
+    selecionarModo('background');
+  } else if (modoProcessamentoSelecionado === 'direto' || (total > 0 && total <= 100)) {
+    modo = 'Direto'; cor = '#28a745';
+    if (!modoProcessamentoSelecionado) selecionarModo('direto');
+  }
+
+  if (statusEl) {
+    statusEl.textContent = `Modo: ${modo}`;
+    statusEl.style.background = cor;
+    statusEl.style.color = '#fff';
+  }
 }
 
 function alterarTipoPesquisaMassa() {
-    const tipo = document.getElementById('tipo-pesquisa-massa').value;
-    const grupoTexto = document.getElementById('grupo-texto-massa');
-    
-    if (tipo === 'pesquisar_texto') {
-        grupoTexto.style.display = 'block';
-        document.getElementById('texto-pesquisa-massa').required = true;
-    } else {
-        grupoTexto.style.display = 'none';
-        document.getElementById('texto-pesquisa-massa').required = false;
-    }
+  const tipo = $('tipo-pesquisa-massa')?.value;
+  const grupo = $('grupo-texto-massa');
+  if (!grupo) return;
+  if (tipo === 'pesquisar_texto') {
+    grupo.style.display = 'block';
+    const txt = $('texto-pesquisa-massa'); if (txt) txt.required = true;
+  } else {
+    grupo.style.display = 'none';
+    const txt = $('texto-pesquisa-massa'); if (txt) txt.required = false;
+  }
 }
 
 function contarMLBsMassa() {
-    const texto = document.getElementById('mlbs-massa').value;
-    const resultado = contarMLBs(texto);
-    
-    document.getElementById('total-mlbs-massa').textContent = resultado.total;
-    document.getElementById('validos-mlbs-massa').textContent = resultado.validos;
-    document.getElementById('invalidos-mlbs-massa').textContent = resultado.invalidos;
-    
-    // Calcular tempo estimado (aproximadamente 2 segundos por MLB)
-    const tempoMinutos = Math.ceil((resultado.validos * 2) / 60);
-    document.getElementById('tempo-estimado-massa').textContent = tempoMinutos;
-    
-    atualizarModoProcessamento();
+  const campo = $('mlbs-massa');
+  if (!campo) return;
+  const resultado = contarMLBs(campo.value);
+  text('total-mlbs-massa', resultado.total);
+  text('validos-mlbs-massa', resultado.validos);
+  text('invalidos-mlbs-massa', resultado.invalidos);
+
+  // 2s por MLB -> minutos
+  const minutos = Math.ceil((resultado.validos * 2) / 60);
+  text('tempo-estimado-massa', minutos);
+  atualizarModoProcessamento();
 }
 
 function limparFormularioMassa() {
-    document.getElementById('form-processamento-massa').reset();
-    document.getElementById('grupo-texto-massa').style.display = 'none';
-    document.querySelectorAll('.processing-mode').forEach(el => {
-        el.classList.remove('selected');
-    });
-    modoProcessamentoSelecionado = null;
-    contarMLBsMassa();
-    fecharResultados();
+  const form = $('form-processamento-massa');
+  if (form) form.reset();
+  const grupo = $('grupo-texto-massa'); if (grupo) grupo.style.display = 'none';
+  document.querySelectorAll('.processing-mode').forEach(el => el.classList.remove('selected'));
+  modoProcessamentoSelecionado = null;
+  contarMLBsMassa();
+  fecharResultados();
 }
 
 async function validarMLBsMassa() {
-    const texto = document.getElementById('mlbs-massa').value;
-    if (!texto.trim()) {
-        alert('❌ Digite alguns MLBs para validar');
-        return;
-    }
+  const txt = $('mlbs-massa')?.value || '';
+  if (!txt.trim()) return alert('❌ Digite alguns MLBs para validar');
+  const mlbs = extrairMLBs(txt);
+  if (!mlbs.length) return alert('❌ Nenhum MLB válido encontrado');
 
-    const mlbs = extrairMLBs(texto);
-    if (mlbs.length === 0) {
-        alert('❌ Nenhum MLB válido encontrado');
-        return;
-    }
-
-    try {
-        const resultado = contarMLBs(texto);
-        alert(`✅ Validação concluída:
-
-📊 Total encontrados: ${resultado.total}
-✅ MLBs válidos: ${resultado.validos}
-❌ MLBs inválidos: ${resultado.invalidos}
-⏱️ Tempo estimado: ${Math.ceil((resultado.validos * 2) / 60)} minutos`);
-    } catch (error) {
-        alert('❌ Erro na validação: ' + error.message);
-    }
+  const r = contarMLBs(txt);
+  alert(`✅ Validação concluída:\n\n📊 Total encontrados: ${r.total}\n✅ Válidos: ${r.validos}\n❌ Inválidos: ${r.invalidos}\n⏱️ Tempo estimado: ${Math.ceil((r.validos * 2)/60)} minutos`);
 }
 
-// Funções de Formulário
-document.getElementById('form-pesquisa-rapida').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    await executarPesquisaRapida();
-});
-
-document.getElementById('form-processamento-massa').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    await executarProcessamentoMassa();
-});
-
+// ===== Submissões =====
 async function executarPesquisaRapida() {
-    const tipo = document.getElementById('tipo-pesquisa-rapida').value;
-    const texto = document.getElementById('texto-pesquisa-rapida').value;
-    const mlbsTexto = document.getElementById('mlbs-rapida').value;
+  const tipo = $('tipo-pesquisa-rapida')?.value;
+  const texto = $('texto-pesquisa-rapida')?.value || '';
+  const mlbsTexto = $('mlbs-rapida')?.value || '';
 
-    if (!tipo || !mlbsTexto.trim()) {
-        alert('❌ Preencha todos os campos obrigatórios');
-        return;
+  if (!tipo || !mlbsTexto.trim()) return alert('❌ Preencha todos os campos obrigatórios');
+  const mlbs = extrairMLBs(mlbsTexto);
+  if (!mlbs.length) return alert('❌ Nenhum MLB válido encontrado');
+  if (mlbs.length > 50) return alert('❌ Muitos MLBs para pesquisa rápida. Use o Processamento em Massa.');
+
+  const btn = $('btn-pesquisar-rapida');
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.innerHTML = '<div class="spinner"></div> Iniciando...'; btn.disabled = true; }
+
+  try {
+    const payload = { consultas: mlbs, opcoes: { tipo_processamento: tipo, texto: (tipo === 'pesquisar_texto' ? texto : undefined), forca_background: true } };
+    const resp = await fetch('/api/pesquisa-descricao/enfileirar', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await resp.json();
+    if (data.ok || data.success) {
+      alert(`🚀 Pesquisa iniciada!\nJob ID: ${data.job_id}\nTotal MLBs: ${mlbs.length}\nAcompanhe na seção Monitoramento.`);
+      atualizarMonitoramento();
+    } else {
+      alert('❌ Erro: ' + (data.message || data.error));
     }
-
-    const mlbs = extrairMLBs(mlbsTexto);
-    if (mlbs.length === 0) {
-        alert('❌ Nenhum MLB válido encontrado');
-        return;
-    }
-
-    if (mlbs.length > 50) {
-        alert('❌ Muitos MLBs para pesquisa rápida. Use o Processamento em Massa.');
-        return;
-    }
-
-    const btnPesquisar = document.getElementById('btn-pesquisar-rapida');
-    const textoOriginal = btnPesquisar.innerHTML;
-    
-    try {
-        btnPesquisar.innerHTML = '<div class="spinner"></div> Pesquisando...';
-        btnPesquisar.disabled = true;
-
-        const payload = {
-            consultas: mlbs,
-            opcoes: {
-                tipo_processamento: tipo,
-                texto: tipo === 'pesquisar_texto' ? texto : undefined
-            }
-        };
-
-        const response = await fetch('/api/pesquisa-descricao/enfileirar', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await response.json();
-
-        if (data.ok) {
-            alert(`✅ Pesquisa iniciada com sucesso!
-            
-Job ID: ${data.job_id || data.id}
-Total MLBs: ${mlbs.length}
-
-Acompanhe o progresso na aba Monitoramento.`);
-            
-            abrirTab('monitoramento');
-        } else {
-            alert('❌ Erro: ' + (data.message || data.error));
-        }
-
-    } catch (error) {
-        alert('❌ Erro na pesquisa: ' + error.message);
-    } finally {
-        btnPesquisar.innerHTML = textoOriginal;
-        btnPesquisar.disabled = false;
-    }
+  } catch (e) {
+    alert('❌ Erro na pesquisa: ' + e.message);
+  } finally {
+    if (btn) { btn.innerHTML = original; btn.disabled = false; }
+  }
 }
 
 async function executarProcessamentoMassa() {
-    const tipo = document.getElementById('tipo-pesquisa-massa').value;
-    const texto = document.getElementById('texto-pesquisa-massa').value;
-    const mlbsTexto = document.getElementById('mlbs-massa').value;
-    const forcaBackground = document.getElementById('forcar-background-massa').checked;
-
-    if (!tipo || !mlbsTexto.trim()) {
-        alert('❌ Preencha todos os campos obrigatórios');
-        return;
-    }
-
-    if (!modoProcessamentoSelecionado) {
-        alert('❌ Selecione um modo de processamento');
-        return;
-    }
-
-    const mlbs = extrairMLBs(mlbsTexto);
-    if (mlbs.length === 0) {
-        alert('❌ Nenhum MLB válido encontrado');
-        return;
-    }
-
-    const btnProcessar = document.getElementById('btn-processar-massa');
-    const textoOriginal = btnProcessar.innerHTML;
-    
-    try {
-        btnProcessar.innerHTML = '<div class="spinner"></div> Iniciando...';
-        btnProcessar.disabled = true;
-
-        const payload = {
-            consultas: mlbs,
-            opcoes: {
-                tipo_processamento: tipo,
-                texto: tipo === 'pesquisar_texto' ? texto : undefined,
-                forca_background: forcaBackground
-            }
-        };
-
-        const response = await fetch('/api/pesquisa-descricao/enfileirar', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await response.json();
-
-        if (data.ok) {
-            alert(`🚀 Processamento iniciado com sucesso!
-
-Job ID: ${data.job_id || data.id}
-Total MLBs: ${mlbs.length}
-
-O processamento será executado em background. Acompanhe o progresso na aba Monitoramento.`);
-            
-            abrirTab('monitoramento');
-        } else {
-            alert('❌ Erro: ' + (data.message || data.error));
-        }
-
-    } catch (error) {
-        alert('❌ Erro no processamento: ' + error.message);
-    } finally {
-        btnProcessar.innerHTML = textoOriginal;
-        btnProcessar.disabled = false;
-    }
-}
-
-// Monitoramento
-function iniciarMonitoramentoAutomatico() {
-    if (intervalMonitoramento) {
-        clearInterval(intervalMonitoramento);
-    }
-    intervalMonitoramento = setInterval(atualizarMonitoramento, 5000);
-}
-
-function pararMonitoramentoAutomatico() {
-    if (intervalMonitoramento) {
-        clearInterval(intervalMonitoramento);
-        intervalMonitoramento = null;
-    }
-}
-
-async function atualizarMonitoramento() {
-    try {
-        const response = await fetch('/api/pesquisa-descricao/status' + (('/api/pesquisa-descricao/status'.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const data = await response.json();
-
-        if (data.ok) {
-            atualizarEstatisticasMonitor(data.stats);
-        }
-
-        // Buscar lista de jobs
-        const jobsResponse = await fetch('/api/pesquisa-descricao/jobs' + (('/api/pesquisa-descricao/jobs'.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const jobsData = await jobsResponse.json();
-
-        if (jobsData.ok) {
-            exibirProcessosMonitor(jobsData.jobs || []);
-        }
-    } catch (error) {
-        console.error('Erro ao atualizar monitoramento:', error);
-    }
-}
-
-function atualizarEstatisticasMonitor(stats) {
-    document.getElementById('stat-processando').textContent = stats.processando_agora || 0;
-    document.getElementById('stat-aguardando').textContent = stats.fila_aguardando || 0;
-    document.getElementById('stat-concluidos').textContent = stats.concluidos_recentes || 0;
-    document.getElementById('stat-erros').textContent = stats.falharam_recentes || 0;
-}
-
-function exibirProcessosMonitor(jobs) {
-    const container = document.getElementById('lista-processos-monitor');
-    
-    if (!jobs || jobs.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 40px;">
-                <p>📭 Nenhum processo encontrado</p>
-                <button class="btn btn-primary" onclick="abrirModalNovoProcesso()">
-                    ➕ Iniciar Primeiro Processo
-                </button>
-            </div>
-        `;
-        return;
-    }
-
-    container.innerHTML = jobs.map((job, index) => {
-        // Verificações defensivas para evitar erros
-        if (!job) return '';
-        
-        // Dados seguros com fallbacks
-        const jobId = job.id || job.job_id || `job_${index}`;
-        const status = job.status || 'aguardando';
-        const progress = job.progress || 0;
-        
-        // Gerar nome amigável baseado no tipo e data
-        const agora = new Date();
-        const dataProcessamento = agora.toLocaleDateString('pt-BR');
-        const horaProcessamento = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        
-        let nomeAmigavel = '';
-        let tipoIcon = '🔍';
-        
-        // Determinar tipo de processamento
-        const tipoProcessamento = job.tipo_processamento || job.tipo || 'detectar_dois_volumes';
-        
-        if (tipoProcessamento === 'detectar_dois_volumes') {
-            nomeAmigavel = `Detecção de Dois Volumes - ${dataProcessamento} ${horaProcessamento}`;
-            tipoIcon = '📦';
-        } else if (tipoProcessamento === 'pesquisar_texto') {
-            nomeAmigavel = `Pesquisa de Texto - ${dataProcessamento} ${horaProcessamento}`;
-            tipoIcon = '📝';
-        } else {
-            nomeAmigavel = `Processamento #${index + 1} - ${dataProcessamento} ${horaProcessamento}`;
-            tipoIcon = '🔍';
-        }
-
-        // Calcular progresso real com verificações
-        let progressoReal = 0;
-        if (status === 'concluido') {
-            progressoReal = 100;
-        } else if (typeof progress === 'number') {
-            progressoReal = Math.min(100, Math.max(0, progress));
-        }
-        
-        // Determinar status em português
-        const statusMap = {
-            'processando': { texto: 'Processando', cor: '#ffc107', icon: '⚡' },
-            'aguardando': { texto: 'Na Fila', cor: '#6c757d', icon: '⏳' },
-            'concluido': { texto: 'Concluído', cor: '#28a745', icon: '✅' },
-            'cancelado': { texto: 'Cancelado', cor: '#dc3545', icon: '❌' },
-            'erro': { texto: 'Com Erro', cor: '#dc3545', icon: '⚠️' }
-        };
-        
-        const statusInfo = statusMap[status] || statusMap['aguardando'];
-        
-        // Informações de resultados com verificações defensivas
-        const totalMLBs = job.total_mlbs || 
-                         (job.consultas && job.consultas.length) || 
-                         0;
-        
-        const concluidos = job.concluidos || 0;
-        const falharam = job.falharam || 0;
-        const processados = concluidos + falharam;
-        const encontrados = job.encontrados || concluidos || 0;
-        
-        const tempoDecorrido = job.tempo_decorrido || 
-                              job.created_at ? 'Há alguns minutos' : 
-                              'Iniciado agora';
-        
-        return `
-            <div class="job-tracking">
-                <div class="job-header">
-                    <div>
-                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                            <span style="font-size: 20px;">${tipoIcon}</span>
-                            <strong style="font-size: 16px;">${nomeAmigavel}</strong>
-                        </div>
-                        <div style="font-family: 'Courier New', monospace; font-size: 12px; color: #666; margin-left: 30px;">
-                            ID: ${jobId}
-                        </div>
-                    </div>
-                    <div style="text-align: right;">
-                        <span style="background: ${statusInfo.cor}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                            ${statusInfo.icon} ${statusInfo.texto}
-                        </span>
-                        <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                            ${tempoDecorrido}
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; font-size: 14px;">
-                        <div style="text-align: center;">
-                            <div style="font-weight: 600; color: #333;">${totalMLBs}</div>
-                            <div style="color: #666; font-size: 12px;">Total MLBs</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="font-weight: 600; color: #333;">${processados}</div>
-                            <div style="color: #666; font-size: 12px;">Processados</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="font-weight: 600; color: #28a745;">${encontrados}</div>
-                            <div style="color: #666; font-size: 12px;">Encontrados</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="font-weight: 600; color: #667eea;">${progressoReal}%</div>
-                            <div style="color: #666; font-size: 12px;">Progresso</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progressoReal}%">
-                            <div class="progress-text">${progressoReal}% concluído</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="job-actions">
-                    <button class="btn btn-primary" onclick="verDetalhesJob('${jobId}')">
-                        📊 Detalhes
-                    </button>
-                    ${status === 'concluido' || job.result ? `
-                        <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-success">
-                            📥 Download Resultados
-                        </a>
-                    ` : ''}
-                    ${status === 'processando' || status === 'aguardando' ? `
-                        <button class="btn btn-danger" onclick="cancelarJob('${jobId}')">
-                            🚫 Cancelar
-                        </button>
-                    ` : ''}
-                    ${status === 'concluido' && encontrados > 0 ? `
-                        <button class="btn btn-warning" onclick="verResultados('${jobId}')">
-                            ��️ Ver Resultados
-                        </button>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-    }).filter(html => html !== '').join('');
-}
-
-// Adicione no início da função atualizarMonitoramento
-async function atualizarMonitoramento() {
-    try {
-        console.log('🔍 Atualizando monitoramento...');
-        
-        const response = await fetch('/api/pesquisa-descricao/status' + (('/api/pesquisa-descricao/status'.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const data = await response.json();
-        console.log('📊 Status data:', data);
-
-        if (data.ok) {
-            atualizarEstatisticasMonitor(data.stats);
-        }
-
-        // Buscar lista de jobs
-        const jobsResponse = await fetch('/api/pesquisa-descricao/jobs' + (('/api/pesquisa-descricao/jobs'.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const jobsData = await jobsResponse.json();
-        console.log('📋 Jobs data:', jobsData);
-
-        if (jobsData.ok) {
-            console.log('📋 Jobs encontrados:', jobsData.jobs);
-            exibirProcessosMonitor(jobsData.jobs || []);
-        }
-    } catch (error) {
-        console.error('❌ Erro ao atualizar monitoramento:', error);
-        // Exibir erro na interface
-        document.getElementById('lista-processos-monitor').innerHTML = `
-            <div class="alert alert-danger">
-                <strong>❌ Erro ao carregar processos:</strong><br>
-                ${error.message}
-            </div>
-        `;
-    }
-}
-
-async function verResultados(jobId) {
-    window.currentJobId = jobId; // Salvar para uso no download
-    try {
-        // Buscar dados do job
-        const response = await fetch(`/api/pesquisa-descricao/jobs/${jobId}` + ((`/api/pesquisa-descricao/jobs/${jobId}`.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const jobData = await response.json();
-
-        console.log('📊 Dados para resultados:', jobData);
-
-        // USAR OS MESMOS VALORES CORRETOS DO MODAL DE DETALHES
-        const totalMLBs = jobData.total_mlbs || 1;
-        const processados = jobData.total_processados || totalMLBs;
-
-        // FORÇAR VALORES CORRETOS BASEADO NO STATUS
-        let encontrados = 1; // Default baseado no processamento bem-sucedido
-
-        if (jobData.total_encontrados !== undefined && jobData.total_encontrados !== null && jobData.total_encontrados > 0) {
-            encontrados = jobData.total_encontrados;
-        } else if (jobData.encontrados !== undefined && jobData.encontrados !== null && jobData.encontrados > 0) {
-            encontrados = jobData.encontrados;
-        }
-
-        // SE O JOB ESTÁ CONCLUÍDO E NÃO TEM FALHAS, ASSUMIR QUE ENCONTROU
-        if (jobData.status === 'concluido' && (!jobData.falharam || jobData.falharam === 0)) {
-            encontrados = Math.max(1, encontrados);
-        }
-
-        const taxa = processados > 0 ? Math.round((encontrados / processados) * 100) : 0;
-        const tempoProcessamento = jobData.tempo_decorrido || 'Alguns segundos';
-
-        console.log('🎯 RESULTADOS CALCULADOS:');
-        console.log('   - Processados:', processados);
-        console.log('   - Encontrados:', encontrados); 
-        console.log('   - Taxa:', taxa, '%');
-
-        // Criar dados simulados para a função exibirResultados
-        const dadosResultados = {
-            total_processados: processados,
-            total_encontrados: encontrados,
-            tempo_processamento: tempoProcessamento,
-            resultados: [
-                {
-                    mlb_id: 'MLB4078586692',
-                    encontrado: true,
-                    titulo: 'Kit 2 Poltronas Stella Bouclê Bege Base Madeira',
-                    detalhes: 'Produto com 2 volumes detectado com sucesso'
-                }
-            ]
-        };
-
-        // Chamar a função de exibição de resultados
-        exibirResultados(dadosResultados, 'detectar_dois_volumes');
-
-    } catch (error) {
-        console.error('❌ Erro ao obter resultados:', error);
-        alert('❌ Erro ao carregar resultados: ' + error.message);
-    }
-}
-// Modais
-function abrirModalNovoProcesso() {
-    document.getElementById('modal-novo-processo').style.display = 'block';
-}
-
-function fecharModalNovoProcesso() {
-    document.getElementById('modal-novo-processo').style.display = 'none';
-    document.getElementById('form-modal-processo').reset();
-    document.getElementById('grupo-texto-modal').style.display = 'none';
-}
-
-async function iniciarProcessoModal() {
-    const tipo = document.getElementById('tipo-modal').value;
-    const texto = document.getElementById('texto-modal').value;
-    const mlbsTexto = document.getElementById('mlbs-modal').value;
-
-    if (!tipo || !mlbsTexto.trim()) {
-        alert('❌ Preencha todos os campos obrigatórios');
-        return;
-    }
-
-    const mlbs = extrairMLBs(mlbsTexto);
-    if (mlbs.length === 0) {
-        alert('❌ Nenhum MLB válido encontrado');
-        return;
-    }
-
-    try {
-        const payload = {
-            consultas: mlbs,
-            opcoes: {
-                tipo_processamento: tipo,
-                texto: tipo === 'pesquisar_texto' ? texto : undefined
-            }
-        };
-
-        const response = await fetch('/api/pesquisa-descricao/enfileirar', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await response.json();
-
-        if (data.ok) {
-            alert(`✅ Processo iniciado com sucesso!
-            
-Job ID: ${data.job_id || data.id}
-Total MLBs: ${mlbs.length}`);
-            
-            fecharModalNovoProcesso();
-            atualizarMonitoramento();
-        } else {
-            alert('❌ Erro: ' + (data.message || data.error));
-        }
-    } catch (error) {
-        alert('❌ Erro: ' + error.message);
-    }
-}
-
-
-async function verDetalhesJob(jobId) {
-    try {
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="loading">
-                <div class="spinner"></div>
-                <span>Carregando detalhes...</span>
-            </div>
-        `;
-
-        document.getElementById('modal-detalhes-job').style.display = 'block';
-
-        console.log('🔍 Buscando detalhes do job:', jobId);
-
-        const response = await fetch(`/api/pesquisa-descricao/jobs/${jobId}` + ((`/api/pesquisa-descricao/jobs/${jobId}`.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const data = await response.json();
-
-        console.log('📊 Dados da API:', data);
-
-        // USAR DADOS DIRETAMENTE DA API EM VEZ DOS METADADOS
-        const job = data;
-
-        // VALORES CORRETOS BASEADOS NO QUE FUNCIONA NA INTERFACE
-        const totalMLBs = job.total_mlbs || 1;
-        const processados = job.total_processados || totalMLBs;
-
-        // SE A INTERFACE MOSTRA "1 ENCONTRADOS", ENTÃO É 1!
-        let encontrados = 1; // FORÇAR VALOR CORRETO
-
-        // BUSCAR EM VÁRIOS CAMPOS POSSÍVEIS
-        if (job.total_encontrados !== undefined && job.total_encontrados !== null && job.total_encontrados > 0) {
-            encontrados = job.total_encontrados;
-        } else if (job.encontrados !== undefined && job.encontrados !== null && job.encontrados > 0) {
-            encontrados = job.encontrados;
-        } else if (job.produtos_encontrados !== undefined && job.produtos_encontrados !== null && job.produtos_encontrados > 0) {
-            encontrados = job.produtos_encontrados;
-        }
-
-        // SE O STATUS É "CONCLUÍDO" E NÃO TEM FALHAS, ASSUMIR QUE ENCONTROU
-        if (job.status === 'concluido' && (!job.falharam || job.falharam === 0)) {
-            encontrados = Math.max(1, encontrados);
-        }
-
-        const falharam = job.falharam || 0;
-        const taxa = processados > 0 ? Math.round((encontrados / processados) * 100) : 0;
-
-        // DATAS
-        let dataInicio = 'Processado com sucesso';
-        let dataFim = 'Processado com sucesso';
-        let tempoProcessamento = 'Alguns segundos';
-
-        if (job.created_at || job.criado_em) {
-            try {
-                dataInicio = new Date(job.created_at || job.criado_em).toLocaleString('pt-BR');
-            } catch (e) {}
-        }
-
-        if (job.updated_at || job.atualizado_em) {
-            try {
-                dataFim = new Date(job.updated_at || job.atualizado_em).toLocaleString('pt-BR');
-            } catch (e) {}
-        }
-
-        if (job.tempo_decorrido) {
-            tempoProcessamento = job.tempo_decorrido;
-        }
-
-        console.log('📊 VALORES FINAIS CALCULADOS:');
-        console.log('   - Total MLBs:', totalMLBs);
-        console.log('   - Processados:', processados); 
-        console.log('   - Encontrados:', encontrados);
-        console.log('   - Taxa:', taxa, '%');
-
-        const detalhesHtml = `
-            <div class="job-tracking">
-                <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
-                    <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
-                    <h4 style="margin: 0; font-size: 18px;">Detecção de Dois Volumes</h4>
-                    <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">
-                        Processado em ${dataInicio}
-                    </div>
-                </div>
-
-                <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                    <span style="background: #28a745; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600;">
-                        ✅ Concluído
-                    </span>
-                </div>
-
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h5 style="margin-bottom: 15px; color: #333;">📊 Informações Detalhadas</h5>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div>
-                            <strong>🆔 ID do Processo:</strong><br>
-                            <code style="font-size: 12px; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">${jobId}</code>
-                        </div>
-                        <div>
-                            <strong>⏱️ Tempo de Processamento:</strong><br>
-                            <span>${tempoProcessamento}</span>
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div>
-                            <strong>🚀 Início:</strong><br>
-                            <span style="font-size: 14px;">${dataInicio}</span>
-                        </div>
-                        <div>
-                            <strong>🏁 Conclusão:</strong><br>
-                            <span style="font-size: 14px;">${dataFim}</span>
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                        <div>
-                            <strong>📋 Total de MLBs:</strong><br>
-                            <span style="font-size: 18px; color: #667eea; font-weight: 600;">${totalMLBs}</span>
-                        </div>
-                        <div>
-                            <strong>✅ Processados:</strong><br>
-                            <span style="font-size: 18px; color: #333; font-weight: 600;">${processados}</span>
-                        </div>
-                        <div>
-                            <strong>🎯 Encontrados:</strong><br>
-                            <span style="font-size: 18px; color: #28a745; font-weight: 600;">${encontrados}</span>
-                        </div>
-                        <div>
-                            <strong>❌ Falhas:</strong><br>
-                            <span style="font-size: 18px; color: #dc3545; font-weight: 600;">${falharam}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="background: #e8f5e8; border: 1px solid #28a745; border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 20px;">
-                    <strong style="color: #28a745;">🎯 Taxa de Sucesso: ${taxa}%</strong>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">
-                        ${encontrados} produtos encontrados de ${processados} analisados
-                    </div>
-                </div>
-
-                <div style="margin-top: 20px; text-align: center;">
-                    <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-success" style="margin: 5px;">
-                        📥 Download Resultados
-                    </a>
-                    <button class="btn btn-secondary" onclick="fecharModalDetalhes()" style="margin: 5px;">
-                        ✖️ Fechar
-                    </button>
-                </div>
-            </div>
-        `;
-
-        document.getElementById('detalhes-job-content').innerHTML = detalhesHtml;
-
-    } catch (error) {
-        console.error('❌ Erro ao obter detalhes:', error);
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="alert alert-danger">
-                <strong>❌ Erro de Conexão</strong><br>
-                ${error.message}
-                <br><br>
-                <button class="btn btn-primary" onclick="verDetalhesJob('${jobId}')">
-                    🔄 Tentar Novamente
-                </button>
-            </div>
-        `;
-    }
-}
-async function verDetalhesJob(jobId) {
-    try {
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="loading">
-                <div class="spinner"></div>
-                <span>Carregando detalhes...</span>
-            </div>
-        `;
-
-        document.getElementById('modal-detalhes-job').style.display = 'block';
-
-        console.log('🔍 Buscando detalhes do job:', jobId);
-
-        const response = await fetch(`/api/pesquisa-descricao/jobs/${jobId}` + ((`/api/pesquisa-descricao/jobs/${jobId}`.includes('?') ? '&' : '?') + '_=' + Date.now()), {cache: 'no-store', headers: {'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0'}});
-        const data = await response.json();
-
-        console.log('📊 Dados da API:', data);
-
-        // USAR DADOS DIRETAMENTE DA API EM VEZ DOS METADADOS
-        const job = data;
-
-        // VALORES CORRETOS BASEADOS NO QUE FUNCIONA NA INTERFACE
-        const totalMLBs = job.total_mlbs || 1;
-        const processados = job.total_processados || totalMLBs;
-
-        // SE A INTERFACE MOSTRA "1 ENCONTRADOS", ENTÃO É 1!
-        let encontrados = 1; // FORÇAR VALOR CORRETO
-
-        // BUSCAR EM VÁRIOS CAMPOS POSSÍVEIS
-        if (job.total_encontrados !== undefined && job.total_encontrados !== null && job.total_encontrados > 0) {
-            encontrados = job.total_encontrados;
-        } else if (job.encontrados !== undefined && job.encontrados !== null && job.encontrados > 0) {
-            encontrados = job.encontrados;
-        } else if (job.produtos_encontrados !== undefined && job.produtos_encontrados !== null && job.produtos_encontrados > 0) {
-            encontrados = job.produtos_encontrados;
-        }
-
-        // SE O STATUS É "CONCLUÍDO" E NÃO TEM FALHAS, ASSUMIR QUE ENCONTROU
-        if (job.status === 'concluido' && (!job.falharam || job.falharam === 0)) {
-            encontrados = Math.max(1, encontrados);
-        }
-
-        const falharam = job.falharam || 0;
-        const taxa = processados > 0 ? Math.round((encontrados / processados) * 100) : 0;
-
-        // DATAS
-        let dataInicio = 'Processado com sucesso';
-        let dataFim = 'Processado com sucesso';
-        let tempoProcessamento = 'Alguns segundos';
-
-        if (job.created_at || job.criado_em) {
-            try {
-                dataInicio = new Date(job.created_at || job.criado_em).toLocaleString('pt-BR');
-            } catch (e) {}
-        }
-
-        if (job.updated_at || job.atualizado_em) {
-            try {
-                dataFim = new Date(job.updated_at || job.atualizado_em).toLocaleString('pt-BR');
-            } catch (e) {}
-        }
-
-        if (job.tempo_decorrido) {
-            tempoProcessamento = job.tempo_decorrido;
-        }
-
-        console.log('📊 VALORES FINAIS CALCULADOS:');
-        console.log('   - Total MLBs:', totalMLBs);
-        console.log('   - Processados:', processados); 
-        console.log('   - Encontrados:', encontrados);
-        console.log('   - Taxa:', taxa, '%');
-
-        const detalhesHtml = `
-            <div class="job-tracking">
-                <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
-                    <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
-                    <h4 style="margin: 0; font-size: 18px;">Detecção de Dois Volumes</h4>
-                    <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">
-                        Processado em ${dataInicio}
-                    </div>
-                </div>
-
-                <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                    <span style="background: #28a745; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600;">
-                        ✅ Concluído
-                    </span>
-                </div>
-
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h5 style="margin-bottom: 15px; color: #333;">📊 Informações Detalhadas</h5>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div>
-                            <strong>🆔 ID do Processo:</strong><br>
-                            <code style="font-size: 12px; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">${jobId}</code>
-                        </div>
-                        <div>
-                            <strong>⏱️ Tempo de Processamento:</strong><br>
-                            <span>${tempoProcessamento}</span>
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div>
-                            <strong>🚀 Início:</strong><br>
-                            <span style="font-size: 14px;">${dataInicio}</span>
-                        </div>
-                        <div>
-                            <strong>🏁 Conclusão:</strong><br>
-                            <span style="font-size: 14px;">${dataFim}</span>
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                        <div>
-                            <strong>📋 Total de MLBs:</strong><br>
-                            <span style="font-size: 18px; color: #667eea; font-weight: 600;">${totalMLBs}</span>
-                        </div>
-                        <div>
-                            <strong>✅ Processados:</strong><br>
-                            <span style="font-size: 18px; color: #333; font-weight: 600;">${processados}</span>
-                        </div>
-                        <div>
-                            <strong>🎯 Encontrados:</strong><br>
-                            <span style="font-size: 18px; color: #28a745; font-weight: 600;">${encontrados}</span>
-                        </div>
-                        <div>
-                            <strong>❌ Falhas:</strong><br>
-                            <span style="font-size: 18px; color: #dc3545; font-weight: 600;">${falharam}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="background: #e8f5e8; border: 1px solid #28a745; border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 20px;">
-                    <strong style="color: #28a745;">🎯 Taxa de Sucesso: ${taxa}%</strong>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">
-                        ${encontrados} produtos encontrados de ${processados} analisados
-                    </div>
-                </div>
-
-                <div style="margin-top: 20px; text-align: center;">
-                    <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-success" style="margin: 5px;">
-                        📥 Download Resultados
-                    </a>
-                    <button class="btn btn-secondary" onclick="fecharModalDetalhes()" style="margin: 5px;">
-                        ✖️ Fechar
-                    </button>
-                </div>
-            </div>
-        `;
-
-        document.getElementById('detalhes-job-content').innerHTML = detalhesHtml;
-
-    } catch (error) {
-        console.error('❌ Erro ao obter detalhes:', error);
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="alert alert-danger">
-                <strong>❌ Erro de Conexão</strong><br>
-                ${error.message}
-                <br><br>
-                <button class="btn btn-primary" onclick="verDetalhesJob('${jobId}')">
-                    🔄 Tentar Novamente
-                </button>
-            </div>
-        `;
-    }
-}
-// Função para debug específico dos metadados
-async function debugMetadados(url) {
-    try {
-        console.log('🐛 Debugando URL:', url);
-        
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="loading">
-                <div class="spinner"></div>
-                <span>Debugando metadados...</span>
-            </div>
-        `;
-        
-        const response = await fetch(url);
-        console.log('📡 Response completa:', response);
-        console.log('📡 Headers:', [...response.headers.entries()]);
-        
-        const text = await response.text();
-        console.log('📄 Conteúdo bruto:', text);
-        
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-                <h5>🐛 Debug dos Metadados</h5>
-                
-                <div style="margin: 15px 0;">
-                    <strong>URL:</strong><br>
-                    <code>${url}</code>
-                </div>
-                
-                <div style="margin: 15px 0;">
-                    <strong>Status HTTP:</strong> ${response.status}<br>
-                    <strong>Content-Type:</strong> ${response.headers.get('content-type')}
-                </div>
-                
-                <div style="margin: 15px 0;">
-                    <strong>Conteúdo Raw:</strong><br>
-                    <pre style="background: #e9ecef; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto;">${text}</pre>
-                </div>
-                
-                <div style="text-align: center; margin-top: 20px;">
-                    <button class="btn btn-warning" onclick="tentarParsearMetadados('${text.replace(/'/g, "\'")}')" >
-                        🔧 Tentar Parsear
-                    </button>
-                    <button class="btn btn-secondary" onclick="verDetalhesJob('${new URLSearchParams(url).get('jobId') || 'unknown'}')">
-                        🔄 Voltar
-                    </button>
-                </div>
-            </div>
-        `;
-        
-    } catch (error) {
-        console.error('❌ Erro no debug:', error);
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="alert alert-danger">
-                <strong>❌ Erro no Debug:</strong><br>
-                ${error.message}
-            </div>
-        `;
-    }
-}
-
-// Função para tentar parsear metadados manualmente
-function tentarParsearMetadados(textoRaw) {
-    try {
-        console.log('🔧 Tentando parsear:', textoRaw);
-        
-        let metadata;
-        
-        // Tentar JSON direto
-        try {
-            metadata = JSON.parse(textoRaw);
-            console.log('✅ JSON válido:', metadata);
-        } catch (jsonError) {
-            console.log('❌ Não é JSON válido, tentando outras abordagens...');
-            
-            // Tentar JSONL (uma linha por objeto)
-            const linhas = textoRaw.split('\n').filter(linha => linha.trim());
-            if (linhas.length > 0) {
-                try {
-                    metadata = JSON.parse(linhas[0]); // Primeira linha
-                    console.log('✅ JSONL parseado:', metadata);
-                } catch (jsonlError) {
-                    throw new Error('Formato não reconhecido');
-                }
-            }
-        }
-        
-        if (metadata) {
-            document.getElementById('detalhes-job-content').innerHTML = `
-                <div style="background: #d4edda; border: 1px solid #28a745; border-radius: 8px; padding: 15px;">
-                    <strong>✅ Metadados parseados com sucesso!</strong><br>
-                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; margin-top: 10px;">${JSON.stringify(metadata, null, 2)}</pre>
-                    
-                    <div style="text-align: center; margin-top: 15px;">
-                        <button class="btn btn-success" onclick="usarMetadados('${JSON.stringify(metadata).replace(/"/g, '&quot;')}')" >
-                            ✅ Usar estes Metadados
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-        
-    } catch (error) {
-        console.error('❌ Erro ao parsear:', error);
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="alert alert-danger">
-                <strong>❌ Erro ao Parsear:</strong><br>
-                ${error.message}
-                <br><br>
-                <small>O arquivo pode estar corrompido ou em formato não suportado.</small>
-            </div>
-        `;
-    }
-}
-
-// Função para usar metadados parseados manualmente
-function usarMetadados(metadataString) {
-    try {
-        const metadata = JSON.parse(metadataString.replace(/&quot;/g, '"'));
-        console.log('🎯 Usando metadados:', metadata);
-        
-        // Aqui você pode chamar a função de processamento
-        // processarDetalhesComMetadados(jobId, dadosAPI, metadata);
-        
-        document.getElementById('detalhes-job-content').innerHTML = `
-            <div class="alert alert-success">
-                <strong>✅ Metadados carregados!</strong><br>
-                Agora você pode implementar o processamento com estes dados.
-            </div>
-        `;
-        
-    } catch (error) {
-        console.error('❌ Erro ao usar metadados:', error);
-    }
-}
-function processarDetalhesComMetadados(jobId, dadosAPI, metadata) {
-    console.log('🎯 Processando com metadados:', metadata);
-    
-    // Extrair dados dos metadados
-    const status = dadosAPI.status || 'concluido';
-    const totalMLBs = metadata.total_mlbs || metadata.total_consultas || 0;
-    const processados = metadata.total_processados || totalMLBs;
-    const encontrados = metadata.total_encontrados || metadata.produtos_encontrados || 0;
-    const falharam = metadata.total_falharam || metadata.erros || 0;
-    const tempoDecorrido = metadata.tempo_total || metadata.duracao || 'Não disponível';
-    const inicioProcessamento = metadata.inicio_processamento || metadata.created_at;
-    const fimProcessamento = metadata.fim_processamento || metadata.completed_at;
-    
-    // Calcular progresso
-    const progressoReal = status === 'concluido' ? 100 : 0;
-    
-    // Determinar status em português
-    const statusMap = {
-        'processando': { texto: 'Processando', cor: '#ffc107', icon: '⚡' },
-        'aguardando': { texto: 'Na Fila', cor: '#6c757d', icon: '⏳' },
-        'concluido': { texto: 'Concluído', cor: '#28a745', icon: '✅' },
-        'cancelado': { texto: 'Cancelado', cor: '#dc3545', icon: '❌' },
-        'erro': { texto: 'Com Erro', cor: '#dc3545', icon: '⚠️' }
-    };
-    
-    const statusInfo = statusMap[status] || statusMap['concluido'];
-    
-    // Gerar nome amigável baseado no tipo
-    const tipoProcessamento = metadata.tipo_processamento || 'detectar_dois_volumes';
-    let nomeAmigavel = '';
-    let tipoIcon = '🔍';
-    
-    if (tipoProcessamento === 'detectar_dois_volumes') {
-        nomeAmigavel = 'Detecção de Dois Volumes';
-        tipoIcon = '📦';
-    } else if (tipoProcessamento === 'pesquisar_texto') {
-        nomeAmigavel = `Pesquisa de Texto: "${metadata.texto_pesquisado || 'N/A'}"`;
-        tipoIcon = '📝';
+  const tipo = $('tipo-pesquisa-massa')?.value;
+  const texto = $('texto-pesquisa-massa')?.value || '';
+  const mlbsTexto = $('mlbs-massa')?.value || '';
+
+  if (!tipo || !mlbsTexto.trim()) return alert('❌ Preencha todos os campos obrigatórios');
+  if (!modoProcessamentoSelecionado) return alert('❌ Selecione um modo de processamento');
+
+  const mlbs = extrairMLBs(mlbsTexto);
+  if (!mlbs.length) return alert('❌ Nenhum MLB válido encontrado');
+
+  const btn = $('btn-processar-massa');
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.innerHTML = '<div class="spinner"></div> Iniciando...'; btn.disabled = true; }
+
+  try {
+    const payload = { consultas: mlbs, opcoes: { tipo_processamento: tipo, texto: (tipo === 'pesquisar_texto' ? texto : undefined), forca_background: true } };
+    const resp = await fetch('/api/pesquisa-descricao/enfileirar', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await resp.json();
+    if (data.ok || data.success) {
+      alert(`🚀 Processamento iniciado!\nJob ID: ${data.job_id}\nTotal MLBs: ${mlbs.length}`);
+      atualizarMonitoramento();
     } else {
-        nomeAmigavel = 'Processamento de MLBs';
-        tipoIcon = '🔍';
+      alert('❌ Erro: ' + (data.message || data.error));
     }
-    
-    // Formatear datas
-    const dataInicio = inicioProcessamento ? new Date(inicioProcessamento).toLocaleString('pt-BR') : 'N/A';
-    const dataFim = fimProcessamento ? new Date(fimProcessamento).toLocaleString('pt-BR') : 'N/A';
-    
-    const detalhesHtml = `
-        <div class="job-tracking">
-            <!-- Cabeçalho do Job -->
-            <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
-                <div style="font-size: 24px; margin-bottom: 5px;">${tipoIcon}</div>
-                <h4 style="margin: 0; font-size: 18px;">${nomeAmigavel}</h4>
-                <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">
-                    Processado em ${dataInicio}
-                </div>
-            </div>
-            
-            <!-- Status Atual -->
-            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                <span style="background: ${statusInfo.cor}; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600;">
-                    ${statusInfo.icon} ${statusInfo.texto}
-                </span>
-            </div>
-            
-            <!-- Informações Detalhadas -->
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                <h5 style="margin-bottom: 15px; color: #333;">📊 Informações Detalhadas</h5>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                    <div>
-                        <strong>🆔 ID do Processo:</strong><br>
-                        <code style="font-size: 12px; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">${jobId}</code>
-                    </div>
-                    <div>
-                        <strong>⏱️ Tempo de Processamento:</strong><br>
-                        <span>${tempoDecorrido}</span>
-                    </div>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                    <div>
-                        <strong>🚀 Início:</strong><br>
-                        <span style="font-size: 14px;">${dataInicio}</span>
-                    </div>
-                    <div>
-                        <strong>🏁 Conclusão:</strong><br>
-                        <span style="font-size: 14px;">${dataFim}</span>
-                    </div>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                    <div>
-                        <strong>📋 Total de MLBs:</strong><br>
-                        <span style="font-size: 18px; color: #667eea; font-weight: 600;">${totalMLBs}</span>
-                    </div>
-                    <div>
-                        <strong>✅ Processados:</strong><br>
-                        <span style="font-size: 18px; color: #333; font-weight: 600;">${processados}</span>
-                    </div>
-                    <div>
-                        <strong>🎯 Encontrados:</strong><br>
-                        <span style="font-size: 18px; color: #28a745; font-weight: 600;">${encontrados}</span>
-                    </div>
-                    <div>
-                        <strong>❌ Falhas:</strong><br>
-                        <span style="font-size: 18px; color: #dc3545; font-weight: 600;">${falharam}</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Barra de Progresso -->
-            <div style="margin-bottom: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <strong>📈 Progresso do Processamento</strong>
-                    <span style="font-weight: 600; color: #667eea;">${progressoReal}%</span>
-                </div>
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progressoReal}%">
-                            <div class="progress-text">${progressoReal}%</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Taxa de Sucesso -->
-            ${totalMLBs > 0 ? `
-                <div style="background: #e8f5e8; border: 1px solid #28a745; border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 20px;">
-                    <strong style="color: #28a745;">🎯 Taxa de Sucesso: ${Math.round((encontrados / totalMLBs) * 100)}%</strong>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">
-                        ${encontrados} produtos encontrados de ${totalMLBs} analisados
-                    </div>
-                </div>
-            ` : ''}
-            
-            <!-- Arquivos Disponíveis -->
-            <div style="background: #e8f4fd; border: 1px solid #17a2b8; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                <h6 style="margin-bottom: 10px; color: #0c5460;">📁 Arquivos Disponíveis:</h6>
-                ${dadosAPI.result.map(file => `
-                    <div style="margin: 5px 0;">
-                        <a href="${file.url}" class="btn btn-outline" style="font-size: 14px; padding: 5px 10px;">
-                            ${file.tipo === 'metadata' ? '📋' : '��'} ${file.nome}
-                        </a>
-                    </div>
-                `).join('')}
-            </div>
-            
-            <!-- Ações Rápidas -->
-            <div style="margin-top: 20px; text-align: center;">
-                <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-success" style="margin: 5px;">
-                    📥 Download Completo
-                </a>
-                <button class="btn btn-secondary" onclick="verDetalhesJob('${jobId}')" style="margin: 5px;">
-                    🔄 Recarregar
-                </button>
-                <button class="btn btn-warning" onclick="verResultadosDetalhados('${jobId}')" style="margin: 5px;">
-                    👁️ Ver Resultados
-                </button>
-            </div>
-        </div>
-    `;
-    
-    document.getElementById('detalhes-job-content').innerHTML = detalhesHtml;
+  } catch (e) {
+    alert('❌ Erro no processamento: ' + e.message);
+  } finally {
+    if (btn) { btn.innerHTML = original; btn.disabled = false; }
+  }
 }
 
-function processarDetalhesSemMetadados(jobId, dadosAPI) {
-    console.log('⚠️ Processando sem metadados');
-    
-    const detalhesHtml = `
-        <div class="job-tracking">
-            <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
-                <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
-                <h4 style="margin: 0; font-size: 18px;">Processamento Concluído</h4>
-                <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">
-                    Detalhes não disponíveis
-                </div>
-            </div>
-            
-            <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                <strong>⚠️ Metadados não disponíveis</strong><br>
-                <small>Os detalhes estatísticos não puderam ser carregados, mas os arquivos de resultado estão disponíveis para download.</small>
-            </div>
-            
-            <!-- Arquivos Disponíveis -->
-            <div style="background: #e8f4fd; border: 1px solid #17a2b8; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                <h6 style="margin-bottom: 10px; color: #0c5460;">📁 Arquivos Disponíveis:</h6>
-                ${dadosAPI.result.map(file => `
-                    <div style="margin: 5px 0;">
-                        <a href="${file.url}" class="btn btn-outline" style="font-size: 14px; padding: 5px 10px;">
-                            ${file.tipo === 'metadata' ? '📋' : '📊'} ${file.nome}
-                        </a>
-                    </div>
-                `).join('')}
-            </div>
-            
-            <div style="text-align: center;">
-                <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-success">
-                    📥 Download Completo
-                </a>
-            </div>
-        </div>
-    `;
-    
-    document.getElementById('detalhes-job-content').innerHTML = detalhesHtml;
+// ===== Monitoramento =====
+function iniciarMonitoramentoAutomatico() {
+  pararMonitoramentoAutomatico();
+  intervalMonitoramento = setInterval(atualizarMonitoramento, 5000);
 }
-function processarDetalhesJob(jobId, dadosAPI) {
-    console.log('🔧 Processando dados:', dadosAPI);
-    
-    // Tentar diferentes estruturas de dados
-    const job = dadosAPI.job || dadosAPI.data || dadosAPI;
-    
-    console.log('📋 Job extraído:', job);
-    
-    // Verificar todas as possíveis propriedades
-    const possiveisPropriedades = {
-        status: job.status || job.state || 'aguardando',
-        progress: job.progress || job.progresso || job.percentage || 0,
-        total_mlbs: job.total_mlbs || job.totalMLBs || job.total || job.consultas?.length || 0,
-        concluidos: job.concluidos || job.completed || job.success || job.processados || 0,
-        falharam: job.falharam || job.failed || job.errors || job.falhas || 0,
-        encontrados: job.encontrados || job.found || job.matches || job.resultados || 0,
-        tempo_decorrido: job.tempo_decorrido || job.elapsed_time || job.duration || 'Não disponível',
-        created_at: job.created_at || job.createdAt || job.timestamp,
-        result: job.result || job.results || job.data
-    };
-    
-    console.log('🎯 Propriedades mapeadas:', possiveisPropriedades);
-    
-    // Calcular progresso real
-    let progressoReal = 0;
-    if (possiveisPropriedades.status === 'concluido' || possiveisPropriedades.status === 'completed') {
-        progressoReal = 100;
-    } else if (typeof possiveisPropriedades.progress === 'number') {
-        progressoReal = Math.min(100, Math.max(0, possiveisPropriedades.progress));
+function pararMonitoramentoAutomatico() {
+  if (intervalMonitoramento) clearInterval(intervalMonitoramento);
+  intervalMonitoramento = null;
+}
+
+async function atualizarMonitoramento() {
+  try {
+    console.log('🛰️ Atualizando monitoramento...');
+
+    // Stats
+    const st = await fetch('/api/pesquisa-descricao/status?_=' + Date.now(), { cache: 'no-store' });
+    const stData = await st.json();
+    console.log('🧭 /status:', stData);
+    if (stData.ok || stData.success) {
+      const s = stData.stats || {};
+      text('stat-processando', s.processando_agora || 0);
+      text('stat-aguardando',  s.fila_aguardando   || 0);
+      text('stat-concluidos',  s.concluidos_recentes|| 0);
+      text('stat-erros',       s.falharam_recentes || 0);
     }
-    
-    // Se temos resultados, tentar extrair estatísticas
-    if (possiveisPropriedades.result && Array.isArray(possiveisPropriedades.result)) {
-        const resultados = possiveisPropriedades.result;
-        possiveisPropriedades.total_mlbs = resultados.length;
-        possiveisPropriedades.encontrados = resultados.filter(r => r.encontrado || r.found || r.match).length;
-        possiveisPropriedades.concluidos = resultados.length;
-        possiveisPropriedades.falharam = 0;
+
+    // Jobs
+    const jb = await fetch('/api/pesquisa-descricao/jobs?_=' + Date.now(), { cache: 'no-store' });
+    const jbData = await jb.json();
+    console.log('🧾 /jobs:', jbData);
+
+    if (jbData.ok && Array.isArray(jbData.jobs)) {
+      cacheJobs = jbData.jobs;
+      aplicarFiltrosEExibir();
+    } else {
+      // se a rota não retorna jobs, mostra vazio (evita spinner eterno)
+      cacheJobs = [];
+      aplicarFiltrosEExibir();
     }
-    
-    // Determinar status em português
-    const statusMap = {
-        'processando': { texto: 'Processando', cor: '#ffc107', icon: '⚡' },
-        'processing': { texto: 'Processando', cor: '#ffc107', icon: '⚡' },
-        'aguardando': { texto: 'Na Fila', cor: '#6c757d', icon: '⏳' },
-        'waiting': { texto: 'Na Fila', cor: '#6c757d', icon: '⏳' },
-        'concluido': { texto: 'Concluído', cor: '#28a745', icon: '✅' },
-        'completed': { texto: 'Concluído', cor: '#28a745', icon: '✅' },
-        'cancelado': { texto: 'Cancelado', cor: '#dc3545', icon: '❌' },
-        'cancelled': { texto: 'Cancelado', cor: '#dc3545', icon: '❌' },
-        'erro': { texto: 'Com Erro', cor: '#dc3545', icon: '⚠️' },
-        'error': { texto: 'Com Erro', cor: '#dc3545', icon: '⚠️' }
+  } catch (err) {
+    console.error('❌ Erro ao atualizar monitoramento:', err);
+    const c = $('lista-processos-monitor');
+    if (c) c.innerHTML = `<div class="alert alert-danger"><strong>❌ Erro:</strong> ${err.message}</div>`;
+  }
+}
+
+function aplicarFiltrosEExibir() {
+  const container = $('lista-processos-monitor');
+  if (!container) return;
+
+  const filtroStatus = $('filtro-status-monitor')?.value || '';
+  const limite = parseInt(($('filtro-limite-monitor')?.value || '20'), 10);
+
+  let lista = Array.from(cacheJobs || []);
+  if (filtroStatus) {
+    lista = lista.filter(j => (j.status || '').toLowerCase() === filtroStatus.toLowerCase());
+  }
+  if (Number.isFinite(limite)) lista = lista.slice(0, limite);
+
+  if (!lista.length) {
+    container.innerHTML = `<p>📭 Nenhum processo encontrado</p>`;
+    return;
+  }
+
+  container.innerHTML = lista.map(job => {
+    const id     = job.id || job.job_id || job.jobId || '';
+    const status = (job.status || 'aguardando').toLowerCase();
+    const prog   = job.progresso_percentual ?? job.progress ?? 0;
+    const total  = job.total_mlbs ?? job.total ?? 0;
+    const done   = job.total_processados ?? job.processados ?? 0;
+    const found  = job.total_encontrados ?? job.encontrados ?? 0;
+
+    const map = {
+      processando: { txt:'Processando', cor:'#ffc107', icon:'⚡' },
+      aguardando:  { txt:'Na Fila',     cor:'#6c757d', icon:'⏳' },
+      concluido:   { txt:'Concluído',   cor:'#28a745', icon:'✅' },
+      cancelado:   { txt:'Cancelado',   cor:'#dc3545', icon:'❌' },
+      erro:        { txt:'Com Erro',    cor:'#dc3545', icon:'⚠️' }
     };
-    
-    const statusInfo = statusMap[possiveisPropriedades.status] || statusMap['aguardando'];
-    
-    // Gerar nome amigável
-    const agora = new Date();
-    const dataProcessamento = agora.toLocaleDateString('pt-BR');
-    const horaProcessamento = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    
-    const detalhesHtml = `
-        <div class="job-tracking">
-            <!-- Cabeçalho do Job -->
-            <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
-                <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
-                <h4 style="margin: 0; font-size: 18px;">Detecção de Dois Volumes</h4>
-                <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">
-                    ${dataProcessamento} ${horaProcessamento}
-                </div>
-            </div>
-            
-            <!-- Status Atual -->
-            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                <span style="background: ${statusInfo.cor}; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600;">
-                    ${statusInfo.icon} ${statusInfo.texto}
-                </span>
-            </div>
-            
-            <!-- DEBUG INFO -->
-            <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                <strong>🐛 Valores encontrados:</strong><br>
-                <small>
-                    Status: ${possiveisPropriedades.status}<br>
-                    Total MLBs: ${possiveisPropriedades.total_mlbs}<br>
-                    Concluídos: ${possiveisPropriedades.concluidos}<br>
-                    Encontrados: ${possiveisPropriedades.encontrados}<br>
-                    Falharam: ${possiveisPropriedades.falharam}<br>
-                    Progress: ${possiveisPropriedades.progress}<br>
-                    Progresso Real: ${progressoReal}%
-                </small>
-            </div>
-            
-            <!-- Informações Detalhadas -->
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                <h5 style="margin-bottom: 15px; color: #333;">📊 Informações Detalhadas</h5>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                    <div>
-                        <strong>🆔 ID do Processo:</strong><br>
-                        <code style="font-size: 12px; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">${jobId}</code>
-                    </div>
-                    <div>
-                        <strong>⏱️ Tempo Decorrido:</strong><br>
-                        <span>${possiveisPropriedades.tempo_decorrido}</span>
-                    </div>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                    <div>
-                        <strong>📋 Total de MLBs:</strong><br>
-                        <span style="font-size: 18px; color: #667eea; font-weight: 600;">${possiveisPropriedades.total_mlbs}</span>
-                    </div>
-                    <div>
-                        <strong>✅ Processados:</strong><br>
-                        <span style="font-size: 18px; color: #333; font-weight: 600;">${possiveisPropriedades.concluidos + possiveisPropriedades.falharam}</span>
-                    </div>
-                    <div>
-                        <strong>🎯 Encontrados:</strong><br>
-                        <span style="font-size: 18px; color: #28a745; font-weight: 600;">${possiveisPropriedades.encontrados}</span>
-                    </div>
-                    <div>
-                        <strong>❌ Falhas:</strong><br>
-                        <span style="font-size: 18px; color: #dc3545; font-weight: 600;">${possiveisPropriedades.falharam}</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Barra de Progresso -->
-            <div style="margin-bottom: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <strong>📈 Progresso do Processamento</strong>
-                    <span style="font-weight: 600; color: #667eea;">${progressoReal}%</span>
-                </div>
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progressoReal}%">
-                            <div class="progress-text">${progressoReal}%</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Taxa de Sucesso -->
-            ${possiveisPropriedades.total_mlbs > 0 ? `
-                <div style="background: #e8f5e8; border: 1px solid #28a745; border-radius: 8px; padding: 15px; text-align: center;">
-                    <strong style="color: #28a745;">🎯 Taxa de Sucesso: ${Math.round((possiveisPropriedades.encontrados / possiveisPropriedades.total_mlbs) * 100)}%</strong>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">
-                        ${possiveisPropriedades.encontrados} produtos encontrados de ${possiveisPropriedades.total_mlbs} analisados
-                    </div>
-                </div>
-            ` : ''}
-            
-            <!-- Ações Rápidas -->
-            <div style="margin-top: 20px; text-align: center;">
-                ${possiveisPropriedades.status === 'concluido' || possiveisPropriedades.status === 'completed' ? `
-                    <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-success" style="margin: 5px;">
-                        📥 Download Resultados
-                    </a>
-                ` : ''}
-                <button class="btn btn-secondary" onclick="verDetalhesJob('${jobId}')" style="margin: 5px;">
-                    🔄 Recarregar
-                </button>
-            </div>
+    const s = map[status] || map.aguardando;
+
+    return `
+      <div class="job-card">
+        <div class="header">
+          <span>${s.icon}</span>
+          <strong>${s.txt}</strong>
+          <small>${id}</small>
         </div>
+        <div class="stats">
+          <div>${total} Total</div>
+          <div>${done} Process.</div>
+          <div>${found} Encontrados</div>
+          <div>${prog}% Progr.</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${prog}%"></div></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="verDetalhesJob('${id}')">Detalhes</button>
+          ${status==='concluido' ? `<a href="/api/pesquisa-descricao/download/${id}" class="btn btn-success">Download Resultados</a>` : ''}
+        </div>
+      </div>
     `;
-    
-    document.getElementById('detalhes-job-content').innerHTML = detalhesHtml;
+  }).join('');
+}
+
+function filtrarProcessosMonitor() { aplicarFiltrosEExibir(); }
+
+// ===== Detalhes / Resultados =====
+async function verDetalhesJob(jobId) {
+  const modal = $('modal-detalhes-job');
+  const content = $('detalhes-job-content');
+  if (!modal || !content) return;
+  content.innerHTML = `<div class="loading"><div class="spinner"></div>Carregando...</div>`;
+  modal.style.display = 'block';
+
+  try {
+    // pega lista e encontra o job
+    const resp = await fetch('/api/pesquisa-descricao/jobs?_=' + Date.now(), { cache:'no-store' });
+    const data = await resp.json();
+    if (!data.ok) throw new Error('Falha ao obter lista de jobs');
+
+    const job = (data.jobs || []).find(j => (j.id===jobId || j.job_id===jobId || j.jobId===jobId));
+    if (!job) throw new Error(`Job ${jobId} não encontrado`);
+
+    const total = job.total_mlbs ?? 0;
+    const done  = job.total_processados ?? 0;
+    const found = job.total_encontrados ?? 0;
+    const fail  = job.falharam ?? 0;
+    const prog  = job.progresso_percentual ?? 0;
+    const tempo = job.tempo_decorrido ?? 'N/A';
+
+    content.innerHTML = `
+      <h4>📦 Detalhes do Job</h4>
+      <p><strong>ID:</strong> ${jobId}</p>
+      <p><strong>Status:</strong> ${job.status}</p>
+      <p><strong>Total MLBs:</strong> ${total}</p>
+      <p><strong>Processados:</strong> ${done}</p>
+      <p><strong>Encontrados:</strong> ${found}</p>
+      <p><strong>Falharam:</strong> ${fail}</p>
+      <p><strong>Progresso:</strong> ${prog}%</p>
+      <p><strong>Tempo:</strong> ${tempo}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/api/pesquisa-descricao/download/${jobId}?formato=txt" class="btn btn-success">📥 Download (.txt)</a>
+        <a href="/api/pesquisa-descricao/download/${jobId}" class="btn btn-outline">JSONL</a>
+        <button class="btn btn-secondary" onclick="fecharModalDetalhes()">Fechar</button>
+      </div>
+    `;
+  } catch (err) {
+    content.innerHTML = `<div class="alert alert-danger">❌ ${err.message}</div>`;
+  }
 }
 
 function fecharModalDetalhes() {
-    document.getElementById('modal-detalhes-job').style.display = 'none';
+  const modal = $('modal-detalhes-job');
+  if (modal) modal.style.display = 'none';
 }
 
-async function cancelarJob(jobId) {
-    if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) {
-        return;
+function verResultadosDetalhados(jobId) { return verResultados(jobId); }
+
+async function verResultados(jobId) {
+  currentJobId = jobId;
+  try {
+    const resp = await fetch(`/api/pesquisa-descricao/jobs/${jobId}?_=` + Date.now(), { cache:'no-store' });
+    const jobData = await resp.json();
+
+    // Fallbacks para estatísticas
+    const totalMLBs  = jobData.total_mlbs || jobData.total || 1;
+    const processados = jobData.total_processados || jobData.processados || totalMLBs;
+
+    // heurística para encontrados
+    let encontrados = 0;
+    if (Number.isFinite(jobData.total_encontrados)) encontrados = jobData.total_encontrados;
+    else if (Number.isFinite(jobData.encontrados))  encontrados = jobData.encontrados;
+    if (jobData.status === 'concluido' && (!jobData.falharam || jobData.falharam === 0)) {
+      encontrados = Math.max(encontrados, 0);
     }
 
-    try {
-        const response = await fetch(`/api/pesquisa-descricao/cancelar/${jobId}`, {
-            method: 'POST'
-        });
-        const data = await response.json();
+    const taxa = processados > 0 ? Math.round((encontrados / processados) * 100) : 0;
+    const tempo = jobData.tempo_decorrido || 'Alguns segundos';
 
-        if (data.ok) {
-            alert('✅ Processo cancelado com sucesso!');
-            atualizarMonitoramento();
-        } else {
-            alert('❌ Erro ao cancelar: ' + (data.message || data.error));
-        }
-    } catch (error) {
-        alert('❌ Erro: ' + error.message);
-    }
-}
-
-// Funções auxiliares - CORRIGIDAS
-function contarMLBs(texto) {
-    const mlbs = extrairMLBs(texto);
-    const validos = mlbs.filter(mlb => /^MLB\d{10,12}$/i.test(mlb));
-    
-    return {
-        total: mlbs.length,
-        validos: validos.length,
-        invalidos: mlbs.length - validos.length
+    const dadosResultados = {
+      total_processados: processados,
+      total_encontrados: encontrados,
+      tempo_processamento: tempo,
+      resultados: jobData.resultados || [] // se existir
     };
+
+    exibirResultados(dadosResultados, 'detectar_dois_volumes');
+  } catch (err) {
+    console.error('❌ Erro ao obter resultados:', err);
+    alert('❌ Erro ao carregar resultados: ' + err.message);
+  }
+}
+
+// ===== Ferramentas / Auxiliares =====
+function contarMLBs(texto) {
+  const mlbs = extrairMLBs(texto);
+  const validos = mlbs.filter(m => /^MLB\d{9,12}$/i.test(m));
+  return { total: mlbs.length, validos: validos.length, invalidos: mlbs.length - validos.length };
 }
 
 function extrairMLBs(texto) {
-    if (!texto) return [];
-    
-    // Extrair MLBs do texto (formato MLB + 10-12 dígitos)
-    const matches = texto.match(/MLB\d{10,12}/gi) || [];
-    
-    // Remover duplicatas e converter para uppercase
-    return [...new Set(matches.map(mlb => mlb.toUpperCase()))];
+  if (!texto) return [];
+  const matches = texto.match(/MLB\d{9,12}/gi) || [];
+  return [...new Set(matches.map(m => m.toUpperCase()))];
 }
 
-
 function exibirResultados(data, tipo) {
-    const container = document.getElementById('results-container');
-    const statsContainer = document.getElementById('results-stats');
-    const contentContainer = document.getElementById('results-content');
+  const container = $('results-container');
+  const stats = $('results-stats');
+  const content = $('results-content');
+  if (!container || !stats || !content) return;
 
-    console.log('📊 Exibindo resultados:', data);
+  const proc = data.total_processados || 0;
+  const found = data.total_encontrados || 0;
+  const taxa  = proc > 0 ? Math.round((found / proc) * 100) : 0;
 
-    // USAR OS VALORES CORRETOS PASSADOS PELA FUNÇÃO verResultados
-    const processados = data.total_processados || 1;
-    const encontrados = data.total_encontrados || 1;
-    const taxa = processados > 0 ? Math.round((encontrados / processados) * 100) : 0;
+  stats.innerHTML = `
+    <div class="stat-card"><div class="stat-number">${proc}</div><div class="stat-label">Total Processados</div></div>
+    <div class="stat-card"><div class="stat-number">${found}</div><div class="stat-label">Encontrados</div></div>
+    <div class="stat-card"><div class="stat-number">${data.tempo_processamento || 'N/A'}</div><div class="stat-label">Tempo</div></div>
+    <div class="stat-card"><div class="stat-number">${taxa}%</div><div class="stat-label">Taxa de Sucesso</div></div>
+  `;
 
-    // Estatísticas CORRETAS
-    statsContainer.innerHTML = `
-        <div class="stat-card">
-            <div class="stat-number">${processados}</div>
-            <div class="stat-label">Total Processados</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number">${encontrados}</div>
-            <div class="stat-label">Encontrados</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number">${data.tempo_processamento || 'N/A'}</div>
-            <div class="stat-label">Tempo</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number">${taxa}%</div>
-            <div class="stat-label">Taxa de Sucesso</div>
-        </div>
+  if (Array.isArray(data.resultados) && data.resultados.length) {
+    content.innerHTML = `
+      <div style="max-height:400px;overflow-y:auto;">
+        ${data.resultados.map(r => `
+          <div style="background:#fff;margin:10px 0;padding:15px;border-radius:8px;border-left:4px solid ${r.encontrado ? '#28a745' : '#6c757d'};">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong>${r.mlb_id || '-'}</strong>
+              <span style="background:${r.encontrado?'#d4edda':'#e2e3e5'};color:${r.encontrado?'#155724':'#383d41'};padding:3px 8px;border-radius:12px;font-size:12px;">
+                ${r.encontrado ? '✅ Encontrado' : '❌ Não encontrado'}
+              </span>
+            </div>
+            ${r.titulo ? `<div style="margin:5px 0;color:#666;">${r.titulo}</div>` : ''}
+            ${r.detalhes ? `<div style="margin:5px 0;font-size:14px;">${r.detalhes}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
     `;
+  } else {
+    content.innerHTML = `
+      <div style="text-align:center;padding:40px;">
+        <div style="background:#d4edda;border:1px solid #28a745;border-radius:8px;padding:20px;margin:20px 0;">
+          <h4 style="color:#28a745;margin:0 0 10px 0;">✅ Processamento Concluído!</h4>
+          <p style="margin:0;color:#155724;">${found} produtos encontrados de ${proc} processados</p>
+        </div>
+        <div style="margin-top:30px;">
+          <p style="color:#666;margin-bottom:20px;">📋 Para ver os resultados detalhados, faça o download do arquivo.</p>
+          <button class="btn btn-success" onclick="window.location.href='/api/pesquisa-descricao/download/'+(window.currentJobId||'')+'?formato=txt'">📥 Download Resultados Completos</button>
+        </div>
+      </div>
+    `;
+  }
 
-    // Resultados detalhados
-    if (data.resultados && data.resultados.length > 0) {
-        contentContainer.innerHTML = `
-            <div style="max-height: 400px; overflow-y: auto;">
-                ${data.resultados.map(resultado => `
-                    <div style="background: white; margin: 10px 0; padding: 15px; border-radius: 8px; border-left: 4px solid ${resultado.encontrado ? '#28a745' : '#6c757d'};">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <strong>${resultado.mlb_id}</strong>
-                            <span style="background: ${resultado.encontrado ? '#d4edda' : '#e2e3e5'}; color: ${resultado.encontrado ? '#155724' : '#383d41'}; padding: 3px 8px; border-radius: 12px; font-size: 12px;">
-                                ${resultado.encontrado ? '✅ Encontrado' : '❌ Não encontrado'}
-                            </span>
-                        </div>
-                        ${resultado.titulo ? `<div style="margin: 5px 0; color: #666;">${resultado.titulo}</div>` : ''}
-                        ${resultado.detalhes ? `<div style="margin: 5px 0; font-size: 14px;">${resultado.detalhes}</div>` : ''}
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    } else {
-        contentContainer.innerHTML = `
-            <div style="text-align: center; padding: 40px;">
-                <div style="background: #d4edda; border: 1px solid #28a745; border-radius: 8px; padding: 20px; margin: 20px 0;">
-                    <h4 style="color: #28a745; margin: 0 0 10px 0;">✅ Processamento Concluído!</h4>
-                    <p style="margin: 0; color: #155724;">
-                        ${encontrados} produtos encontrados de ${processados} processados
-                    </p>
-                </div>
-
-                <div style="margin-top: 30px;">
-                    <p style="color: #666; margin-bottom: 20px;">
-                        📋 Para ver os resultados detalhados, faça o download do arquivo.
-                    </p>
-                    <button class="btn btn-success" onclick="window.location.href='/api/pesquisa-descricao/download/'+window.currentJobId">
-                        📥 Download Resultados Completos
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-
-    container.style.display = 'block';
-    container.scrollIntoView({ behavior: 'smooth' });
+  container.style.display = 'block';
+  container.scrollIntoView({ behavior: 'smooth' });
 }
 
 function fecharResultados() {
-    document.getElementById('results-container').style.display = 'none';
+  const container = $('results-container');
+  if (container) container.style.display = 'none';
 }
 
-function exportarResultados() {
-    alert('🚧 Funcionalidade de exportação em desenvolvimento');
-}
+function exportarResultados() { alert('🚧 Funcionalidade de exportação em desenvolvimento'); }
 
-// Event listeners para modais
-window.onclick = function(event) {
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        if (event.target === modal) {
-            modal.style.display = 'none';
-        }
-    });
-}
-
-// Event listeners para campos de tipo
-document.getElementById('tipo-modal').addEventListener('change', function() {
-    const grupoTexto = document.getElementById('grupo-texto-modal');
-    if (this.value === 'pesquisar_texto') {
-        grupoTexto.style.display = 'block';
+// ===== Controles do sistema (pausar / retomar) =====
+async function controlarSistema(acao) {
+  try {
+    const endpoint = (acao === 'pausar') ? '/api/pesquisa-descricao/pausar' : '/api/pesquisa-descricao/retomar';
+    const resp = await fetch(endpoint, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok || data.success) {
+      alert(`✅ Sistema ${acao === 'pausar' ? 'pausado' : 'retomado'} com sucesso.`);
+      atualizarMonitoramento();
     } else {
-        grupoTexto.style.display = 'none';
+      alert('❌ Erro: ' + (data.message || 'Ação não disponível'));
     }
+  } catch (err) {
+    alert('❌ Erro: ' + err.message);
+  }
+}
+
+// ===== Modais =====
+function abrirModalNovoProcesso() {
+  const m = $('modal-novo-processo');
+  if (m) m.style.display = 'block';
+}
+function fecharModalNovoProcesso() {
+  const m = $('modal-novo-processo');
+  if (m) m.style.display = 'none';
+  const f = $('form-modal-processo'); if (f) f.reset();
+  const g = $('grupo-texto-modal'); if (g) g.style.display = 'none';
+}
+async function iniciarProcessoModal() {
+  const tipo = $('tipo-modal')?.value;
+  const texto = $('texto-modal')?.value || '';
+  const mlbsTexto = $('mlbs-modal')?.value || '';
+
+  if (!tipo || !mlbsTexto.trim()) return alert('❌ Preencha todos os campos obrigatórios');
+
+  const mlbs = extrairMLBs(mlbsTexto);
+  if (!mlbs.length) return alert('❌ Nenhum MLB válido encontrado');
+
+  try {
+    const payload = { consultas: mlbs, opcoes: { tipo_processamento: tipo, texto: (tipo === 'pesquisar_texto' ? texto : undefined) } };
+    const resp = await fetch('/api/pesquisa-descricao/enfileirar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await resp.json();
+
+    if (data.ok || data.success) {
+      alert(`✅ Processo iniciado!\nJob ID: ${data.job_id || data.id}\nTotal MLBs: ${mlbs.length}`);
+      fecharModalNovoProcesso();
+      atualizarMonitoramento();
+    } else {
+      alert('❌ Erro: ' + (data.message || data.error));
+    }
+  } catch (err) {
+    alert('❌ Erro: ' + err.message);
+  }
+}
+
+// ===== Fechamento automático de modal ao clicar fora =====
+window.addEventListener('click', (ev) => {
+  document.querySelectorAll('.modal').forEach(modal => {
+    if (ev.target === modal) modal.style.display = 'none';
+  });
 });
 
-// Limpeza ao sair da página
-window.addEventListener('beforeunload', function() {
-    pararMonitoramentoAutomatico();
-});
+// ===== Limpeza ao sair =====
+window.addEventListener('beforeunload', () => pararMonitoramentoAutomatico());

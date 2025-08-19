@@ -1,4 +1,10 @@
-// pesquisaDescricaoRoutes.js
+// pesquisaDescricaoRoutes.js (ATUALIZADO)
+// - Mantém todas as rotas atuais
+// - Adiciona geração de TXT on-the-fly a partir do JSONL de resultados
+//   * Suporte por query: ?formato=txt ou ?format=txt ou ?txt=1
+//   * Suporte por arquivo: /download/:job_id/:filename (quando filename termina com .txt)
+// - Respostas seguem o padrão { ok: true/false }
+
 const express = require('express');
 const router = express.Router();
 const queueService = require('../services/queueService');
@@ -45,6 +51,60 @@ async function getResultDir(jobId) {
   // Fallback opinativo (ajuste para o seu projeto):
   // data/pesquisa-descricao/<jobId>
   return path.join(process.cwd(), 'data', 'pesquisa-descricao', jobId);
+}
+
+async function findResultadosJsonl(dir, jobId) {
+  // Prioriza <jobId>_resultados.jsonl
+  const preferido = path.join(dir, `${jobId}_resultados.jsonl`);
+  try {
+    await fs.access(preferido);
+    return preferido;
+  } catch {}
+
+  // Caso não exista, tenta qualquer *_resultados.jsonl
+  try {
+    const files = await fs.readdir(dir);
+    const candidato = files.find((f) => f.endsWith('_resultados.jsonl'));
+    if (candidato) return path.join(dir, candidato);
+  } catch {}
+  return null;
+}
+
+function linhaToTxt(jsonLine) {
+  try {
+    const r = JSON.parse(jsonLine);
+    const det = r?.deteccao_dois_volumes || {};
+    // volumes: "02" se detectado, "00" caso contrário
+    const volumes = det.detectado ? '02' : '00';
+    const padrao  = det.padrao_detectado || '';
+    const trecho  = (det.trecho_detectado || '').toString().replace(/\s+/g, ' ').trim();
+    const encontrado = r.encontrado ? 'SIM' : 'NAO';
+    const mlb = r.mlb || r.mlb_id || r.id || '';
+    return `${mlb};${encontrado};${volumes};${padrao};${trecho}`;
+  } catch {
+    return '';
+  }
+}
+
+async function gerarTxtDeResultados(dir, jobId) {
+  const jsonlPath = await findResultadosJsonl(dir, jobId);
+  if (!jsonlPath) {
+    const e = new Error('Arquivo de resultados (.jsonl) não encontrado.');
+    e.status = 404;
+    throw e;
+  }
+  const raw = await fs.readFile(jsonlPath, 'utf8');
+  const linhas = raw.split(/\r?\n/).filter(Boolean);
+  const corpo = linhas.map(linhaToTxt).filter(Boolean);
+  return ['MLB;ENCONTRADO;VOLUMES;PADRAO;TRECHO', ...corpo].join('\n');
+}
+
+function querTxt(req) {
+  const q = req.query || {};
+  const val = (q.formato || q.format || '').toString().toLowerCase();
+  if (val === 'txt') return true;
+  if (q.txt === '1' || q.txt === 1 || q.txt === true || q.txt === 'true') return true;
+  return false;
 }
 
 // ========== HEALTH E STATUS ==========
@@ -230,13 +290,31 @@ router.post('/retomar', async (req, res, next) => {
 });
 
 // ========== DOWNLOAD ==========
-// rota: GET /download/:job_id — auto-download do resultados
+// GET /download/:job_id — auto-download do resultados
+// Suporta TXT via query (?formato=txt | ?format=txt | ?txt=1)
 router.get('/download/:job_id', async (req, res, next) => {
   try {
     const { job_id } = req.params;
     validateJobId(job_id);
 
     const dir = await getResultDir(job_id);
+
+    // Se pedirem TXT por query, gera on-the-fly
+    if (querTxt(req)) {
+      try {
+        const txt = await gerarTxtDeResultados(dir, job_id);
+        const name = `${job_id}_resultados.txt`;
+        res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        return res.send(txt);
+      } catch (e) {
+        if (e.status === 404) {
+          return res.status(404).json({ ok: false, message: e.message });
+        }
+        throw e;
+      }
+    }
+
     let files;
     try {
       files = await fs.readdir(dir);
@@ -257,7 +335,7 @@ router.get('/download/:job_id', async (req, res, next) => {
       return res.download(filePath, files[0]);
     }
 
-    // Se houver vários, tenta baixar automaticamente o file de resultados
+    // Se houver vários, tenta baixar automaticamente o *_resultados.jsonl
     const resultadosFile = files.find(f => f.endsWith('_resultados.jsonl'));
     if (resultadosFile) {
       const filePath = path.join(dir, resultadosFile);
@@ -275,7 +353,8 @@ router.get('/download/:job_id', async (req, res, next) => {
   }
 });
 
-
+// GET /download/:job_id/:filename — download de arquivo específico
+// Se :filename terminar com .txt e esse arquivo não existir, geramos a partir do JSONL
 router.get('/download/:job_id/:filename', async (req, res, next) => {
   try {
     const { job_id, filename } = req.params;
@@ -291,6 +370,23 @@ router.get('/download/:job_id/:filename', async (req, res, next) => {
     const dir = await getResultDir(job_id);
     const filePath = path.join(dir, filename);
 
+    // Se pediram .txt e o arquivo ainda não existe, gera do JSONL
+    if (filename.toLowerCase().endsWith('.txt')) {
+      try {
+        // Tenta acessar direto o arquivo .txt, caso já exista em disco
+        await fs.access(filePath);
+        return res.download(filePath, filename);
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw e;
+        // Gera on-the-fly
+        const txt = await gerarTxtDeResultados(dir, job_id);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        return res.send(txt);
+      }
+    }
+
+    // Caso contrário, tenta baixar o arquivo solicitado
     try {
       await fs.access(filePath);
     } catch (e) {
@@ -321,8 +417,8 @@ router.get('/', (req, res) => {
         'POST /retomar - Retomar sistema'
       ],
       download: [
-        'GET /download/:job_id - Download de resultados (direto se 1 arquivo, senão lista)',
-        'GET /download/:job_id/:filename - Download de arquivo específico'
+        'GET /download/:job_id - Download de resultados (direto se 1 arquivo, senão lista; suporta ?formato=txt)',
+        'GET /download/:job_id/:filename - Download de arquivo específico (se .txt, gera do JSONL)'
       ]
     }
   });

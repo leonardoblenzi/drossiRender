@@ -20,7 +20,7 @@ class PesquisaDescricaoController {
             }
 
             console.log('🔍 Verificando método pesquisar...');
-            console.log('�� Tipo do método pesquisar:', typeof pesquisaDescricaoService.pesquisar);
+            console.log('   Tipo do método pesquisar:', typeof pesquisaDescricaoService.pesquisar);
             console.log('🎯 Método pesquisar chamado!');
 
             let resultados;
@@ -268,78 +268,65 @@ class PesquisaDescricaoController {
             });
         }
     }    // Baixar resultados de um job
+        // Baixar resultados de um job (JSONL padrão ou TXT on-the-fly)
     async baixarResultados(req, res) {
         try {
             const { job_id, arquivo } = req.params;
-            
+            const { formato, format, txt } = req.query || {};
             if (!job_id) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'job_id é obrigatório'
-                });
+                return res.status(400).json({ success: false, message: 'job_id é obrigatório' });
             }
-
-            console.log(`📥 Download solicitado - Job: ${job_id}, Arquivo: ${arquivo || 'resultados'}`);
 
             const fs = require('fs');
             const path = require('path');
-            
-            // Determinar qual arquivo baixar
-            let nomeArquivo;
-            if (arquivo) {
-                // Download de arquivo específico
-                nomeArquivo = arquivo;
-            } else {
-                // Download padrão (resultados)
-                nomeArquivo = `${job_id}_resultados.jsonl`;
+
+            const querTxt = (arquivo && arquivo.toLowerCase().endsWith('.txt')) 
+                         || (String(formato).toLowerCase() === 'txt') 
+                         || (String(format).toLowerCase() === 'txt') 
+                         || (txt === '1');
+
+            // Se pedirem .txt, geramos a partir do JSONL salvo
+            if (querTxt) {
+                const jsonlPath = path.join(__dirname, '../results', `${job_id}_resultados.jsonl`);
+                if (!fs.existsSync(jsonlPath)) {
+                    return res.status(404).json({ success: false, message: 'JSONL de resultados não encontrado', job_id });
+                }
+                const linhas = fs.readFileSync(jsonlPath, 'utf8')
+                    .split(/\r?\n/).filter(Boolean)
+                    .map((ln) => {
+                        try {
+                            const r = JSON.parse(ln);
+                            const det = r?.deteccao_dois_volumes || {};
+                            const volumes = det.detectado ? '02' : '00';
+                            const padrao  = det.padrao_detectado || '';
+                            const trecho  = (det.trecho_detectado || '').replace(/\s+/g, ' ').trim();
+                            return `${r.mlb || r.mlb_id};${r.encontrado ? 'SIM' : 'NAO'};${volumes};${padrao};${trecho}`;
+                        } catch { return ''; }
+                    });
+
+                const txtOut = ['MLB;ENCONTRADO;VOLUMES;PADRAO;TRECHO', ...linhas.filter(Boolean)].join('\n');
+                const fileName = arquivo && arquivo.toLowerCase().endsWith('.txt') ? arquivo : `${job_id}_resultados.txt`;
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                return res.send(txtOut);
             }
 
+            // Baixar arquivo físico (padrão JSONL)
+            let nomeArquivo = arquivo || `${job_id}_resultados.jsonl`;
             const caminhoArquivo = path.join(__dirname, '../results', nomeArquivo);
-            
-            // Verificar se arquivo existe
+
             if (!fs.existsSync(caminhoArquivo)) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Arquivo não encontrado',
-                    arquivo_solicitado: nomeArquivo,
-                    job_id
-                });
+                return res.status(404).json({ success: false, message: 'Arquivo não encontrado', arquivo_solicitado: nomeArquivo, job_id });
             }
 
-            // Obter informações do arquivo
             const stats = fs.statSync(caminhoArquivo);
-            const tamanhoMB = (stats.size / (1024 * 1024)).toFixed(2);
-
-            console.log(`📁 Enviando arquivo: ${nomeArquivo} (${tamanhoMB}MB)`);
-
-            // Definir headers para download
             res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
             res.setHeader('Content-Type', 'application/octet-stream');
             res.setHeader('Content-Length', stats.size);
-
-            // Enviar arquivo
-            res.download(caminhoArquivo, nomeArquivo, (err) => {
-                if (err) {
-                    console.error('❌ Erro no download:', err);
-                    if (!res.headersSent) {
-                        res.status(500).json({
-                            success: false,
-                            message: 'Erro ao baixar arquivo',
-                            error: err.message
-                        });
-                    }
-                } else {
-                    console.log(`✅ Download concluído: ${nomeArquivo}`);
-                }
-            });
-
+            return res.download(caminhoArquivo);
         } catch (error) {
             console.error('❌ Erro no download:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Erro interno do servidor',
-                error: error.message
-            });
+            return res.status(500).json({ success: false, message: 'Erro ao baixar resultados', error: error.message });
         }
     }
 

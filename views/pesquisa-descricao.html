@@ -1,360 +1,263 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pesquisa em Descrições - API Mercado Livre</title>
-    <link rel="stylesheet" href="/css/pesquisa-descricao.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pesquisa em Descrições - API Mercado Livre</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/pesquisa-descricao.css?v=3">
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>🔍 Pesquisa em Descrições</h1>
-            <p>Sistema avançado de pesquisa em massa com processamento inteligente</p>
+  <div class="page">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar__brand">
+        <span class="logo">🔎</span>
+        <h1>Pesquisa em Descrições</h1>
+      </div>
+      <div class="topbar__actions">
+          <a class="btn btn-secondary" href="/">🏠 Dashboard</a>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Intro -->
+      <section class="hero">
+        <div class="hero__content">
+          <h2>Sistema avançado de pesquisa em massa com processamento inteligente</h2>
+          <p>Faça buscas, processe grandes volumes em background e acompanhe tudo em tempo real.</p>
+        </div>
+      </section>
+
+      <!-- === SOMENTE as seções úteis (sem abas e sem Pesquisa Rápida) === -->
+
+      <!-- Tab: Processamento em Massa -->
+      <section id="processamento-massa" class="tab-content active">
+        <div class="callout callout-warning">
+          <strong>🚀 Processamento em Massa:</strong> Para lotes grandes (50+). Processamento em background com monitoramento e download.
         </div>
 
-        <!-- Navigation Tabs -->
-        <div class="nav-tabs">
-            <button class="nav-tab active" onclick="abrirTab('pesquisa-rapida')">
-                ⚡ Pesquisa Rápida
-            </button>
-            <button class="nav-tab" onclick="abrirTab('processamento-massa')">
-                🚀 Processamento em Massa
-            </button>
-            <button class="nav-tab" onclick="abrirTab('monitoramento')">
-                📊 Monitoramento
-            </button>
-        </div>
+        <div class="grid-2">
+          <!-- modos -->
+          <div class="card">
+            <label class="label">Escolha o Modo de Processamento</label>
+            <div class="modes">
+              <div class="processing-mode" id="modo-direto" onclick="selecionarModo('direto')">
+                <div class="mode__icon">⚡</div>
+                <div class="mode__content">
+                  <h3>Processamento Direto</h3>
+                  <p>Resultados na mesma página. Recomendado até 100 MLBs.</p>
+                  <div class="tags">
+                    <span class="tag">Resultados Imediatos</span>
+                    <span class="tag">Até 100 MLBs</span>
+                    <span class="tag">Sem Download</span>
+                  </div>
+                </div>
+              </div>
 
-        <!-- Tab: Pesquisa Rápida -->
-        <div id="pesquisa-rapida" class="tab-content active">
-            <div class="alert alert-info">
-                <strong>💡 Pesquisa Rápida:</strong> Ideal para até 50 MLBs. Processamento direto com resultados imediatos.
+              <div class="processing-mode" id="modo-background" onclick="selecionarModo('background')">
+                <div class="mode__icon">🚀</div>
+                <div class="mode__content">
+                  <h3>Processamento em Background</h3>
+                  <p>Fila para grandes volumes. Ideal para milhares de MLBs com download.</p>
+                  <div class="tags">
+                    <span class="tag">Grandes Volumes</span>
+                    <span class="tag">Download</span>
+                    <span class="tag">Monitoramento</span>
+                    <span class="tag">Sem Limite</span>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
 
-            <form id="form-pesquisa-rapida">
-                <div class="form-group">
-                    <label for="tipo-pesquisa-rapida">Tipo de Pesquisa:</label>
-                    <select id="tipo-pesquisa-rapida" class="form-control" required onchange="alterarTipoPesquisaRapida()">
-                        <option value="">Selecione o tipo de pesquisa...</option>
-                        <option value="detectar_dois_volumes">🔍 Detectar Produtos com Dois Volumes</option>
-                        <option value="pesquisar_texto">📝 Pesquisar Texto Específico</option>
-                    </select>
-                </div>
-
-                <div id="grupo-texto-rapida" class="form-group" style="display: none;">
-                    <label for="texto-pesquisa-rapida">Texto para Pesquisar:</label>
-                    <input type="text" id="texto-pesquisa-rapida" class="form-control" placeholder="Digite o texto a ser pesquisado...">
-                    <small style="color: #666; margin-top: 5px; display: block;">
-                        Exemplos: "kit", "conjunto", "par", "dupla", "dois volumes", etc.
-                    </small>
-                </div>
-
-                <div class="form-group">
-                    <label for="mlbs-rapida">MLBs para Pesquisar:</label>
-                    <textarea id="mlbs-rapida" class="form-control" placeholder="Cole os MLBs aqui, um por linha ou separados por vírgula...
-
-Exemplos:
-MLB1234567890
-MLB9876543210, MLB5556667777
-MLB1112223333" required oninput="contarMLBsRapida()"></textarea>
-                    
-                    <div id="contador-rapida" class="mlb-counter">
-                        <div class="counter-info">
-                            <div class="counter-item">
-                                <div class="counter-number" id="total-mlbs-rapida">0</div>
-                                <div class="counter-label">MLBs Detectados</div>
-                            </div>
-                            <div class="counter-item">
-                                <div class="counter-number" id="validos-mlbs-rapida">0</div>
-                                <div class="counter-label">Válidos</div>
-                            </div>
-                            <div class="counter-item">
-                                <div class="counter-number" id="invalidos-mlbs-rapida">0</div>
-                                <div class="counter-label">Inválidos</div>
-                            </div>
-                        </div>
-                        <div id="status-limite-rapida" class="feature-tag">
-                            Limite: 50 MLBs
-                        </div>
-                    </div>
-                </div>
-
-                <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px;">
-                    <button type="button" class="btn btn-outline" onclick="limparFormularioRapida()">
-                        🗑️ Limpar
-                    </button>
-                    <button type="submit" class="btn btn-primary" id="btn-pesquisar-rapida">
-                        🔍 Pesquisar Agora
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Tab: Processamento em Massa -->
-        <div id="processamento-massa" class="tab-content">
-            <div class="alert alert-warning">
-                <strong>🚀 Processamento em Massa:</strong> Para lotes grandes (mais de 50 MLBs). Processamento em background com monitoramento em tempo real.
-            </div>
-
-            <!-- Seleção do Modo de Processamento -->
+          <!-- formulário -->
+          <form id="form-processamento-massa" class="card">
             <div class="form-group">
-                <label>Escolha o Modo de Processamento:</label>
-                
-                <div class="processing-mode" id="modo-direto" onclick="selecionarModo('direto')">
-                    <h3>⚡ Processamento Direto</h3>
-                    <p>Processamento imediato com resultados na mesma página. Recomendado para até 100 MLBs.</p>
-                    <div class="mode-features">
-                        <span class="feature-tag">Resultados Imediatos</span>
-                        <span class="feature-tag">Até 100 MLBs</span>
-                        <span class="feature-tag">Sem Download</span>
-                    </div>
-                </div>
-
-                <div class="processing-mode" id="modo-background" onclick="selecionarModo('background')">
-                    <h3>🚀 Processamento em Background</h3>
-                    <p>Processamento em fila para grandes volumes. Ideal para milhares de MLBs com download de resultados.</p>
-                    <div class="mode-features">
-                        <span class="feature-tag">Grandes Volumes</span>
-                        <span class="feature-tag">Download de Arquivos</span>
-                        <span class="feature-tag">Monitoramento</span>                        <span class="feature-tag">Sem Limite</span>
-                    </div>
-                </div>
+              <label for="tipo-pesquisa-massa">Tipo de Pesquisa</label>
+              <select id="tipo-pesquisa-massa" class="form-control" required onchange="alterarTipoPesquisaMassa()">
+                <option value="">Selecione o tipo de pesquisa...</option>
+                <option value="detectar_dois_volumes">🔍 Detectar Produtos com Dois Volumes</option>
+                <option value="pesquisar_texto">📝 Pesquisar Texto Específico</option>
+              </select>
             </div>
 
-            <form id="form-processamento-massa">
-                <div class="form-group">
-                    <label for="tipo-pesquisa-massa">Tipo de Pesquisa:</label>
-                    <select id="tipo-pesquisa-massa" class="form-control" required onchange="alterarTipoPesquisaMassa()">
-                        <option value="">Selecione o tipo de pesquisa...</option>
-                        <option value="detectar_dois_volumes">🔍 Detectar Produtos com Dois Volumes</option>
-                        <option value="pesquisar_texto">📝 Pesquisar Texto Específico</option>
-                    </select>
+            <div id="grupo-texto-massa" class="form-group" style="display:none;">
+              <label for="texto-pesquisa-massa">Texto para Pesquisar</label>
+              <input type="text" id="texto-pesquisa-massa" class="form-control" placeholder="Digite o texto a ser pesquisado..." />
+              <small class="help">O sistema busca em títulos, descrições e atributos.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="mlbs-massa">MLBs para Processar</label>
+              <textarea id="mlbs-massa" class="form-control" rows="10" placeholder="Cole os MLBs aqui, um por linha ou separados por vírgula..." required oninput="contarMLBsMassa()"></textarea>
+
+              <div id="contador-massa" class="counter">
+                <div class="counter__items">
+                  <div class="chip">
+                    <div class="chip__num" id="total-mlbs-massa">0</div>
+                    <div class="chip__label">MLBs Detectados</div>
+                  </div>
+                  <div class="chip">
+                    <div class="chip__num" id="validos-mlbs-massa">0</div>
+                    <div class="chip__label">Válidos</div>
+                  </div>
+                  <div class="chip">
+                    <div class="chip__num" id="invalidos-mlbs-massa">0</div>
+                    <div class="chip__label">Inválidos</div>
+                  </div>
+                  <div class="chip">
+                    <div class="chip__num" id="tempo-estimado-massa">0</div>
+                    <div class="chip__label">Min. Estimados</div>
+                  </div>
                 </div>
+                <div id="status-processamento-massa" class="pill">Modo: Não Selecionado</div>
+              </div>
+            </div>
 
-                <div id="grupo-texto-massa" class="form-group" style="display: none;">
-                    <label for="texto-pesquisa-massa">Texto para Pesquisar:</label>
-                    <input type="text" id="texto-pesquisa-massa" class="form-control" placeholder="Digite o texto a ser pesquisado...">
-                    <small style="color: #666; margin-top: 5px; display: block;">
-                        O sistema buscará este texto em títulos, descrições e atributos dos produtos.
-                    </small>
-                </div>
+            <div class="form-group checkbox">
+              <label>
+                <input type="checkbox" id="forcar-background-massa" onchange="atualizarModoProcessamento()" />
+                🔧 Forçar processamento em background
+              </label>
+              <small class="help">Útil para monitorar progresso ou baixar resultados.</small>
+            </div>
 
-                <div class="form-group">
-                    <label for="mlbs-massa">MLBs para Processar:</label>
-                    <textarea id="mlbs-massa" class="form-control" style="min-height: 200px;" placeholder="Cole os MLBs aqui, um por linha ou separados por vírgula...
+            <div class="form-actions">
+              <button type="button" class="btn btn-outline" onclick="limparFormularioMassa()">🗑️ Limpar</button>
+              <button type="button" class="btn btn-secondary" onclick="validarMLBsMassa()">✅ Validar MLBs</button>
+              <button type="submit" class="btn btn-primary" id="btn-processar-massa">🚀 Iniciar Processamento</button>
+            </div>
+          </form>
+        </div>
+      </section>
 
-Para grandes volumes, você pode colar:
-• Listas de MLBs de planilhas
-• Resultados de outras consultas
-• Arquivos de texto com MLBs
-
-Exemplos:
-MLB1234567890
-MLB9876543210
-MLB5556667777
-..." required oninput="contarMLBsMassa()"></textarea>
-                    
-                    <div id="contador-massa" class="mlb-counter">
-                        <div class="counter-info">
-                            <div class="counter-item">
-                                <div class="counter-number" id="total-mlbs-massa">0</div>
-                                <div class="counter-label">MLBs Detectados</div>
-                            </div>
-                            <div class="counter-item">
-                                <div class="counter-number" id="validos-mlbs-massa">0</div>
-                                <div class="counter-label">Válidos</div>
-                            </div>
-                            <div class="counter-item">
-                                <div class="counter-number" id="invalidos-mlbs-massa">0</div>
-                                <div class="counter-label">Inválidos</div>
-                            </div>
-                            <div class="counter-item">
-                                <div class="counter-number" id="tempo-estimado-massa">0</div>
-                                <div class="counter-label">Min. Estimados</div>
-                            </div>
-                        </div>
-                        <div id="status-processamento-massa" class="feature-tag">
-                            Modo: Não Selecionado
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="forcar-background-massa" onchange="atualizarModoProcessamento()">
-                        🔧 Forçar processamento em background (mesmo para lotes pequenos)
-                    </label>
-                    <small style="color: #666; margin-top: 5px; display: block;">
-                        Útil quando você quer monitorar o progresso ou baixar resultados em arquivo.
-                    </small>
-                </div>
-
-                <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px;">
-                    <button type="button" class="btn btn-outline" onclick="limparFormularioMassa()">
-                        🗑️ Limpar
-                    </button>
-                    <button type="button" class="btn btn-secondary" onclick="validarMLBsMassa()">
-                        ✅ Validar MLBs
-                    </button>
-                    <button type="submit" class="btn btn-primary" id="btn-processar-massa">
-                        🚀 Iniciar Processamento
-                    </button>
-                </div>
-            </form>
+      <!-- Tab: Monitoramento -->
+      <section id="monitoramento" class="tab-content">
+        <div class="callout callout-info">
+          <strong>📊 Monitoramento:</strong> Acompanhe seus processos em tempo real.
         </div>
 
-        <!-- Tab: Monitoramento -->
-        <div id="monitoramento" class="tab-content">
-            <div class="alert alert-info">
-                <strong>📊 Monitoramento:</strong> Acompanhe todos os seus processos em tempo real.
-            </div>
-
-            <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
-                <button class="btn btn-primary" onclick="atualizarMonitoramento()">
-                    🔄 Atualizar
-                </button>
-                <button class="btn btn-success" onclick="abrirModalNovoProcesso()">
-                    ➕ Novo Processo
-                </button>
-                <button class="btn btn-warning" onclick="controlarSistema('pausar')" id="btn-pausar-sistema">
-                    ⏸️ Pausar Sistema
-                </button>
-                <button class="btn btn-secondary" onclick="window.open('/dashboard', '_blank')">
-                    🏠 Dashboard Principal
-                </button>
-            </div>
-
-            <!-- Estatísticas Gerais -->
-            <div id="stats-monitoramento" class="results-stats">
-                <div class="stat-card">
-                    <div class="stat-number" id="stat-processando">0</div>
-                    <div class="stat-label">Processando</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="stat-aguardando">0</div>
-                    <div class="stat-label">Na Fila</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="stat-concluidos">0</div>
-                    <div class="stat-label">Concluídos</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="stat-erros">0</div>
-                    <div class="stat-label">Com Erros</div>
-                </div>
-            </div>
-
-            <!-- Filtros -->
-            <div style="display: flex; gap: 15px; margin: 20px 0; flex-wrap: wrap; align-items: center;">
-                <div>
-                    <label for="filtro-status-monitor">Status:</label>
-                    <select id="filtro-status-monitor" class="form-control" style="width: auto; display: inline-block; margin-left: 5px;" onchange="filtrarProcessosMonitor()">
-                        <option value="">Todos</option>
-                        <option value="processando">Processando</option>
-                        <option value="aguardando">Aguardando</option>
-                        <option value="concluido">Concluído</option>
-                        <option value="cancelado">Cancelado</option>
-                    </select>
-                </div>
-                <div>
-                    <label for="filtro-limite-monitor">Mostrar:</label>
-                    <select id="filtro-limite-monitor" class="form-control" style="width: auto; display: inline-block; margin-left: 5px;" onchange="filtrarProcessosMonitor()">
-                        <option value="10">10 processos</option>
-                        <option value="20" selected>20 processos</option>
-                        <option value="50">50 processos</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Lista de Processos -->
-            <div id="lista-processos-monitor">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <span>Carregando processos...</span>
-                </div>
-            </div>
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="atualizarMonitoramento()">🔄 Atualizar</button>
+          <button class="btn btn-success" onclick="abrirModalNovoProcesso()">➕ Novo Processo</button>
+          <button class="btn btn-warning" onclick="controlarSistema('pausar')" id="btn-pausar-sistema">⏸️ Pausar Sistema</button>
+          <button class="btn btn-outline" onclick="window.open('/dashboard','_blank')">🏠 Dashboard Principal</button>
         </div>
 
-        <!-- Container de Resultados -->
-        <div id="results-container" class="results-container">
-            <div class="results-header">
-                <h3>📊 Resultados da Pesquisa</h3>
-                <div>
-                    <button class="btn btn-secondary" onclick="exportarResultados()">
-                        📥 Exportar
-                    </button>
-                    <button class="btn btn-outline" onclick="fecharResultados()">
-                        ✖️ Fechar
-                    </button>
-                </div>
-            </div>
-            
-            <div id="results-stats" class="results-stats">
-                <!-- Estatísticas serão inseridas aqui -->
-            </div>
-            
-            <div id="results-content">
-                <!-- Resultados serão inseridos aqui -->
-            </div>
+        <div id="stats-monitoramento" class="stats">
+          <div class="stat-card">
+            <div class="stat-number" id="stat-processando">0</div>
+            <div class="stat-label">Processando</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="stat-aguardando">0</div>
+            <div class="stat-label">Na Fila</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="stat-concluidos">0</div>
+            <div class="stat-label">Concluídos</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="stat-erros">0</div>
+            <div class="stat-label">Com Erros</div>
+          </div>
         </div>
+
+        <div class="filters">
+          <div class="filter">
+            <label for="filtro-status-monitor">Status</label>
+            <select id="filtro-status-monitor" class="form-control" onchange="filtrarProcessosMonitor()">
+              <option value="">Todos</option>
+              <option value="processando">Processando</option>
+              <option value="aguardando">Aguardando</option>
+              <option value="concluido">Concluído</option>
+              <option value="cancelado">Cancelado</option>
+            </select>
+          </div>
+          <div class="filter">
+            <label for="filtro-limite-monitor">Mostrar</label>
+            <select id="filtro-limite-monitor" class="form-control" onchange="filtrarProcessosMonitor()">
+              <option value="10">10 processos</option>
+              <option value="20" selected>20 processos</option>
+              <option value="50">50 processos</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="lista-processos-monitor" class="jobs">
+          <div class="loading"><div class="spinner"></div><span>Carregando processos...</span></div>
+        </div>
+      </section>
+
+      <!-- Drawer de Resultados -->
+      <aside id="results-container" class="drawer">
+        <div class="drawer__header">
+          <h3>📊 Resultados da Pesquisa</h3>
+          <div class="drawer__actions">
+            <button class="btn btn-secondary" onclick="exportarResultados()">📥 Exportar</button>
+            <button class="btn btn-outline" onclick="fecharResultados()">✖️ Fechar</button>
+          </div>
+        </div>
+        <div id="results-stats" class="stats"></div>
+        <div id="results-content" class="drawer__content"></div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Modal: Novo Processo -->
+  <div id="modal-novo-processo" class="modal">
+    <div class="modal__content">
+      <div class="modal__header">
+        <h3>➕ Iniciar Novo Processo</h3>
+        <button class="modal__close" onclick="fecharModalNovoProcesso()">&times;</button>
+      </div>
+      <div class="modal__body">
+        <form id="form-modal-processo">
+          <div class="form-group">
+            <label for="tipo-modal">Tipo de Pesquisa</label>
+            <select id="tipo-modal" class="form-control" required>
+              <option value="">Selecione...</option>
+              <option value="detectar_dois_volumes">Detectar Produtos com Dois Volumes</option>
+              <option value="pesquisar_texto">Pesquisar Texto Específico</option>
+            </select>
+          </div>
+          <div id="grupo-texto-modal" class="form-group" style="display:none;">
+            <label for="texto-modal">Texto para Pesquisar</label>
+            <input type="text" id="texto-modal" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label for="mlbs-modal">MLBs</label>
+            <textarea id="mlbs-modal" class="form-control" rows="6" placeholder="Cole os MLBs aqui..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn-outline" onclick="fecharModalNovoProcesso()">Cancelar</button>
+        <button class="btn btn-primary" onclick="iniciarProcessoModal()">Iniciar</button>
+      </div>
     </div>
+  </div>
 
-    <!-- Modal: Novo Processo -->
-    <div id="modal-novo-processo" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>➕ Iniciar Novo Processo</h3>
-                <span class="close" onclick="fecharModalNovoProcesso()">&times;</span>
-            </div>
-            <div class="modal-body">
-                <form id="form-modal-processo">
-                    <div class="form-group">
-                        <label for="tipo-modal">Tipo de Pesquisa:</label>
-                        <select id="tipo-modal" class="form-control" required>
-                            <option value="">Selecione...</option>
-                            <option value="detectar_dois_volumes">Detectar Produtos com Dois Volumes</option>
-                            <option value="pesquisar_texto">Pesquisar Texto Específico</option>
-                        </select>
-                    </div>
-                    
-                    <div id="grupo-texto-modal" class="form-group" style="display: none;">
-                        <label for="texto-modal">Texto para Pesquisar:</label>
-                        <input type="text" id="texto-modal" class="form-control">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="mlbs-modal">MLBs:</label>
-                        <textarea id="mlbs-modal" class="form-control" rows="6" placeholder="Cole os MLBs aqui..."></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="fecharModalNovoProcesso()">Cancelar</button>
-                <button class="btn btn-primary" onclick="iniciarProcessoModal()">Iniciar</button>
-            </div>
-        </div>
+  <!-- Modal: Detalhes do Job -->
+  <div id="modal-detalhes-job" class="modal">
+    <div class="modal__content">
+      <div class="modal__header">
+        <h3>📊 Detalhes do Processo</h3>
+        <button class="modal__close" onclick="fecharModalDetalhes()">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div id="detalhes-job-content"></div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn-outline" onclick="fecharModalDetalhes()">Fechar</button>
+      </div>
     </div>
+  </div>
 
-    <!-- Modal: Detalhes do Job -->
-    <div id="modal-detalhes-job" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>📊 Detalhes do Processo</h3>
-                <span class="close" onclick="fecharModalDetalhes()">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div id="detalhes-job-content">
-                    <!-- Conteúdo será carregado dinamicamente -->
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="fecharModalDetalhes()">Fechar</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="/js/pesquisa-descricao.js"></script>
+  <script src="/js/pesquisa-descricao.js?v=3"></script>
 </body>
 </html>
