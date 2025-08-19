@@ -1,78 +1,119 @@
+// middleware/authMiddleware.js
 const TokenService = require('../services/tokenService');
+const SKIP = [/^\/api\/pesquisa-descricao\/jobs/, /^\/api\/pesquisa-descricao\/status/];
+if (SKIP.some(rx => rx.test(req.path))) return next();
 
+
+/** Helpers */
+function getAccountMeta(res) {
+  return {
+    key: res?.locals?.accountKey || null,
+    label: res?.locals?.accountLabel || null
+  };
+}
+
+function getCreds(res) {
+  // Credenciais injetadas pelo ensureAccount (multi-conta).
+  // Se não houver, o TokenService fará fallback para process.env.
+  return res?.locals?.mlCreds || {};
+}
+
+function attachAuthContext(req, res, accessToken) {
+  res.locals.accessToken = accessToken || null;
+  req.access_token = accessToken || null; // compatibilidade com seu código legado
+
+  // Também expõe metadados úteis
+  req.ml = {
+    accessToken: accessToken || null,
+    creds: getCreds(res),
+    accountKey: res?.locals?.accountKey || null,
+    accountLabel: res?.locals?.accountLabel || null
+  };
+}
+
+/**
+ * Middleware obrigatório:
+ * - Garante que exista um ACCESS_TOKEN válido (renova se necessário).
+ * - Bloqueia (401) se não conseguir obter/renovar.
+ * - Usa credenciais da conta selecionada (ensureAccount) ou .env como fallback.
+ */
 const authMiddleware = async (req, res, next) => {
+  const account = getAccountMeta(res);
   try {
-    const access_token = process.env.ACCESS_TOKEN;
-    
-    if (!access_token) {
+    // Tenta usar/renovar automaticamente com base nas credenciais da conta atual
+    const token = await TokenService.renovarTokenSeNecessario(getCreds(res));
+    if (!token) {
       return res.status(401).json({
         success: false,
-        error: 'Token de acesso não configurado'
+        error: 'Token de acesso indisponível para a conta atual',
+        account
       });
     }
 
-    // Verificar se o token é válido
+    attachAuthContext(req, res, token);
+
+    // Opcional: obter dados do usuário (útil para logs/traço)
     try {
-      const tokenValido = await TokenService.testarToken();
-      
-      if (tokenValido.success) {
-        req.access_token = access_token;
+      const teste = await TokenService.testarToken(getCreds(res));
+      if (teste?.success) {
         req.user_data = {
-          user_id: tokenValido.user_id,
-          nickname: tokenValido.nickname
+          user_id: teste.user_id,
+          nickname: teste.nickname
         };
-        next();
-      } else {
-        // Tentar renovar automaticamente
-        console.log('🔄 Token inválido, tentando renovar automaticamente...');
-        const novoToken = await TokenService.renovarTokenSeNecessario();
-        req.access_token = novoToken;
-        next();
       }
-    } catch (error) {
-      // Se falhar, tentar renovar
-      try {
-        const novoToken = await TokenService.renovarTokenSeNecessario();
-        req.access_token = novoToken;
-        next();
-      } catch (renewError) {
-        return res.status(401).json({
-          success: false,
-          error: 'Token inválido e não foi possível renovar: ' + renewError.message
-        });
-      }
+    } catch (e) {
+      // Não bloqueia; já temos um token válido (testarToken é apenas informativo)
+      console.warn('⚠️ Não foi possível obter dados do usuário após renovar/testar token:', e?.message || e);
     }
 
+    return next();
   } catch (error) {
-    res.status(401).json({
+    console.error('❌ Erro no authMiddleware (obrigatório):', error?.message || error);
+    return res.status(401).json({
       success: false,
-      error: 'Erro de autenticação: ' + error.message
+      error: 'Token inválido e não foi possível renovar: ' + (error?.message || 'Erro desconhecido'),
+      account
     });
   }
 };
 
-// Middleware opcional (não bloqueia se token não existir)
+/**
+ * Middleware opcional:
+ * - Tenta obter/renovar token; se falhar, apenas segue sem bloquear.
+ * - Anexa token e metadados no req/res quando disponível.
+ */
 const authMiddlewareOptional = async (req, res, next) => {
+  const account = getAccountMeta(res);
   try {
-    const access_token = process.env.ACCESS_TOKEN;
-    
-    if (access_token) {
-      const tokenValido = await TokenService.testarToken();
-      
-      if (tokenValido.success) {
-        req.access_token = access_token;
-        req.user_data = {
-          user_id: tokenValido.user_id,
-          nickname: tokenValido.nickname
-        };
+    let token = null;
+    try {
+      token = await TokenService.renovarTokenSeNecessario(getCreds(res));
+    } catch (e) {
+      console.warn('⚠️ authMiddlewareOptional: não foi possível obter/renovar token:', e?.message || e);
+    }
+
+    attachAuthContext(req, res, token);
+
+    if (token) {
+      try {
+        const teste = await TokenService.testarToken(getCreds(res));
+        if (teste?.success) {
+          req.user_data = {
+            user_id: teste.user_id,
+            nickname: teste.nickname
+          };
+        }
+      } catch (e) {
+        // Não bloqueia, apenas loga
+        console.warn('⚠️ authMiddlewareOptional: falha ao testar token:', e?.message || e);
       }
     }
-    
-    next();
+
+    return next();
   } catch (error) {
-    // Em caso de erro, continua sem autenticação
-    console.log('⚠️ Erro no middleware opcional:', error.message);
-    next();
+    console.warn('⚠️ Erro inesperado no authMiddlewareOptional:', error?.message || error);
+    // Segue adiante mesmo com erro
+    return next();
   }
 };
 

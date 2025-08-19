@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Selecionar Conta - API Mercado Livre</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --p1:#667eea; --p2:#764ba2; }
+    body {
+      margin:0; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      min-height:100vh; display:flex; align-items:center; justify-content:center;
+      background: linear-gradient(135deg, var(--p1), var(--p2));
+      color:#111827;
+    }
+    .card {
+      width:100%; max-width:640px; background:#fff; border-radius:16px; padding:28px;
+      box-shadow:0 24px 48px rgba(0,0,0,.16);
+    }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom:6px; font-weight:700; color:#111827; }
+    .brand .logo { font-size:22px; }
+    h1 { margin:0 0 10px 0; font-size:22px; color:#111827; }
+    p.sub { margin:0 0 20px 0; color:#6b7280; }
+    .list { display:grid; gap:12px; margin:18px 0 10px 0; }
+    .btn {
+      border:0; width:100%; padding:14px 16px; border-radius:12px; cursor:pointer;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      background:#f3f4f6; transition:transform .06s ease, box-shadow .2s ease, opacity .2s ease;
+      text-align:left;
+    }
+    .btn:hover { opacity:.95; }
+    .btn:active { transform: translateY(1px); }
+    .btn .title { font-weight:700; color:#111827; }
+    .btn .hint { font-size:12px; color:#6b7280; }
+    .btn.primary {
+      background: linear-gradient(135deg, var(--p1), var(--p2)); color:#fff; justify-content:center;
+      font-weight:700;
+      box-shadow: 0 16px 32px rgba(118,75,162,.25);
+    }
+    .row { display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+    .link { background:transparent; border:0; color:var(--p1); font-weight:600; cursor:pointer; }
+    .status {
+      margin-top:10px; font-size:12px; color:#6b7280;
+      background:#f9fafb; border:1px solid #e5e7eb; padding:8px 10px; border-radius:8px;
+    }
+    .tag {
+      padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700;
+    }
+    .ok { background:#d1fae5; color:#065f46; }
+    .warn { background:#fef3c7; color:#92400e; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="logo">🔎</span><span>API Mercado Livre</span></div>
+    <h1>Selecione a conta</h1>
+    <p class="sub">Escolha qual conta deseja usar nesta sessão. Você pode trocá-la depois pelo botão “Trocar Conta” no topo do dashboard.</p>
+
+    <div id="list" class="list">
+      <!-- preenchido via JS -->
+    </div>
+
+    <div class="row">
+      <button class="link" onclick="window.location.href='/'">Voltar ao Dashboard</button>
+    </div>
+
+    <div id="status" class="status" style="display:none"></div>
+  </div>
+
+  <script>
+    const labels = { drossi:'DRossi Interiores', diplany:'Diplany', rossidecor:'Rossi Decor' };
+
+    async function loadAccounts() {
+      const list = document.getElementById('list');
+      const status = document.getElementById('status');
+      try {
+        const r = await fetch('/api/account/list', { cache:'no-store' });
+        const data = await r.json();
+
+        const items = (data.accounts || []).map(acc => {
+          const tag = acc.configured
+            ? `<span class="tag ok">Tokens OK</span>`
+            : `<span class="tag warn">Tokens ausentes</span>`;
+          return `
+            <button class="btn" onclick="selectAccount('${acc.key}')">
+              <div>
+                <div class="title">${acc.label}</div>
+                <div class="hint">chave: ${acc.key}</div>
+              </div>
+              ${tag}
+            </button>`;
+        }).join('');
+
+        list.innerHTML = items + `
+          <button class="btn primary" onclick="clearAccount()">Limpar Seleção</button>
+        `;
+
+        if (data.current) {
+          status.style.display = 'block';
+          status.textContent = 'Conta atual: ' + (data.currentLabel || data.current);
+        }
+      } catch (e) {
+        list.innerHTML = `<div class="hint">Erro ao carregar contas: ${e.message}</div>`;
+      }
+    }
+
+    async function selectAccount(key) {
+      const r = await fetch('/api/account/select', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ accountKey:key })
+      });
+      const data = await r.json();
+      if (data.ok || data.success) {
+        window.location.href = '/';
+      } else {
+        alert('Falha ao selecionar: ' + (data.error || 'erro'));
+      }
+    }
+
+    async function clearAccount() {
+      await fetch('/api/account/clear',{ method:'POST' });
+      // mantém na tela para o usuário escolher outra
+      location.reload();
+    }
+
+    loadAccounts();
+  </script>
+</body>
+</html>
