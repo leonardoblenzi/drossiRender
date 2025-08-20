@@ -1,4 +1,3 @@
-// index.js
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -19,34 +18,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 console.log('🔍 Carregando módulos...');
 
+// Debug helper (opcional)
+app.get('/api/account/whoami', (req, res) => {
+  res.json({
+    ok: true,
+    accountKey: res.locals.accountKey || null,
+    accountLabel: res.locals.accountLabel || null,
+    hasCreds: !!res.locals.mlCreds,
+  });
+});
+
 // ==================================================
-// PÁGINA DE SELEÇÃO DE CONTA (aberta) + Rotas de conta
+// Seleção de conta (rotas ABERTAS)
 // ==================================================
 try {
-  // Página de seleção (views/select-conta.html)
+  // Página de seleção (NÃO protegida)
   app.get('/select-conta', (req, res) => {
     res.sendFile(path.join(__dirname, 'views', 'select-conta.html'));
   });
 
-  // Rotas de conta (listar/selecionar/limpar/atual)
-  const accountModule = require('./routes/accountRoutes');
-  app.use('/api/account', accountModule);
-
-  // WhoAmI aberto (lendo direto do cookie)
-  const ACCOUNTS = accountModule?.ACCOUNTS || null;
-  app.get('/api/account/whoami', (req, res) => {
-    const key = req.cookies?.ml_account || null;
-    const label =
-      key && ACCOUNTS
-        ? (ACCOUNTS[key]?.label || ACCOUNTS[key]?.name || key)
-        : null;
-    res.json({
-      ok: true,
-      accountKey: key,
-      accountLabel: label,
-      hasCreds: !!(key && ACCOUNTS && ACCOUNTS[key])
-    });
-  });
+  // API de conta (NÃO protegida)
+  const accountRoutes = require('./routes/accountRoutes');
+  app.use('/api/account', accountRoutes);
 
   console.log('✅ Rotas de seleção de conta ativas');
 } catch (error) {
@@ -54,26 +47,22 @@ try {
 }
 
 // ==========================================
-// INICIALIZAR SISTEMA DE FILAS (NOVO)
+// INICIALIZAR SISTEMA DE FILAS
 // ==========================================
 let queueService;
 try {
   queueService = require('./services/queueService');
   console.log('✅ QueueService carregado');
-
-  queueService
-    .iniciarProcessamento()
+  queueService.iniciarProcessamento()
     .then(() => console.log('🚀 Sistema de filas iniciado com sucesso'))
-    .catch((error) =>
-      console.error('❌ Erro ao iniciar sistema de filas:', error.message)
-    );
+    .catch((error) => console.error('❌ Erro ao iniciar sistema de filas:', error.message));
 } catch (error) {
   console.error('❌ Erro ao carregar QueueService:', error.message);
   console.warn('⚠️ Sistema de filas não disponível - processamento será apenas direto');
 }
 
 // ==========================================
-// ROTAS DE MONITORAMENTO E DEBUG (ABERTAS)
+// Monitoramento/Debug (ABERTAS)
 // ==========================================
 app.get('/api/system/health', (req, res) => {
   try {
@@ -89,30 +78,19 @@ app.get('/api/system/health', (req, res) => {
         pesquisa_descricao: true,
         keyword_analytics: true,
         queue_system: !!queueService,
-        redis_connection: false
+        redis_connection: false,
       }
     };
 
     if (queueService) {
-      queueService
-        .verificarConexao()
-        .then((redisOk) => {
-          health.features.redis_connection = redisOk;
-          res.json({ success: true, health });
-        })
-        .catch(() => {
-          health.features.redis_connection = false;
-          res.json({ success: true, health });
-        });
+      queueService.verificarConexao()
+        .then((redisOk) => { health.features.redis_connection = redisOk; res.json({ success: true, health }); })
+        .catch(() => { health.features.redis_connection = false; res.json({ success: true, health }); });
     } else {
       res.json({ success: true, health });
     }
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Erro ao verificar saúde do sistema',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: 'Erro ao verificar saúde do sistema', message: error.message });
   }
 });
 
@@ -130,20 +108,13 @@ app.get('/api/system/stats', async (req, res) => {
     };
 
     if (queueService) {
-      try {
-        stats.queue_system = await queueService.obterEstatisticas();
-      } catch (error) {
-        stats.queue_system = { error: error.message };
-      }
+      try { stats.queue_system = await queueService.obterEstatisticas(); }
+      catch (error) { stats.queue_system = { error: error.message }; }
     }
 
     res.json({ success: true, stats });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Erro ao obter estatísticas',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: 'Erro ao obter estatísticas', message: error.message });
   }
 });
 
@@ -171,18 +142,23 @@ app.get('/test-basic', (req, res) => {
 });
 
 // ==========================================
-// GUARD: / → /select-conta se não houver conta
-// (deve vir ANTES do ensureAccount)
+// ROOT: SEMPRE levar à seleção ou dashboard
 // ==========================================
-app.get('/', (req, res, next) => {
-  if (!req.cookies?.ml_account) {
+// Por padrão, força ir para /select-conta ao abrir o app.
+// Se quiser permitir pular quando já houver cookie, mude FORCE_ACCOUNT_SELECTION=false no .env
+const FORCE_ACCOUNT_SELECTION = String(process.env.FORCE_ACCOUNT_SELECTION || 'true').toLowerCase() === 'true';
+
+app.get('/', (req, res) => {
+  const hasAccountCookie = !!req.cookies?.ml_account;
+  if (FORCE_ACCOUNT_SELECTION || !hasAccountCookie) {
     return res.redirect('/select-conta');
   }
-  return next();
+  // Se não for forçado e já existe conta, mande ao dashboard:
+  return res.redirect('/dashboard');
 });
 
 // ==========================================
-// PROTEÇÃO: EXIGIR CONTA SELECIONADA
+// PROTEÇÃO: exigir conta selecionada (APÓS root redirect)
 // ==========================================
 try {
   const ensureAccount = require('./middleware/ensureAccount');
@@ -194,7 +170,7 @@ try {
 }
 
 // ==========================================
-// ROTAS PROTEGIDAS (após ensureAccount)
+// Rotas PROTEGIDAS do app
 // ==========================================
 
 // Token
@@ -206,7 +182,7 @@ try {
   console.error('❌ Erro ao carregar TokenRoutes:', error.message);
 }
 
-// Promoções
+// Promoção (API)
 try {
   const promocaoRoutes = require('./routes/promocaoRoutes');
   app.use(promocaoRoutes);
@@ -215,21 +191,13 @@ try {
   console.error('❌ Erro ao carregar PromocaoRoutes:', error.message);
 }
 
-// HTML (Dashboard e outras páginas)
+// HTML (dashboard e páginas)
 try {
   const htmlRoutes = require('./routes/htmlRoutes');
   app.use(htmlRoutes);
   console.log('✅ HtmlRoutes carregado');
 } catch (error) {
   console.error('❌ Erro ao carregar HtmlRoutes:', error.message);
-  app.get('/', (req, res) => {
-    res.send(`
-      <h1>🛒 API Mercado Livre</h1>
-      <p>Servidor funcionando, mas HtmlRoutes não carregou.</p>
-      <p><strong>Erro:</strong> ${error.message}</p>
-      <p><a href="/test-basic">🔧 Teste Básico</a></p>
-    `);
-  });
 }
 
 // Criar Promoção (API)
@@ -241,7 +209,7 @@ try {
   console.error('❌ Erro ao carregar CriarPromocaoRoutes:', error.message);
 }
 
-// Pesquisa em descrições
+// Pesquisa em Descrições (API)
 try {
   const pesquisaDescricaoRoutes = require('./routes/pesquisaDescricaoRoutes');
   app.use('/api/pesquisa-descricao', pesquisaDescricaoRoutes);
@@ -250,7 +218,7 @@ try {
   console.error('❌ Erro ao carregar PesquisaDescricaoRoutes:', error.message);
 }
 
-// Interface HTML de Pesquisa
+// Interfaces HTML auxiliares
 try {
   app.get('/pesquisa-descricao', (req, res) => {
     res.sendFile(path.join(__dirname, 'views', 'pesquisa-descricao.html'));
@@ -260,7 +228,7 @@ try {
   console.error('❌ Erro ao carregar interface de pesquisa:', error.message);
 }
 
-// Keyword Analytics (API + HTML)
+// Keyword Analytics
 try {
   const keywordAnalyticsRoutes = require('./routes/keywordAnalyticsRoutes');
   app.use('/api/keyword-analytics', keywordAnalyticsRoutes);
@@ -279,7 +247,7 @@ try {
 }
 
 // ==========================================
-// MIDDLEWARES FINAIS
+// ERRORS
 // ==========================================
 app.use((error, req, res, next) => {
   console.error('❌ Erro não tratado:', error);
@@ -301,7 +269,7 @@ app.use((req, res) => {
     available_routes: {
       interfaces: [
         'GET /select-conta - Selecionar conta',
-        'GET / - Dashboard principal',
+        'GET /dashboard - Dashboard principal',
         'GET /pesquisa-descricao - Interface de pesquisa',
         'GET /keyword-analytics - Interface de analytics',
         'GET /criar-promocao - Interface de promoções',
@@ -329,15 +297,15 @@ app.use((req, res) => {
 });
 
 // ==========================================
-// INICIALIZAÇÃO DO SERVIDOR
+// INICIALIZAÇÃO
 // ==========================================
 const server = app.listen(PORT, () => {
   console.log('🚀 ================================');
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log('🚀 ================================');
   console.log('📋 Interfaces Web:');
-  console.log(`    • http://localhost:${PORT}/select-conta - Selecionar conta (novo)`);
-  console.log(`    • http://localhost:${PORT}/ - Dashboard principal`);
+  console.log(`    • http://localhost:${PORT}/select-conta - Selecionar conta (obrigatório ao abrir)`);
+  console.log(`    • http://localhost:${PORT}/dashboard - Dashboard principal`);
   console.log(`    • http://localhost:${PORT}/pesquisa-descricao - Pesquisa em massa`);
   console.log(`    • http://localhost:${PORT}/keyword-analytics - Análise de palavras-chave`);
   console.log(`    • http://localhost:${PORT}/criar-promocao - Criar promoções`);
@@ -369,16 +337,6 @@ const server = app.listen(PORT, () => {
   console.log(`    • Sistema de Filas: ${queueService ? '✅ Ativo' : '❌ Indisponível'}`);
   console.log(`    • Redis: ${process.env.REDIS_URL || process.env.REDIS_HOST ? '✅ Configurado' : '❌ Não configurado'}`);
   console.log('🚀 ================================');
-  console.log('💡 Tudo funcionando! Acesse o dashboard no navegador.');
-  if (queueService) {
-    console.log('🎯 Sistema de processamento em massa ATIVO');
-    console.log('   • Processamento em background disponível');
-    console.log('   • Monitoramento em tempo real ativo');
-    console.log('   • Download de resultados habilitado');
-  } else {
-    console.log('⚠️ Sistema de filas INATIVO - apenas processamento direto');
-  }
-  console.log('🚀 ================================');
 });
 
 // ==========================================
@@ -399,19 +357,14 @@ async function gracefulShutdown(signal) {
     console.log('✅ Servidor encerrado com sucesso');
     process.exit(0);
   });
-  setTimeout(() => {
-    console.log('⏰ Forçando encerramento...');
-    process.exit(1);
-  }, 10000);
+  setTimeout(() => { console.log('⏰ Forçando encerramento...'); process.exit(1); }, 10000);
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
-
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   gracefulShutdown('UNCAUGHT_EXCEPTION');

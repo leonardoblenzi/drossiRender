@@ -1,73 +1,165 @@
+// services/promocaoService.js
 const fetch = require('node-fetch');
 const TokenService = require('./tokenService');
 const config = require('../config/config');
 
+// ---------- helpers de credenciais/rotas ----------
+
+function accountKeyFrom(opts = {}) {
+  const k =
+    opts.accountKey ||
+    opts.key ||
+    opts.mlCreds?.account_key ||
+    opts.mlCreds?.accountKey ||
+    process.env.ACCOUNT_KEY ||
+    process.env.SELECTED_ACCOUNT ||
+    null;
+  return (k || 'sem-conta').toLowerCase();
+}
+
+function resolveCredsFrom(opts = {}) {
+  // credenciais vindas do ensureAccount (req/res.locals) têm prioridade
+  const c = {
+    app_id:        opts.mlCreds?.app_id        || process.env.APP_ID        || process.env.ML_APP_ID,
+    client_secret: opts.mlCreds?.client_secret || process.env.CLIENT_SECRET  || process.env.ML_CLIENT_SECRET,
+    refresh_token: opts.mlCreds?.refresh_token || process.env.REFRESH_TOKEN  || process.env.ML_REFRESH_TOKEN,
+    access_token:  opts.mlCreds?.access_token  || process.env.ACCESS_TOKEN   || process.env.ML_ACCESS_TOKEN,
+    redirect_uri:  opts.mlCreds?.redirect_uri  || process.env.REDIRECT_URI   || process.env.ML_REDIRECT_URI,
+  };
+  const key = accountKeyFrom(opts);
+  return {
+    ...c,
+    account_key: key,   // snake_case → usado pelo TokenService
+    accountKey:  key,   // camelCase → útil pra logs locais
+  };
+}
+
+function urls() {
+  return {
+    users_me:      config?.urls?.users_me || 'https://api.mercadolibre.com/users/me',
+    items_base:    config?.urls?.items || 'https://api.mercadolibre.com/items',
+    seller_promos: config?.urls?.seller_promotions || 'https://api.mercadolibre.com/seller-promotions',
+  };
+}
+
+// ---------- auth state e fetch com renovação sob demanda ----------
+
+/**
+ * Monta um "state" de autenticação reutilizável no lote.
+ * - Resolve credenciais da conta
+ * - Garante um token válido (renova se necessário)
+ */
+async function prepararAuthState(options = {}) {
+  const creds = resolveCredsFrom(options);
+
+  // monta o pacote completo para o TokenService (evita ler só de process.env)
+  const merged = {
+    ...creds,
+    access_token: options.access_token || creds.access_token,
+    account_key:  creds.account_key || creds.accountKey || null,
+  };
+
+  // se já temos token, validamos/renovamos se preciso; se não, renovamos
+  const token = await TokenService.renovarTokenSeNecessario(merged);
+
+  return {
+    token,
+    creds: merged,
+    key: merged.account_key || 'sem-conta', // prefixo de log correto
+  };
+}
+
+/**
+ * Faz fetch com Authorization e, em caso de 401, renova UMA vez e repete.
+ * Atualiza state.token se renovar.
+ */
+async function authFetch(url, init, state) {
+  const doCall = async (tok) => {
+    const headers = { ...(init?.headers || {}), Authorization: `Bearer ${tok}` };
+    return fetch(url, { ...init, headers });
+  };
+
+  // primeira tentativa
+  let resp = await doCall(state.token);
+  if (resp.status !== 401) return resp;
+
+  // 401 → renova e tenta novamente
+  const renewed = await TokenService.renovarToken(state.creds);
+  state.token = renewed.access_token;
+  return doCall(state.token);
+}
+
+/** Espera em ms */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// =====================================================
+//                    SERVIÇO
+// =====================================================
+
 class PromocaoService {
-  static async removerPromocaoUnico(mlbId, access_token = null) {
+  /**
+   * Remove promoções de um único item.
+   * @param {string} mlbId
+   * @param {object} optionsOrState - pode ser:
+   *   { access_token?, mlCreds?, accountKey?, logger? }  (opções)
+   *   OU um state retornado por prepararAuthState() {token, creds, key}
+   */
+  static async removerPromocaoUnico(mlbId, optionsOrState = {}) {
+    // aceitar tanto "state" (com token pronto) quanto "options"
+    const state = (optionsOrState && optionsOrState.token && optionsOrState.creds)
+      ? optionsOrState
+      : await prepararAuthState(optionsOrState);
+
+    const log = (msg, ...rest) =>
+      (optionsOrState.logger || console).log(`[${state.key}] ${msg}`, ...rest);
+
     try {
-      // Se não foi fornecido token, tentar renovar automaticamente
-      if (!access_token) {
-        access_token = await TokenService.renovarTokenSeNecessario();
+      const U = urls();
+      const baseHeaders = { 'Content-Type': 'application/json' };
+
+      log(`🔍 Verificando anúncio ${mlbId}...`);
+      // 1) buscar item
+      let rItem = await authFetch(`${U.items_base}/${mlbId}`, { method: 'GET', headers: baseHeaders }, state);
+      if (!rItem.ok) {
+        throw new Error(`Erro ao buscar anúncio: HTTP ${rItem.status}`);
       }
+      const itemData = await rItem.json();
 
-      const headers = {
-        "Authorization": `Bearer ${access_token}`,
-        "Content-Type": "application/json"
-      };
-
-      console.log(`🔍 Verificando anúncio ${mlbId}...`);
-
-      // 1. Primeiro verificar se o anúncio existe e pertence ao usuário
-      const itemResponse = await fetch(`https://api.mercadolibre.com/items/${mlbId}`, { headers });
-      
-      if (itemResponse.status === 401) {
-        console.log('🔄 Token inválido, tentando renovar...');
-        access_token = await TokenService.renovarTokenSeNecessario();
-        headers.Authorization = `Bearer ${access_token}`;
-        
-        const retryResponse = await fetch(`https://api.mercadolibre.com/items/${mlbId}`, { headers });
-        if (!retryResponse.ok) {
-          throw new Error(`Erro ao buscar anúncio após renovação: ${retryResponse.status}`);
-        }
-        var itemData = await retryResponse.json();
-      } else if (!itemResponse.ok) {
-        throw new Error(`Erro ao buscar anúncio: ${itemResponse.status}`);
-      } else {
-        var itemData = await itemResponse.json();
+      // 2) validar pertencimento (users/me)
+      const rMe = await authFetch(U.users_me, { method: 'GET', headers: baseHeaders }, state);
+      if (!rMe.ok) {
+        throw new Error(`Falha em users/me: HTTP ${rMe.status}`);
       }
-      
-      const userResponse = await fetch(config.urls.users_me, { headers });
-      const userData = await userResponse.json();
-      
+      const userData = await rMe.json();
       if (itemData.seller_id !== userData.id) {
         throw new Error('Este anúncio não pertence à sua conta');
       }
+      log(`✅ Anúncio encontrado: ${itemData.title}`);
 
-      console.log(`✅ Anúncio encontrado: ${itemData.title}`);
+      // 3) listar promoções do item
+      log(`🔍 Consultando promoções do item ${mlbId}...`);
+      const promoUrl = `${U.seller_promos}/items/${mlbId}?app_version=v2`;
+      const rProm = await authFetch(promoUrl, { method: 'GET', headers: baseHeaders }, state);
 
-      // 2. Consultar promoções ativas do item usando API oficial
-      console.log(`🔍 Consultando promoções do item ${mlbId}...`);
-      
-      const promotionsResponse = await fetch(`${config.urls.seller_promotions}/items/${mlbId}?app_version=v2`, { headers });
-      
-      if (!promotionsResponse.ok) {
-        if (promotionsResponse.status === 404) {
-          return {
-            success: true,
-            message: 'Item não possui promoções ativas',
-            mlb_id: mlbId,
-            titulo: itemData.title,
-            preco_atual: itemData.price,
-            tinha_promocao: false
-          };
-        }
-        throw new Error(`Erro ao consultar promoções: ${promotionsResponse.status}`);
+      if (rProm.status === 404) {
+        return {
+          success: true,
+          message: 'Item não possui promoções ativas',
+          mlb_id: mlbId,
+          titulo: itemData.title,
+          preco_atual: itemData.price,
+          tinha_promocao: false
+        };
+      }
+      if (!rProm.ok) {
+        throw new Error(`Erro ao consultar promoções: HTTP ${rProm.status}`);
       }
 
-      const promotionsData = await promotionsResponse.json();
-      console.log(`📋 Promoções encontradas:`, promotionsData);
+      const promotionsData = await rProm.json();
+      log(`📋 Promoções encontradas: (${Array.isArray(promotionsData) ? promotionsData.length : 0})`, promotionsData);
 
-      if (!promotionsData || promotionsData.length === 0) {
+      const lista = Array.isArray(promotionsData) ? promotionsData : [];
+      if (lista.length === 0) {
         return {
           success: true,
           message: 'Item não possui promoções ativas',
@@ -78,12 +170,12 @@ class PromocaoService {
         };
       }
 
-      // 3. Identificar promoções ativas
-      const promocoesAtivas = promotionsData.filter(promo => 
-        promo.status === 'started' || promo.status === 'active' || promo.status === 'pending'
+      // 4) filtrar ativas
+      const ativas = lista.filter(p =>
+        p?.status === 'started' || p?.status === 'active' || p?.status === 'pending'
       );
 
-      if (promocoesAtivas.length === 0) {
+      if (ativas.length === 0) {
         return {
           success: true,
           message: 'Item não possui promoções ativas no momento',
@@ -91,185 +183,184 @@ class PromocaoService {
           titulo: itemData.title,
           preco_atual: itemData.price,
           tinha_promocao: false,
-          promocoes_encontradas: promotionsData.map(p => `${p.type} - ${p.status}`)
+          promocoes_encontradas: lista.map(p => `${p.type} - ${p.status}`)
         };
       }
 
-      console.log(`🎯 Promoções ativas encontradas: ${promocoesAtivas.length}`);
-      
-      let resultadoRemocao = { 
-        metodos_tentados: [], 
+      log(`🎯 Promoções ativas encontradas: ${ativas.length}`);
+
+      const resultadoRemocao = {
+        metodos_tentados: [],
         sucesso: false,
         promocoes_removidas: [],
         promocoes_com_erro: []
       };
 
-      // 4. Remover cada promoção usando o método correto
-      for (const promocao of promocoesAtivas) {
-        console.log(`🔄 Removendo promoção: ${promocao.type} (${promocao.id || 'sem ID'})`);
-        
+      // 5) tentar remoção (prioriza massiva DELETE /seller-promotions/items/:id)
+      for (const promocao of ativas) {
+        const tipo = promocao?.type || 'UNKNOWN';
+        const idPromo = promocao?.id || promocao?.campaign_id || 'sem-id';
+        log(`🔄 Removendo promoção: ${tipo} (${idPromo})`);
+
         try {
           let remocaoSucesso = false;
-          
-          // Usar o endpoint de delete massivo (mais eficiente)
-          if (['DEAL', 'MARKETPLACE_CAMPAIGN', 'PRICE_DISCOUNT', 'VOLUME', 'PRE_NEGOTIATED', 'SELLER_CAMPAIGN', 'SMART', 'PRICE_MATCHING', 'UNHEALTHY_STOCK'].includes(promocao.type)) {
-            
-            console.log(`   Tentando remoção massiva para ${promocao.type}...`);
-            
-            const deleteResponse = await fetch(`${config.urls.seller_promotions}/items/${mlbId}?app_version=v2`, {
-              method: 'DELETE',
-              headers: headers
-            });
 
-            if (deleteResponse.ok) {
-              const deleteResult = await deleteResponse.json();
-              console.log(`   Resultado da remoção:`, deleteResult);
-              
-              if (deleteResult.successful_ids && deleteResult.successful_ids.length > 0) {
-                remocaoSucesso = true;
-                resultadoRemocao.promocoes_removidas.push(`${promocao.type} - Remoção massiva`);
-                resultadoRemocao.metodos_tentados.push(`✅ ${promocao.type} - Remoção massiva SUCESSO`);
-              }
-              
-              if (deleteResult.errors && deleteResult.errors.length > 0) {
-                deleteResult.errors.forEach(error => {
-                  resultadoRemocao.promocoes_com_erro.push(`${promocao.type} - ${error.error}`);
-                  resultadoRemocao.metodos_tentados.push(`❌ ${promocao.type} - ${error.error}`);
-                });
-              }
+          const massTypes = [
+            'DEAL', 'MARKETPLACE_CAMPAIGN', 'PRICE_DISCOUNT', 'VOLUME',
+            'PRE_NEGOTIATED', 'SELLER_CAMPAIGN', 'SMART', 'PRICE_MATCHING', 'UNHEALTHY_STOCK'
+          ];
+
+          if (massTypes.includes(tipo)) {
+            log(`   Tentando remoção massiva para ${tipo}...`);
+            const rDel = await authFetch(promoUrl, { method: 'DELETE', headers: baseHeaders }, state);
+
+            if (!rDel.ok) {
+              let errJson = {};
+              try { errJson = await rDel.json(); } catch {}
+              resultadoRemocao.promocoes_com_erro.push(`${tipo} - HTTP ${rDel.status}`);
+              resultadoRemocao.metodos_tentados.push(`❌ ${tipo} - Erro: ${errJson?.message || rDel.status}`);
             } else {
-              const errorData = await deleteResponse.json().catch(() => ({}));
-              resultadoRemocao.promocoes_com_erro.push(`${promocao.type} - Erro HTTP ${deleteResponse.status}`);
-              resultadoRemocao.metodos_tentados.push(`❌ ${promocao.type} - Erro: ${errorData.message || deleteResponse.status}`);
+              const delRes = await rDel.json();
+              log(`   Resultado da remoção:`, delRes);
+
+              if (delRes?.successful_ids?.length > 0) {
+                remocaoSucesso = true;
+                resultadoRemocao.promocoes_removidas.push(`${tipo} - Remoção massiva`);
+                resultadoRemocao.metodos_tentados.push(`✅ ${tipo} - Remoção massiva SUCESSO`);
+              }
+
+              if (delRes?.errors?.length > 0) {
+                for (const e of delRes.errors) {
+                  resultadoRemocao.promocoes_com_erro.push(`${tipo} - ${e?.error || 'erro'}`);
+                  resultadoRemocao.metodos_tentados.push(`❌ ${tipo} - ${e?.error || 'erro'}`);
+                }
+              }
             }
+          } else if (['DOD', 'LIGHTNING'].includes(tipo) && idPromo) {
+            // reservado para implementação específica se necessário
+            resultadoRemocao.metodos_tentados.push(`⚠️ ${tipo} - Requer remoção individual (não implementado)`);
           }
-          
-          // Para DOD e LIGHTNING, tentar remoção individual se tiver ID da promoção
-          else if (['DOD', 'LIGHTNING'].includes(promocao.type) && promocao.id) {
-            console.log(`   Tentando remoção individual para ${promocao.type}...`);
-            
-            // Estes tipos precisam ser removidos individualmente
-            // Consultar documentação específica para cada tipo
-            resultadoRemocao.metodos_tentados.push(`⚠️ ${promocao.type} - Requer remoção individual (não implementado nesta versão)`);
-          }
-          
-          if (remocaoSucesso) {
-            resultadoRemocao.sucesso = true;
-          }
-          
-        } catch (error) {
-          console.error(`❌ Erro ao remover promoção ${promocao.type}:`, error.message);
-          resultadoRemocao.promocoes_com_erro.push(`${promocao.type} - ${error.message}`);
-          resultadoRemocao.metodos_tentados.push(`❌ ${promocao.type} - Erro: ${error.message}`);
+
+          if (remocaoSucesso) resultadoRemocao.sucesso = true;
+        } catch (err) {
+          log(`❌ Erro ao remover promoção ${promocao?.type}: ${err?.message || err}`);
+          resultadoRemocao.promocoes_com_erro.push(`${promocao?.type} - ${err?.message || err}`);
+          resultadoRemocao.metodos_tentados.push(`❌ ${promocao?.type} - Erro: ${err?.message || err}`);
         }
       }
 
-      // 5. Verificar resultado final
-      console.log(`⏳ Aguardando 3 segundos para verificar resultado...`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Verificar se ainda há promoções ativas
-      const verificacaoResponse = await fetch(`${config.urls.seller_promotions}/items/${mlbId}?app_version=v2`, { headers });
+      // 6) verificação final após pequena espera
+      log('⏳ Aguardando 3 segundos para verificar resultado...');
+      await sleep(3000);
+
+      const promoUrlCheck = `${urls().seller_promos}/items/${mlbId}?app_version=v2`;
+      const rCheck = await authFetch(promoUrlCheck, { method: 'GET', headers: baseHeaders }, state);
       let promocoesRestantes = [];
-      
-      if (verificacaoResponse.ok) {
-        const verificacaoData = await verificacaoResponse.json();
-        promocoesRestantes = verificacaoData.filter(promo => 
-          promo.status === 'started' || promo.status === 'active' || promo.status === 'pending'
+      if (rCheck.ok) {
+        const ver = await rCheck.json();
+        const arr = Array.isArray(ver) ? ver : [];
+        promocoesRestantes = arr.filter(p =>
+          p?.status === 'started' || p?.status === 'active' || p?.status === 'pending'
         );
       }
 
-      // Verificar também o item atualizado
-      const itemVerificacaoResponse = await fetch(`https://api.mercadolibre.com/items/${mlbId}`, { headers });
-      const itemVerificacaoData = await itemVerificacaoResponse.json();
+      const rItem2 = await authFetch(`${urls().items_base}/${mlbId}`, { method: 'GET', headers: baseHeaders }, state);
+      const item2 = rItem2.ok ? await rItem2.json() : {};
 
       const aindaTemPromocao = promocoesRestantes.length > 0;
 
-      console.log(`🎯 Verificação final:`);
-      console.log(`   Promoções restantes: ${promocoesRestantes.length}`);
-      console.log(`   Preço antes: ${itemData.price}`);
-      console.log(`   Preço depois: ${itemVerificacaoData.price}`);
+      log('🎯 Verificação final:');
+      log(`   Promoções restantes: ${promocoesRestantes.length}`);
+      log(`   Preço antes: ${itemData.price}`);
+      log(`   Preço depois: ${item2.price}`);
 
       return {
         success: resultadoRemocao.sucesso || !aindaTemPromocao,
-        message: resultadoRemocao.sucesso || !aindaTemPromocao ? 
-          'Promoções processadas com sucesso' : 
-          'Algumas promoções não puderam ser removidas',
+        message: (resultadoRemocao.sucesso || !aindaTemPromocao)
+          ? 'Promoções processadas com sucesso'
+          : 'Algumas promoções não puderam ser removidas',
         mlb_id: mlbId,
         titulo: itemData.title,
         preco_antes: itemData.price,
-        preco_depois: itemVerificacaoData.price,
+        preco_depois: item2.price,
         preco_original_antes: itemData.original_price,
-        preco_original_depois: itemVerificacaoData.original_price,
+        preco_original_depois: item2.original_price,
         tinha_promocao: true,
         ainda_tem_promocao: aindaTemPromocao,
         metodos_tentados: resultadoRemocao.metodos_tentados,
-        promocoes_encontradas: promocoesAtivas.map(p => `${p.type} - ${p.status}`),
+        promocoes_encontradas: ativas.map(p => `${p.type} - ${p.status}`),
         promocoes_removidas: resultadoRemocao.promocoes_removidas,
         promocoes_com_erro: resultadoRemocao.promocoes_com_erro,
         promocoes_restantes: promocoesRestantes.map(p => `${p.type} - ${p.status}`)
       };
 
     } catch (error) {
-      console.error(`❌ Erro ao processar ${mlbId}:`, error.message);
+      (optionsOrState.logger || console).error(`❌ [${(optionsOrState?.key || optionsOrState?.accountKey || 'sem-conta')}] Erro ao processar ${mlbId}:`, error?.message || error);
       return {
         success: false,
-        message: error.message,
+        message: error?.message || String(error),
         mlb_id: mlbId,
         error: true
       };
     }
   }
 
-  static async processarRemocaoLote(processId, mlbIds, delay, processamentosRemocao) {
+  /**
+   * Processa um lote, reutilizando UM token e renovando apenas se 401.
+   * @param {string} processId
+   * @param {string[]} mlbIds
+   * @param {number} delay - delay entre itens (ms)
+   * @param {object} processamentosRemocao - dicionário de status
+   * @param {object} options - { mlCreds?, accountKey?, logger? }
+   */
+  static async processarRemocaoLote(processId, mlbIds, delay, processamentosRemocao, options = {}) {
+    const logger = options.logger || console;
+
+    // monta state uma vez (garante prefixo de log com a conta correta)
+    const state = await prepararAuthState(options);
+
     const status = processamentosRemocao[processId];
     status.status = 'processando';
-    
-    console.log(`🚀 Iniciando processamento em lote: ${mlbIds.length} anúncios`);
+
+    logger.log(`🚀 [${state.key}] Iniciando processamento em lote: ${mlbIds.length} anúncios`);
 
     for (let i = 0; i < mlbIds.length; i++) {
-      const mlbId = mlbIds[i].trim();
-      
+      const mlbId = String(mlbIds[i] || '').trim();
       if (!mlbId) continue;
 
       try {
-        console.log(`📋 Processando ${i + 1}/${mlbIds.length}: ${mlbId}`);
-        
-        const resultado = await this.removerPromocaoUnico(mlbId);
-        
+        logger.log(`📋 [${state.key}] Processando ${i + 1}/${mlbIds.length}: ${mlbId}`);
+
+        // passa o MESMO state para não renovar a cada item
+        const resultado = await this.removerPromocaoUnico(mlbId, state);
+
         status.resultados.push(resultado);
-        
-        if (resultado.success) {
-          status.sucessos++;
-        } else {
-          status.erros++;
-        }
-        
+        if (resultado.success) status.sucessos++;
+        else status.erros++;
       } catch (error) {
-        console.error(`❌ Erro ao processar ${mlbId}:`, error.message);
+        logger.error(`❌ [${state.key}] Erro ao processar ${mlbId}:`, error?.message || error);
         status.erros++;
         status.resultados.push({
           success: false,
           mlb_id: mlbId,
-          message: error.message,
+          message: error?.message || String(error),
           error: true
         });
       }
-      
+
       status.processados++;
       status.progresso = Math.round((status.processados / status.total_anuncios) * 100);
-      
-      // Delay entre processamentos (exceto no último)
-      if (i < mlbIds.length - 1) {
-        console.log(`⏳ Aguardando ${delay}ms antes do próximo...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+      if (i < mlbIds.length - 1 && delay > 0) {
+        logger.log(`⏳ [${state.key}] Aguardando ${delay}ms antes do próximo...`);
+        await sleep(delay);
       }
     }
 
     status.status = 'concluido';
     status.concluido_em = new Date();
-    
-    console.log(`✅ Processamento concluído: ${status.sucessos} sucessos, ${status.erros} erros`);
+
+    logger.log(`✅ [${state.key}] Processamento concluído: ${status.sucessos} sucessos, ${status.erros} erros`);
   }
 }
 
