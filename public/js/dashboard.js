@@ -484,3 +484,4 @@ window.renovarToken = renovarToken;
 window.mostrarAjuda = mostrarAjuda;
 
 console.log('✅ Todas as funções do dashboard carregadas');
+

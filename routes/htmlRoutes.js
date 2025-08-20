@@ -1,5 +1,5 @@
+// routes/htmlRoutes.js
 const express = require('express');
-const path = require('path');
 
 let HtmlController;
 try {
@@ -11,23 +11,29 @@ try {
 
 const router = express.Router();
 
-// (opcional) segurança extra: se alguém cair aqui via '/', manda pro dashboard
-router.get('/', (req, res) => res.redirect('/dashboard'));
+/**
+ * Não tratamos "/" aqui — o index.js já decide entre
+ * redirecionar para /select-conta ou seguir para o dashboard.
+ * Se quiser um fallback local, descomente:
+ *
+ * router.get('/', (req, res) => res.redirect('/dashboard'));
+ */
 
-// Dashboard agora em /dashboard
+// Dashboard
 router.get('/dashboard', HtmlController.servirDashboard);
 
-// Demais páginas
+// Páginas
 router.get('/remover-promocao', HtmlController.servirRemoverPromocao);
+router.get('/analise-anuncios', HtmlController.servirAnaliseAnuncios);
+router.get('/criar-promocao', HtmlController.criarPromocao);
+router.get('/analise-anuncios', HtmlController.servirAnaliseAnuncios);
+
+// Utilitários de geração/diagnóstico
 router.get('/criar-dashboard', HtmlController.criarDashboard);
 router.get('/criar-arquivo-remocao', HtmlController.criarArquivoRemocao);
 router.get('/debug/routes', HtmlController.debugRoutes);
 
-// Página estática da interface de criar promoções
-router.get('/criar-promocao', (req, res) => {
-  res.sendFile(path.join(__dirname, '../views/criar-promocao.html'));
-});
-
+// Teste simples
 router.get('/test', (req, res) => {
   res.send('Servidor Node.js com Express está rodando!');
 });

@@ -169,6 +169,12 @@ try {
   console.warn('⚠️ Continuação sem exigir conta selecionada (temporário)');
 }
 
+
+// (depois do ensureAccount)
+const adAnalysisRoutes = require('./routes/adAnalysisRoutes');
+app.use('/api/analise-anuncios', adAnalysisRoutes);
+
+
 // ==========================================
 // Rotas PROTEGIDAS do app
 // ==========================================
@@ -369,5 +375,7 @@ process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
+
+
 
 module.exports = app;

@@ -16,47 +16,14 @@ Sistema para gerenciar promoções de anúncios no Mercado Livre.
 git clone https://github.com/seu-usuario/nome-do-projeto.git
 cd nome-do-projeto
 ```
-drossiAPI
-├─ .env
-├─ config
-│  └─ config.js
-├─ controllers
-│  ├─ HtmlController.js
-│  ├─ PromocaoController.js
-│  └─ TokenController.js
-├─ index.js
-├─ middleware
-│  └─ authMiddleware.js
-├─ package-lock.json
-├─ package.json
-├─ public
-│  ├─ css
-│  │  ├─ dashboard.css
-│  │  └─ remover-promocao.css
-│  └─ js
-│     ├─ dashboard.js
-│     └─ remover-promocao.js
-├─ README.md
-├─ routes
-│  ├─ htmlRoutes.js
-│  ├─ promocaoRoutes.js
-│  └─ tokenRoutes.js
-├─ services
-│  ├─ csvManager.js
-│  ├─ promocaoService.js
-│  └─ tokenService.js
-├─ test-controller.js
-├─ utils
-│  └─ helper.js
-└─ views
-   ├─ dashboard.html
-   └─ remover-promocao.html
+
 
 ```
 ```
 drossiAPI
 ├─ .env
 ├─ config
+│  ├─ accounts.js
 │  └─ config.js
 ├─ controllers
 │  ├─ CriarPromocaoController.js
@@ -67,7 +34,8 @@ drossiAPI
 │  └─ TokenController.js
 ├─ index.js
 ├─ middleware
-│  └─ authMiddleware.js
+│  ├─ authMiddleware.js
+│  └─ ensureAccount.js
 ├─ package-lock.json
 ├─ package.json
 ├─ public
@@ -75,14 +43,18 @@ drossiAPI
 │  │  ├─ criar-promocao.css
 │  │  ├─ dashboard.css
 │  │  ├─ keyword-analytics.css
+│  │  ├─ pesquisa-descricao.css
 │  │  └─ remover-promocao.css
 │  └─ js
 │     ├─ criar-promocao.js
 │     ├─ dashboard.js
 │     ├─ keyword-analytics.js
+│     ├─ pesquisa-descricao.js
 │     └─ remover-promocao.js
 ├─ README.md
+├─ results
 ├─ routes
+│  ├─ accountRoutes.js
 │  ├─ criarPromocaoRoutes.js
 │  ├─ htmlRoutes.js
 │  ├─ keywordAnalyticsRoutes.js
@@ -95,6 +67,7 @@ drossiAPI
 │  ├─ keywordAnalyticsService.js
 │  ├─ pesquisaDescricaoService.js
 │  ├─ promocaoService.js
+│  ├─ queueService.js
 │  └─ tokenService.js
 ├─ test-controller.js
 ├─ uploads
@@ -105,6 +78,7 @@ drossiAPI
    ├─ dashboard.html
    ├─ keyword-analytics.html
    ├─ pesquisa-descricao.html
-   └─ remover-promocao.html
+   ├─ remover-promocao.html
+   └─ select-conta.html
 
 ```

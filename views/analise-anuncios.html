@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Análise de Anúncios</title>
+  <link rel="stylesheet" href="/css/analise-anuncios.css">
+</head>
+<body>
+  <!-- Barra fixa de conta (igual ao dashboard) -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">📊</span>
+      <span class="app-name">Análise de Anúncios</span>
+    </div>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val">Carregando...</span>
+      </div>
+      <button id="account-switch" class="account-bar__switch">Trocar Conta</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>📈 Análise de Anúncios (MLB)</h1>
+    <p class="sub">Informe um MLB (unitário) ou cole uma lista para análise em massa. Apenas itens da <strong>conta selecionada</strong> serão considerados.</p>
+
+    <section class="inputs">
+      <div class="card">
+        <h3>🔸 MLB único</h3>
+        <div class="row">
+          <input id="mlb-single" type="text" placeholder="Ex.: MLB1234567890">
+          <button id="btn-analisar-um" class="btn btn-primary">Analisar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🧱 Lote de MLBs</h3>
+        <textarea id="mlb-bulk" rows="8" placeholder="Cole um MLB por linha"></textarea>
+        <div class="row">
+          <label class="lbl-sm">
+            Intervalo entre requisições:
+            <input id="delay-ms" type="number" min="0" value="300"> ms
+          </label>
+          <button id="btn-analisar-lote" class="btn btn-success">Iniciar Lote</button>
+        </div>
+
+        <div class="progress">
+          <div id="progress-bar" class="progress__fill" style="width:0%"></div>
+        </div>
+        <div class="progress__text">
+          <span id="progress-text">0 / 0</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="results card">
+      <div class="results__header">
+        <h3>Resultados</h3>
+        <button id="btn-download" class="btn btn-secondary" disabled>⬇️ Baixar XLSX</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="results-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>MLB</th>
+              <th>Última venda</th>
+              <th>Tipo</th>
+              <th>Tempo desde a última venda</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="results-body">
+            <tr><td colspan="6" style="text-align:center;color:#6b7280;">Sem resultados ainda</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/analise-anuncios.js"></script>
+  <script>
+    // Conta atual + Trocar conta
+    async function carregarContaAtual() {
+      try {
+        const r = await fetch('/api/account/current', { cache: 'no-store' });
+        const data = await r.json();
+        const label = data?.label || data?.accountKey || 'Indefinida';
+        document.getElementById('account-current').textContent = label;
+      } catch { document.getElementById('account-current').textContent = 'Indisponível'; }
+    }
+    async function trocarConta() {
+      try {
+        await fetch('/api/account/clear', { method: 'POST' });
+        location.href = '/select-conta';
+      } catch { location.href = '/select-conta'; }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      carregarContaAtual();
+      document.getElementById('account-switch').addEventListener('click', trocarConta);
+    });
+  </script>
+</body>
+</html>
