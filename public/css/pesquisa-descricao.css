@@ -1,5 +1,4 @@
-
-/* public/css/pesquisa-descricao.css (NOVA UI) */
+/* public/css/pesquisa-descricao.css (NOVA UI + progresso animado) */
 :root{
   --bg: #0f172a;
   --surface: #0b1220;
@@ -57,22 +56,7 @@ body{
 .hero__content h2{margin:0 0 6px;font-size:18px;font-weight:700}
 .hero__content p{margin:0;color:var(--muted)}
 
-/* Tabs */
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
-.nav-tab{
-  background:transparent;color:var(--text);
-  border:1px solid var(--border);
-  padding:10px 14px;border-radius:10px;cursor:pointer;
-  transition: all .2s ease; font-weight:600;
-}
-.nav-tab:hover{transform:translateY(-1px);border-color:#334155}
-.nav-tab.active{
-  background: linear-gradient(135deg, #7c3aed, #3b82f6);
-  border-color:transparent;
-  box-shadow: 0 8px 24px rgba(124,58,237,.35);
-}
-
-/* Cards */
+/* Cards & Grids */
 .card{
   background:var(--card);
   border:1px solid var(--border);
@@ -174,7 +158,7 @@ textarea.form-control{resize:vertical;min-height:120px}
 .filters{display:flex;flex-wrap:wrap;gap:12px;margin:10px 0 18px}
 .filter label{display:block;margin-bottom:6px;color:var(--muted);font-size:12px}
 
-/* Jobs */
+/* Jobs: CARD + PROGRESSO ANIMADO */
 .jobs{display:flex;flex-direction:column;gap:14px}
 .job-card{
   background:linear-gradient(135deg, rgba(124,58,237,.18), rgba(59,130,246,.12));
@@ -187,9 +171,65 @@ textarea.form-control{resize:vertical;min-height:120px}
 }
 .job-card .header strong{font-size:14px;margin-right:auto}
 .job-card .header small{color:#cbd5e1}
-.job-card .stats{display:flex;gap:14px;padding:12px 14px;color:var(--muted);font-size:13px}
-.progress-bar{height:8px;background:#0b1324;margin:0 14px;border-radius:999px;overflow:hidden;border:1px solid var(--border)}
-.progress-fill{height:100%;background:linear-gradient(135deg,#22c55e,#16a34a);width:0;transition:width .4s ease}
+
+.job-card .stats{
+  display:flex;gap:14px;padding:12px 14px;color:var(--muted);font-size:13px;flex-wrap:wrap
+}
+
+/* nova barra animada */
+.progress {
+  padding: 8px 14px 14px;
+}
+.progress-bar{
+  position:relative;
+  height:10px;
+  background:#0b1324;
+  border-radius:999px;
+  overflow:hidden;
+  border:1px solid var(--border);
+}
+.progress-fill{
+  height:100%;
+  width:0;
+  background:linear-gradient(90deg,#22c55e,#16a34a,#22c55e);
+  transition:width .35s ease-in-out;
+  position:relative;
+  border-radius:999px;
+}
+.progress-fill::before{ /* listras animadas */
+  content:"";
+  position:absolute; inset:0;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,.14) 0 8px,
+      rgba(255,255,255,0) 8px 16px
+    );
+  animation: progStripes 1.2s linear infinite;
+  mix-blend-mode: overlay;
+}
+@keyframes progStripes { to { transform: translateX(32px) } }
+
+.progress-shine{ /* brilho deslizante */
+  position:absolute; inset:0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent);
+  animation: progShine 2.2s ease-in-out infinite;
+  pointer-events:none;
+}
+@keyframes progShine {
+  0% { transform: translateX(-120%) }
+  50% { transform: translateX(0%) }
+  100% { transform: translateX(120%) }
+}
+
+.progress-meta{
+  margin-top:8px; display:flex; gap:10px; align-items:center; font-size:.9rem;
+  color:#bfc7dd; padding:0 14px;
+}
+.progress-meta .percent{ font-weight:800; color:#95f5b2 }
+.progress-meta .counts{ opacity:.85 }
+
+/* Ações */
 .job-card .actions{display:flex;gap:10px;padding:12px 14px;border-top:1px solid var(--border)}
 
 /* Drawer de resultados */

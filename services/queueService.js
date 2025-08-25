@@ -21,7 +21,7 @@ class QueueService {
         // Criar diretório de resultados se não existir
         this.ensureResultsDirectory();
     }
-
+    
     async ensureResultsDirectory() {
         const resultsDir = path.join(__dirname, '../results');
         try {

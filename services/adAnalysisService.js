@@ -1,132 +1,200 @@
 // services/adAnalysisService.js
 const fetch = require('node-fetch');
-const ExcelJS = require('exceljs');
 const TokenService = require('./tokenService');
 const config = require('../config/config');
 
-/** Mapear listing_type_id para texto amigável */
-function mapListingType(id) {
-  const v = String(id || '').toLowerCase();
-  if (v === 'gold_pro') return 'Premium';
-  if (v === 'gold_special' || v === 'gold') return 'Clássico';
-  // fallback
-  return id || 'desconhecido';
-}
-
-/** Diferença humana entre agora e uma data ISO */
-function timeSince(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
-  const ms = Date.now() - d.getTime();
-  if (ms < 0) return '0s';
-  const sec = Math.floor(ms / 1000);
-  const min = Math.floor(sec / 60);
-  const hrs = Math.floor(min / 60);
-  const days = Math.floor(hrs / 24);
-  if (days > 0) return `${days}d ${hrs % 24}h`;
-  if (hrs > 0) return `${hrs}h ${min % 60}m`;
-  if (min > 0) return `${min}m ${sec % 60}s`;
-  return `${sec}s`;
-}
-
-/** Datas em DD/MM/YYYY HH:mm */
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
+// -------- helpers de ambiente/urls --------
 function urls() {
   return {
-    users_me: config?.urls?.users_me || 'https://api.mercadolibre.com/users/me',
-    items:    config?.urls?.items    || 'https://api.mercadolibre.com/items'
+    users_me:      (config?.urls?.users_me) || 'https://api.mercadolibre.com/users/me',
+    items_base:    (config?.urls?.items)    || 'https://api.mercadolibre.com/items',
+    orders_search: (config?.urls?.orders_search) || 'https://api.mercadolibre.com/orders/search',
   };
 }
 
-async function authFetch(url, init, token) {
-  const headers = { ...(init?.headers || {}), Authorization: `Bearer ${token}` };
-  return fetch(url, { ...init, headers });
+const TZ = 'America/Sao_Paulo';
+
+// formata ISO → "dd/MM/yyyy HH:mm" em pt-BR
+function formatPtBr(dateIso) {
+  if (!dateIso) return '—';
+  try {
+    const d = new Date(dateIso);
+    return d.toLocaleString('pt-BR', {
+      timeZone: TZ,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch { return '—'; }
 }
 
+// diferença humana (ex.: "3d 4h", "2h 15m", "0m")
+function humanSince(dateIso) {
+  if (!dateIso) return '—';
+  const now = Date.now();
+  const then = new Date(dateIso).getTime();
+  let diff = Math.max(0, now - then);
+
+  const day = 24*60*60*1000;
+  const hour = 60*60*1000;
+  const min = 60*1000;
+
+  const d = Math.floor(diff / day); diff -= d*day;
+  const h = Math.floor(diff / hour); diff -= h*hour;
+  const m = Math.floor(diff / min);
+
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// mapping listing_type_id → rótulo
+function mapListingTypeId(id) {
+  const map = {
+    gold_pro: 'Premium',
+    gold_premium: 'Premium',
+    gold_special: 'Clássico',
+    gold: 'Clássico',
+    classic: 'Clássico',
+    free: 'Grátis',
+  };
+  return map[id] || 'Outro';
+}
+
+// -------- auth helpers (reuso de token no lote) --------
+async function prepararAuthState(options = {}) {
+  // se vier token pronto/state, só retorna
+  if (options?.token && options?.creds) return options;
+
+  // tenta pegar token válido (res.locals.mlCreds pode ter vindo no options)
+  const token = await TokenService.renovarTokenSeNecessario(options?.mlCreds || {});
+  return { token, creds: options?.mlCreds || {}, key: (options?.accountKey || options?.key || 'conta') };
+}
+
+async function authFetch(url, init, state) {
+  const call = async (tok) => {
+    const headers = { ...(init?.headers || {}), Authorization: `Bearer ${tok}` };
+    return fetch(url, { ...init, headers });
+  };
+  let r = await call(state.token);
+  if (r.status !== 401) return r;
+
+  // 401 → renova e tenta novamente
+  const renewed = await TokenService.renovarToken(state.creds);
+  state.token = renewed.access_token;
+  return call(state.token);
+}
+
+// -------- núcleo do serviço --------
 class AdAnalysisService {
   /**
-   * Analisa um único MLB (somente da conta selecionada)
-   * Retorna { success, mlb, ultima_venda, tipo, tempo_desde_ultima_venda, erro? }
+   * Analisa 1 MLB: última venda (orders), tipo de anúncio (item).
+   * Só considera itens da conta selecionada (seller === /users/me.id).
    */
-  static async analisarUm(mlbId, mlCredsOrLocals = {}) {
+  static async analisarUm(mlbId, options = {}) {
     const U = urls();
+    const state = await prepararAuthState(options);
+    const log = (options.logger || console).log;
 
-    // Garante token válido para a conta atual
-    const token = await TokenService.renovarTokenSeNecessario(mlCredsOrLocals);
+    try {
+      const baseHeaders = { 'Content-Type': 'application/json' };
 
-    // Busca item
-    const rItem = await authFetch(`${U.items}/${mlbId}`, { method: 'GET' }, token);
-    if (rItem.status === 404) {
-      return { success: false, mlb: mlbId, erro: 'MLB não encontrado' };
+      // 1) pega /users/me (id do seller atual)
+      const rMe = await authFetch(U.users_me, { method: 'GET', headers: baseHeaders }, state);
+      if (!rMe.ok) throw new Error(`users/me falhou: HTTP ${rMe.status}`);
+      const me = await rMe.json();
+
+      // 2) pega item
+      const rItem = await authFetch(`${U.items_base}/${mlbId}`, { method: 'GET', headers: baseHeaders }, state);
+      if (!rItem.ok) {
+        const msg = rItem.status === 404 ? 'Item não encontrado' : `Erro ao buscar item: HTTP ${rItem.status}`;
+        return { success: false, mlb: mlbId, status: 'ERRO', message: msg };
+      }
+      const item = await rItem.json();
+
+      // garante pertencimento
+      if (item.seller_id !== me.id) {
+        return {
+          success: false,
+          mlb: mlbId,
+          status: 'FORA_DA_CONTA',
+          message: 'Este anúncio não pertence à conta selecionada.'
+        };
+      }
+
+      // 3) busca a ÚLTIMA venda (orders/search) LIMIT 1, sort desc
+      const q = new URLSearchParams({
+        seller: String(me.id),
+        item: String(mlbId),
+        sort: 'date_desc',
+        limit: '1',
+      });
+      const rOrders = await authFetch(`${U.orders_search}?${q.toString()}`, { method: 'GET', headers: baseHeaders }, state);
+      if (!rOrders.ok) {
+        // se der 404/400 tratamos como "sem vendas"
+        log?.(`[${state.key}] orders/search falhou: HTTP ${rOrders.status}`);
+      }
+      const ordersPayload = rOrders.ok ? await rOrders.json() : null;
+
+      // a API pode retornar em "results" ou "orders" dependendo do stack
+      const arr = Array.isArray(ordersPayload?.results)
+        ? ordersPayload.results
+        : (Array.isArray(ordersPayload?.orders) ? ordersPayload.orders : []);
+
+      // mantém somente vendas de fato (status pagos)
+      // (se porventura a API não aceitar query por status, filtramos aqui)
+      const ordered = arr
+        .filter(o => ['paid', 'confirmed', 'partially_paid'].includes(String(o?.status || '').toLowerCase()))
+        .sort((a, b) => new Date(b.date_closed || b.date_created || 0) - new Date(a.date_closed || a.date_created || 0));
+
+      const lastOrder = ordered[0];
+      const lastDateIso = lastOrder
+        ? (lastOrder.date_closed || lastOrder.date_created || lastOrder.date_last_updated)
+        : null;
+
+      const tipoLabel = mapListingTypeId(item.listing_type_id);
+
+      return {
+        success: true,
+        mlb: mlbId,
+        status: 'OK',
+        // tipo do anúncio
+        tipo: tipoLabel,
+        tipo_raw: item.listing_type_id || null,
+        // última venda
+        ultima_venda: lastDateIso,
+        ultima_venda_fmt: formatPtBr(lastDateIso),
+        tempo_desde_ultima_venda: humanSince(lastDateIso),
+      };
+    } catch (err) {
+      return {
+        success: false,
+        mlb: mlbId,
+        status: 'ERRO',
+        message: err?.message || String(err),
+      };
     }
-    if (!rItem.ok) {
-      const t = await rItem.text().catch(() => '');
-      return { success: false, mlb: mlbId, erro: `Falha em /items (${rItem.status}) ${t}` };
-    }
-    const item = await rItem.json();
-
-    // Verifica conta (somente itens da conta selecionada)
-    const rMe = await authFetch(U.users_me, { method: 'GET' }, token);
-    if (!rMe.ok) {
-      return { success: false, mlb: mlbId, erro: `Falha em /users/me (${rMe.status})` };
-    }
-    const me = await rMe.json();
-    if (item.seller_id !== me.id) {
-      return { success: false, mlb: mlbId, erro: 'Item não pertence à conta selecionada' };
-    }
-
-    // Campos pedidos: date_created como "última venda", tipo de anúncio e tempo desde
-    const ultimaVendaIso = item.date_created || null; // conforme sua orientação
-    const tipo = mapListingType(item.listing_type_id);
-    const tempo = timeSince(ultimaVendaIso);
-
-    return {
-      success: true,
-      mlb: item.id,
-      ultima_venda_iso: ultimaVendaIso,
-      ultima_venda: fmtDate(ultimaVendaIso),
-      tipo,
-      tempo_desde_ultima_venda: tempo
-    };
   }
 
   /**
-   * Gera um XLSX em memória e devolve Buffer
-   * rows: [{ mlb, ultima_venda, tipo, tempo_desde_ultima_venda }]
+   * Lote – reusa um token; só renova no 401.
+   * Retorna array de resultados na mesma ordem dos MLBs.
    */
-  static async gerarXlsx(rows = []) {
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Análise de Anúncios');
+  static async analisarLote(mlbIds = [], delayMs = 300, options = {}) {
+    const state = await prepararAuthState(options);
+    const resultados = [];
 
-    ws.columns = [
-      { header: 'MLB', key: 'mlb', width: 20 },
-      { header: 'Última venda', key: 'ultima_venda', width: 22 },
-      { header: 'Tipo do anúncio', key: 'tipo', width: 18 },
-      { header: 'Tempo desde a última venda', key: 'tempo', width: 28 }
-    ];
+    for (let i = 0; i < mlbIds.length; i++) {
+      const id = String(mlbIds[i] || '').trim();
+      if (!id) continue;
 
-    rows.forEach(r => {
-      ws.addRow({
-        mlb: r.mlb || '—',
-        ultima_venda: r.ultima_venda || '—',
-        tipo: r.tipo || '—',
-        tempo: r.tempo_desde_ultima_venda || '—'
-      });
-    });
+      const r = await this.analisarUm(id, state);
+      resultados.push(r);
 
-    // Cabeçalho em negrito
-    ws.getRow(1).font = { bold: true };
-
-    const buffer = await wb.xlsx.writeBuffer();
-    return buffer;
+      if (delayMs && i < mlbIds.length - 1) {
+        await new Promise(r => setTimeout(r, Number(delayMs) || 0));
+      }
+    }
+    return resultados;
   }
 }
 

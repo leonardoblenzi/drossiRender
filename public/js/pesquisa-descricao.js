@@ -1,6 +1,5 @@
-// public/js/pesquisa-descricao.js  (v3.2)
-// Arquivo completo, resiliente a páginas sem "Pesquisa Rápida" e sem abas.
-// Mantém Processamento em Massa + Monitoramento + Modais + Downloads.
+// public/js/pesquisa-descricao.js  (v4)
+// Agora com barra de progresso interpolada (1% em 1%) e animações.
 // ---------------------------------------------------------------
 
 // ===== Variáveis globais =====
@@ -9,7 +8,10 @@ let intervalMonitoramento = null;
 let currentJobId = null;          // usado em download de resultados
 let cacheJobs = [];               // lista de jobs para filtros
 
-// ===== Utilitários DOM seguros =====
+// estado de progresso por job (para interpolar %)
+const jobProgressState = {};      // { [jobId]: { current: number, target: number, timer: number|null } }
+
+// ===== Utilitários DOM =====
 const $ = (id) => document.getElementById(id);
 const text = (id, value) => { const el = $(id); if (el) el.textContent = value; };
 const show = (id, on = true) => { const el = $(id); if (el) el.style.display = on ? 'block' : 'none'; };
@@ -17,23 +19,19 @@ const on = (id, evt, fn) => { const el = $(id); if (el) el.addEventListener(evt,
 
 // ===== Inicialização =====
 document.addEventListener('DOMContentLoaded', () => {
-  // Se vier do dashboard com ?novo_processo=true, abre modal
   const url = new URL(window.location.href);
   if (url.searchParams.get('novo_processo') === 'true') {
     abrirModalNovoProcesso();
   }
 
-  // Só chama contadores da área RÁPIDA se os campos existirem
   if ($('mlbs-rapida')) contarMLBsRapida();
   if ($('mlbs-massa'))  contarMLBsMassa();
 
-  // Começa monitoramento imediatamente (não depende de "abas")
   atualizarMonitoramento();
   iniciarMonitoramentoAutomatico();
 
-  // Listeners opcionais (só colocados se os elementos existirem)
-  on('form-pesquisa-rapida', 'submit', async (e) => { e.preventDefault(); await executarPesquisaRapida(); });
-  on('form-processamento-massa', 'submit', async (e) => { e.preventDefault(); await executarProcessamentoMassa(); });
+  on('form-pesquisa-rapida', 'submit', async (e) => { if (!e.target) return; e.preventDefault(); await executarPesquisaRapida(); });
+  on('form-processamento-massa', 'submit', async (e) => { if (!e.target) return; e.preventDefault(); await executarProcessamentoMassa(); });
 
   on('tipo-modal', 'change', function () {
     const grupo = $('grupo-texto-modal');
@@ -41,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// ===== Abas (tolerante a páginas sem abas) =====
+// ===== Abas =====
 function abrirTab(tabId) {
   const allTabs = document.querySelectorAll('.tab-content');
   if (allTabs && allTabs.length) {
@@ -254,12 +252,9 @@ function pararMonitoramentoAutomatico() {
 
 async function atualizarMonitoramento() {
   try {
-    console.log('🛰️ Atualizando monitoramento...');
-
     // Stats
     const st = await fetch('/api/pesquisa-descricao/status?_=' + Date.now(), { cache: 'no-store' });
     const stData = await st.json();
-    console.log('🧭 /status:', stData);
     if (stData.ok || stData.success) {
       const s = stData.stats || {};
       text('stat-processando', s.processando_agora || 0);
@@ -271,18 +266,15 @@ async function atualizarMonitoramento() {
     // Jobs
     const jb = await fetch('/api/pesquisa-descricao/jobs?_=' + Date.now(), { cache: 'no-store' });
     const jbData = await jb.json();
-    console.log('🧾 /jobs:', jbData);
 
     if (jbData.ok && Array.isArray(jbData.jobs)) {
       cacheJobs = jbData.jobs;
       aplicarFiltrosEExibir();
     } else {
-      // se a rota não retorna jobs, mostra vazio (evita spinner eterno)
       cacheJobs = [];
       aplicarFiltrosEExibir();
     }
   } catch (err) {
-    console.error('❌ Erro ao atualizar monitoramento:', err);
     const c = $('lista-processos-monitor');
     if (c) c.innerHTML = `<div class="alert alert-danger"><strong>❌ Erro:</strong> ${err.message}</div>`;
   }
@@ -306,49 +298,130 @@ function aplicarFiltrosEExibir() {
     return;
   }
 
-  container.innerHTML = lista.map(job => {
-    const id     = job.id || job.job_id || job.jobId || '';
-    const status = (job.status || 'aguardando').toLowerCase();
-    const prog   = job.progresso_percentual ?? job.progress ?? 0;
-    const total  = job.total_mlbs ?? job.total ?? 0;
-    const done   = job.total_processados ?? job.processados ?? 0;
-    const found  = job.total_encontrados ?? job.encontrados ?? 0;
+  // Render cards com estrutura de progresso animado
+  container.innerHTML = lista.map(job => renderJobCard(job)).join('');
 
-    const map = {
-      processando: { txt:'Processando', cor:'#ffc107', icon:'⚡' },
-      aguardando:  { txt:'Na Fila',     cor:'#6c757d', icon:'⏳' },
-      concluido:   { txt:'Concluído',   cor:'#28a745', icon:'✅' },
-      cancelado:   { txt:'Cancelado',   cor:'#dc3545', icon:'❌' },
-      erro:        { txt:'Com Erro',    cor:'#dc3545', icon:'⚠️' }
-    };
-    const s = map[status] || map.aguardando;
-
-    return `
-      <div class="job-card">
-        <div class="header">
-          <span>${s.icon}</span>
-          <strong>${s.txt}</strong>
-          <small>${id}</small>
-        </div>
-        <div class="stats">
-          <div>${total} Total</div>
-          <div>${done} Process.</div>
-          <div>${found} Encontrados</div>
-          <div>${prog}% Progr.</div>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${prog}%"></div></div>
-        <div class="actions">
-          <button class="btn btn-primary" onclick="verDetalhesJob('${id}')">Detalhes</button>
-          ${status==='concluido' ? `<a href="/api/pesquisa-descricao/download/${id}" class="btn btn-success">Download Resultados</a>` : ''}
-        </div>
-      </div>
-    `;
-  }).join('');
+  // Inicializa barras (ou atualiza alvos) após render
+  lista.forEach(job => initOrUpdateProgress(job));
 }
 
-function filtrarProcessosMonitor() { aplicarFiltrosEExibir(); }
+function renderJobCard(job) {
+  const id     = job.id || job.job_id || job.jobId || '';
+  const status = (job.status || 'aguardando').toLowerCase();
+  const total  = job.total_mlbs ?? job.total ?? 0;
+  const done   = job.total_processados ?? job.processados ?? 0;
+  const found  = job.total_encontrados ?? job.encontrados ?? 0;
 
-// ===== Detalhes / Resultados =====
+  const map = {
+    processando: { txt:'Processando', cor:'#ffc107', icon:'⚡' },
+    aguardando:  { txt:'Na Fila',     cor:'#6c757d', icon:'⏳' },
+    concluido:   { txt:'Concluído',   cor:'#28a745', icon:'✅' },
+    cancelado:   { txt:'Cancelado',   cor:'#dc3545', icon:'❌' },
+    erro:        { txt:'Com Erro',    cor:'#dc3545', icon:'⚠️' }
+  };
+  const s = map[status] || map.aguardando;
+
+  // alvo de progresso que veio da API
+  let target = job.progresso_percentual ?? job.progress ?? 0;
+  if (status === 'concluido') target = 100;
+  target = Math.max(0, Math.min(100, Math.round(target)));
+
+  return `
+    <div class="job-card" data-job-id="${id}" data-status="${status}" data-total="${total}" data-done="${done}">
+      <div class="header">
+        <span>${s.icon}</span>
+        <strong>${s.txt}</strong>
+        <small>${id}</small>
+      </div>
+
+      <div class="stats">
+        <div>${total} Total</div>
+        <div class="done">${done} Process.</div>
+        <div>${found} Encontrados</div>
+        <div class="alvo" data-target="${target}">${target}% Progr.</div>
+      </div>
+
+      <div class="progress">
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:0%" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+          <div class="progress-shine"></div>
+        </div>
+        <div class="progress-meta">
+          <span class="percent">0%</span>
+          <span class="counts"><span class="count-done">${done}</span> / <span class="count-total">${total}</span></span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" onclick="verDetalhesJob('${id}')">Detalhes</button>
+        ${status==='concluido' ? `<a href="/api/pesquisa-descricao/download/${id}" class="btn btn-success">Download Resultados</a>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// ===== Barra de progresso interpolada =====
+function initOrUpdateProgress(job) {
+  const id = job.id || job.job_id || job.jobId || '';
+  if (!id) return;
+
+  const card = document.querySelector(`.job-card[data-job-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+
+  const targetEl = card.querySelector('.alvo');
+  const target = targetEl ? parseInt(targetEl.getAttribute('data-target'), 10) || 0 : 0;
+
+  if (!jobProgressState[id]) {
+    jobProgressState[id] = { current: 0, target, timer: null };
+  } else {
+    jobProgressState[id].target = target;
+  }
+
+  // atualiza contadores
+  const total = parseInt(card.getAttribute('data-total') || '0', 10);
+  const done = parseInt(card.getAttribute('data-done') || '0', 10);
+  const doneEl = card.querySelector('.count-done');
+  const totalEl = card.querySelector('.count-total');
+  if (doneEl) doneEl.textContent = done;
+  if (totalEl) totalEl.textContent = total;
+
+  // inicia loop de incremento se não houver
+  if (!jobProgressState[id].timer) {
+    jobProgressState[id].timer = setInterval(() => stepProgress(id), 50); // 1% a cada 50ms
+  }
+
+  // se já concluído, força 100% e encerra
+  if ((job.status || '').toLowerCase() === 'concluido' || target >= 100) {
+    jobProgressState[id].target = 100;
+  }
+}
+
+function stepProgress(id) {
+  const state = jobProgressState[id];
+  if (!state) return;
+
+  const card = document.querySelector(`.job-card[data-job-id="${CSS.escape(id)}"]`);
+  if (!card) { clearInterval(state.timer); state.timer = null; return; }
+
+  const bar = card.querySelector('.progress-fill');
+  const percentEl = card.querySelector('.percent');
+
+  // aproxima de 1 em 1 até o alvo
+  if (state.current < state.target) state.current += 1;
+  if (state.current > state.target) state.current = state.target;
+
+  bar.style.width = `${state.current}%`;
+  bar.setAttribute('aria-valuenow', String(state.current));
+  if (percentEl) percentEl.textContent = `${state.current}%`;
+
+  // concluiu?
+  if (state.current >= 100) {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+}
+
+// ===== Detalhes / Resultados (sem mudanças funcionais) =====
 async function verDetalhesJob(jobId) {
   const modal = $('modal-detalhes-job');
   const content = $('detalhes-job-content');
@@ -357,7 +430,6 @@ async function verDetalhesJob(jobId) {
   modal.style.display = 'block';
 
   try {
-    // pega lista e encontra o job
     const resp = await fetch('/api/pesquisa-descricao/jobs?_=' + Date.now(), { cache:'no-store' });
     const data = await resp.json();
     if (!data.ok) throw new Error('Falha ao obter lista de jobs');
@@ -398,19 +470,15 @@ function fecharModalDetalhes() {
   if (modal) modal.style.display = 'none';
 }
 
-function verResultadosDetalhados(jobId) { return verResultados(jobId); }
-
 async function verResultados(jobId) {
   currentJobId = jobId;
   try {
     const resp = await fetch(`/api/pesquisa-descricao/jobs/${jobId}?_=` + Date.now(), { cache:'no-store' });
     const jobData = await resp.json();
 
-    // Fallbacks para estatísticas
     const totalMLBs  = jobData.total_mlbs || jobData.total || 1;
     const processados = jobData.total_processados || jobData.processados || totalMLBs;
 
-    // heurística para encontrados
     let encontrados = 0;
     if (Number.isFinite(jobData.total_encontrados)) encontrados = jobData.total_encontrados;
     else if (Number.isFinite(jobData.encontrados))  encontrados = jobData.encontrados;
@@ -425,12 +493,11 @@ async function verResultados(jobId) {
       total_processados: processados,
       total_encontrados: encontrados,
       tempo_processamento: tempo,
-      resultados: jobData.resultados || [] // se existir
+      resultados: jobData.resultados || []
     };
 
     exibirResultados(dadosResultados, 'detectar_dois_volumes');
   } catch (err) {
-    console.error('❌ Erro ao obter resultados:', err);
     alert('❌ Erro ao carregar resultados: ' + err.message);
   }
 }
@@ -441,14 +508,13 @@ function contarMLBs(texto) {
   const validos = mlbs.filter(m => /^MLB\d{9,12}$/i.test(m));
   return { total: mlbs.length, validos: validos.length, invalidos: mlbs.length - validos.length };
 }
-
 function extrairMLBs(texto) {
   if (!texto) return [];
   const matches = texto.match(/MLB\d{9,12}/gi) || [];
   return [...new Set(matches.map(m => m.toUpperCase()))];
 }
 
-function exibirResultados(data, tipo) {
+function exibirResultados(data) {
   const container = $('results-container');
   const stats = $('results-stats');
   const content = $('results-content');
@@ -508,7 +574,7 @@ function fecharResultados() {
 
 function exportarResultados() { alert('🚧 Funcionalidade de exportação em desenvolvimento'); }
 
-// ===== Controles do sistema (pausar / retomar) =====
+// ===== Controles do sistema =====
 async function controlarSistema(acao) {
   try {
     const endpoint = (acao === 'pausar') ? '/api/pesquisa-descricao/pausar' : '/api/pesquisa-descricao/retomar';
