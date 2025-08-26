@@ -3,67 +3,168 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Aplicar Desconto (PRICE_DISCOUNT)</title>
-  <link rel="stylesheet" href="/css/remover-promocao.css">
+  <title>Promoções • Central</title>
+
+  <!-- Seu CSS existente -->
+  <link rel="stylesheet" href="/css/criar-promocao.css">
+
   <style>
-    .card { background:#fff; border-radius:12px; box-shadow:0 10px 25px rgba(0,0,0,.07); padding:20px; margin-bottom:16px; }
-    .row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-    .progress-wrap { margin-top:16px; }
-    .progress { height:10px; background:#eee; border-radius:6px; overflow:hidden; }
-    .progress > div { height:100%; width:0%; background:linear-gradient(90deg,#28a745,#20c997); transition:width .3s ease; }
-    .results { white-space:pre-wrap; background:#f8f9fa; border-radius:8px; padding:12px; border:1px solid #e9ecef; }
+    /* Topo (compatível com analise-anuncios) */
+    .account-bar{
+      position:sticky;top:0;z-index:10;
+      background:#111827;color:#fff;
+      display:flex;justify-content:space-between;align-items:center;
+      padding:10px 16px
+    }
+    .account-bar .app-name{font-weight:700}
+    .account-bar .right{display:flex;gap:8px;align-items:center}
+
+    /* Botões rápidos */
+    .btn{border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+    .btn.primary{background:#0ea5e9;color:#fff}
+    .btn.warn{background:#f59e0b;color:#111}
+    .btn.ghost{background:#eef2f7}
+
+    /* Layout geral */
+    body{background:linear-gradient(180deg,#6467d6,#7c5eb0) fixed;margin:0;font-family:Inter,system-ui,Segoe UI,Arial}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 16px;color:#111}
+    h2{margin:12px 0 6px 0}
+
+    /* Cards de promoções */
+    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}
+    .card{border-radius:14px;background:#fff;box-shadow:0 10px 25px rgba(0,0,0,.07);padding:16px;border:1px solid #eee}
+    .card h3{margin:0 0 6px 0;font-size:16px}
+    .muted{color:#6b7280}
+    .card--active{outline:2px solid #2dd4bf}
+    .card--disabled{opacity:.55}
+
+    /* Ferramentas laterais */
+    .tools{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}
+    .tools input[type="number"], .tools input[type="text"], .tools textarea{width:100%}
+
+    /* Tabela */
+    .table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
+    .table th,.table td{padding:10px;border-bottom:1px solid #efefef;text-align:left;vertical-align:middle}
+    .table th{background:#f8fafc;font-weight:600}
+
+    /* Paginação */
+    .pagination{display:flex;gap:6px;align-items:center;justify-content:center;margin:12px 0}
+    .page-btn{min-width:32px;height:32px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+    .page-btn.active{background:#0f172a;color:#fff;border-color:#0f172a}
+
+    /* Barra de progresso */
+    .progress-wrap{background:#fff;border:1px solid #eee;border-radius:12px;padding:14px}
+    .progress{height:10px;background:#eee;border-radius:6px;overflow:hidden;margin-top:6px}
+    .progress .fill{height:100%;width:0%;background:linear-gradient(90deg,#28a745,#20c997);transition:width .3s}
+
+    @media (max-width:960px){
+      .cards{grid-template-columns:repeat(2,1fr)}
+      .tools{grid-template-columns:1fr}
+      .table{font-size:14px}
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>💸 Aplicar Desconto (PRICE_DISCOUNT)</h1>
-    <p>Defina uma <strong>porcentagem</strong> e aplique a um MLB único ou a uma lista de MLBs.</p>
 
-    <div class="card">
-      <div class="row">
-        <div>
-          <label for="mlbUnico"><strong>MLB (único)</strong></label>
-          <input id="mlbUnico" type="text" placeholder="Ex: MLB1234567890" autocomplete="off"/>
-        </div>
-        <div>
-          <label for="percent"><strong>Percentual de desconto (%)</strong></label>
-          <input id="percent" type="number" min="1" max="90" step="0.1" placeholder="Ex: 12" autocomplete="off"/>
-        </div>
-      </div>
-      <div style="margin-top:12px; display:flex; gap:10px;">
-        <button type="button" onclick="aplicarUnico()">🎯 Aplicar (Único)</button>
-        <button type="button" class="btn-secondary" onclick="limparUnico()">🧹 Limpar</button>
+  <!-- TOPO (mesmo padrão do analise-anuncios) -->
+  <header class="account-bar">
+    <div class="left">
+      <span class="app-name">Promoções</span>
+    </div>
+    <div class="right">
+      <span>Conta: <strong data-account-label>carregando…</strong></span>
+      <button type="button" class="btn ghost" data-account-switch>Trocar</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <h2>Central de Promoções</h2>
+
+    <!-- Cards carregados via JS -->
+    <div class="cards" id="cards">
+      <div class="card">
+        <h3>Carregando promoções…</h3>
+        <div class="muted">Aguarde</div>
       </div>
     </div>
 
-    <div class="card">
-      <label for="mlbsLista"><strong>MLBs em massa (um por linha)</strong></label>
-      <textarea id="mlbsLista" rows="8" placeholder="MLB1234567890&#10;MLB0987654321"></textarea>
+    <!-- Filtro participantes -->
+    <div class="card" style="display:flex;align-items:center;gap:16px">
+      <strong>Mostrar:</strong>
+      <label><input type="radio" name="filtro" value="all" checked onchange="aplicarFiltro()"> Todos</label>
+      <label><input type="radio" name="filtro" value="non" onchange="aplicarFiltro()"> Não participantes</label>
+      <label><input type="radio" name="filtro" value="yes" onchange="aplicarFiltro()"> Participantes</label>
+      <span id="filtroTips" class="muted" style="margin-left:auto">Clique em um card de promoção</span>
+    </div>
 
-      <div class="row" style="margin-top:12px;">
-        <div>
-          <label for="delayMs"><strong>Delay entre itens (ms)</strong></label>
-          <input id="delayMs" type="number" min="0" step="50" value="500"/>
+    <!-- Ferramentas -->
+    <div class="tools">
+      <div class="card">
+        <label><strong>Buscar/Adicionar item</strong></label>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <input id="mlbInput" type="text" placeholder="MLB123..." />
+          <button class="btn ghost" onclick="buscarItem()">Buscar</button>
+          <button class="btn ghost" onclick="adicionarItem()">Adicionar</button>
         </div>
-        <div style="display:flex; align-items:flex-end; gap:10px;">
-          <button type="button" class="btn-warning" onclick="aplicarLote()">🚀 Aplicar em Lote</button>
-          <a id="downloadLink" class="btn-success" href="#" style="display:none;">📥 Download XLSX</a>
-        </div>
+        <small class="muted">Dica: cole vários MLBs na caixa abaixo (um por linha).</small>
+        <textarea id="mlbsLista" rows="6" placeholder="MLB123...\nMLB456..." style="margin-top:8px"></textarea>
       </div>
 
-      <div class="progress-wrap">
-        <div class="progress"><div id="progressFill"></div></div>
-        <div id="progressText" style="font-size:13px; color:#666; margin-top:6px;">Aguardando…</div>
+      <div class="card">
+        <label><strong>Percentual de desconto (%)</strong></label>
+        <input id="percent" type="number" min="1" max="90" step="0.1" placeholder="Ex: 12" oninput="atualizarPreview()" />
+        <div style="margin-top:8px" class="muted">O preço final (deal_price) é calculado automaticamente.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn primary" onclick="aplicarLoteSelecionados()">Aplicar desconto</button>
+          <button class="btn warn" onclick="removerLoteSelecionados()">Remover promoção</button>
+          <button class="btn ghost" onclick="limparTudo()">Limpar</button>
+        </div>
       </div>
     </div>
 
+    <!-- Tabela -->
     <div class="card">
-      <h3>Resultados</h3>
-      <div id="results" class="results">Sem resultados ainda.</div>
+      <table class="table" id="tabela">
+        <thead>
+          <tr>
+            <th style="width:30px"><input type="checkbox" id="chkAll" onchange="toggleTodos(this)"/></th>
+            <th>MLB</th>
+            <th>Título</th>
+            <th>Estoque</th>
+            <th>SKU</th>
+            <th>Preço atual</th>
+            <th>Desc. camp.</th>
+            <th>Preço final</th>
+            <th>Rebate</th>
+            <th>Novo preço</th>
+            <th>Status</th>
+            <th style="text-align:right">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="12" class="muted">Sem itens. Clique em um card de promoção.</td></tr>
+        </tbody>
+      </table>
+
+      <!-- Paginação -->
+      <div id="paginacao" class="pagination" aria-label="Paginação">
+        <!-- botões de página inseridos via JS -->
+      </div>
+    </div>
+
+    <!-- Progresso -->
+    <div class="progress-wrap">
+      <div id="progressText" class="muted" aria-live="polite">Aguardando…</div>
+      <div class="progress" aria-hidden="true">
+        <div id="progressFill" class="fill"></div>
+      </div>
+      <a id="downloadLink" href="#" style="display:none;margin-top:8px">Baixar CSV do processamento</a>
     </div>
   </div>
 
-  <!-- alinhe o nome do arquivo com o que você salvou em /public/js -->
-  <script src="/js/criar-promocao.js"></script>
+  <!-- Scripts -->
+  <!-- Se você já usa esse arquivo em outras telas, mantenha. Se não existir, remova a linha abaixo. -->
+  <script src="/js/account-bar.js" defer></script>
+  <script src="/js/criar-promocao.js" defer></script>
 </body>
 </html>

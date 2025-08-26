@@ -4,6 +4,9 @@ const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
+// Middlewares próprios
+const ensureAccount = require('./middleware/ensureAccount'); // ✅ importa ANTES de usar
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -17,16 +20,6 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 console.log('🔍 Carregando módulos...');
-
-// Debug helper (opcional)
-app.get('/api/account/whoami', (req, res) => {
-  res.json({
-    ok: true,
-    accountKey: res.locals.accountKey || null,
-    accountLabel: res.locals.accountLabel || null,
-    hasCreds: !!res.locals.mlCreds,
-  });
-});
 
 // ==================================================
 // Seleção de conta (rotas ABERTAS)
@@ -161,19 +154,26 @@ app.get('/', (req, res) => {
 // PROTEÇÃO: exigir conta selecionada (APÓS root redirect)
 // ==========================================
 try {
-  const ensureAccount = require('./middleware/ensureAccount');
-  app.use(ensureAccount);
+  app.use(ensureAccount); // ✅ agora definido e aplicado uma ÚNICA vez
   console.log('✅ Middleware ensureAccount aplicado');
 } catch (error) {
   console.error('❌ Erro ao aplicar ensureAccount:', error.message);
   console.warn('⚠️ Continuação sem exigir conta selecionada (temporário)');
 }
 
+// Debug helper (agora DEPOIS do ensureAccount, para mostrar a conta)
+app.get('/api/account/whoami', (req, res) => {
+  res.json({
+    ok: true,
+    accountKey: res.locals.accountKey || null,
+    accountLabel: res.locals.accountLabel || null,
+    hasCreds: !!res.locals.mlCreds,
+  });
+});
 
 // (depois do ensureAccount)
 const adAnalysisRoutes = require('./routes/adAnalysisRoutes');
 app.use('/api/analise-anuncios', adAnalysisRoutes);
-
 
 // ==========================================
 // Rotas PROTEGIDAS do app
@@ -188,13 +188,39 @@ try {
   console.error('❌ Erro ao carregar TokenRoutes:', error.message);
 }
 
-// Promoção (API)
+// Promoção (API já existente no seu projeto)
 try {
   const promocaoRoutes = require('./routes/promocaoRoutes');
   app.use(promocaoRoutes);
   console.log('✅ PromocaoRoutes carregado');
 } catch (error) {
   console.error('❌ Erro ao carregar PromocaoRoutes:', error.message);
+}
+
+// Criar Promoção (API de jobs)
+try {
+  const criarPromocaoRoutes = require('./routes/criarPromocaoRoutes');
+  app.use('/api/criar-promocao', criarPromocaoRoutes);
+  console.log('✅ CriarPromocaoRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar CriarPromocaoRoutes:', error.message);
+}
+
+// Rotas novas: Items e Promoções (cards) — AGORA após ensureAccount
+try {
+  const itemsRoutes = require('./routes/itemsRoutes');
+  app.use(itemsRoutes);
+  console.log('✅ ItemsRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar ItemsRoutes:', error.message);
+}
+
+try {
+  const promocoesRoutes = require('./routes/promocoesRoutes');
+  app.use(promocoesRoutes);
+  console.log('✅ PromocoesRoutes carregado');
+} catch (e) {
+  console.error('❌ Erro ao carregar PromocoesRoutes:', e.message);
 }
 
 // HTML (dashboard e páginas)
@@ -204,15 +230,6 @@ try {
   console.log('✅ HtmlRoutes carregado');
 } catch (error) {
   console.error('❌ Erro ao carregar HtmlRoutes:', error.message);
-}
-
-// Criar Promoção (API)
-try {
-  const criarPromocaoRoutes = require('./routes/criarPromocaoRoutes');
-  app.use('/api/criar-promocao', criarPromocaoRoutes);
-  console.log('✅ CriarPromocaoRoutes carregado');
-} catch (error) {
-  console.error('❌ Erro ao carregar CriarPromocaoRoutes:', error.message);
 }
 
 // Pesquisa em Descrições (API)
@@ -375,7 +392,5 @@ process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
-
-
 
 module.exports = app;

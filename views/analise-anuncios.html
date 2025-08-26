@@ -24,7 +24,10 @@
 
   <main class="container">
     <h1>📈 Análise de Anúncios (MLB)</h1>
-    <p class="sub">Informe um MLB (unitário) ou cole uma lista para análise em massa. Apenas itens da <strong>conta selecionada</strong> serão considerados.</p>
+    <p class="sub">
+      Informe um MLB (unitário) ou cole uma lista para análise em massa. Apenas itens da
+      <strong>conta selecionada</strong> serão considerados.
+    </p>
 
     <section class="inputs">
       <div class="card">
@@ -58,22 +61,39 @@
     <section class="results card">
       <div class="results__header">
         <h3>Resultados</h3>
-        <button id="btn-download" class="btn btn-secondary" disabled>⬇️ Baixar XLSX</button>
+        <button id="btn-download" class="btn btn-secondary" disabled>⬇️ Baixar (XLSX/CSV)</button>
       </div>
+
       <div class="table-wrap">
         <table class="table" id="results-table">
           <thead>
             <tr>
               <th>#</th>
               <th>MLB</th>
-              <th>Última venda</th>
               <th>Tipo</th>
+              <th>Data criação</th>
+              <th>Última venda</th>
               <th>Tempo desde a última venda</th>
+
+              <th>Vendas 30d</th>
+              <th>Vendas 60d</th>
+              <th>Vendas 90d</th>
+
+              <th>Receita 30d</th>
+              <th>Receita 60d</th>
+              <th>Receita 90d</th>
+
+              <th>Tempo médio entre vendas</th>
+
+              <th>Ads 30d</th>
+              <th>Ads 60d</th>
+              <th>Ads 90d</th>
+
               <th>Status</th>
             </tr>
           </thead>
           <tbody id="results-body">
-            <tr><td colspan="6" style="text-align:center;color:#6b7280;">Sem resultados ainda</td></tr>
+            <tr><td colspan="16" style="text-align:center;color:#6b7280;">Sem resultados ainda</td></tr>
           </tbody>
         </table>
       </div>

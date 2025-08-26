@@ -1,7 +1,6 @@
-// public/js/analise-anuncios.js
+// public/js/analise-anuncio.js
 (function () {
   const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
   const inputSingle = $('#mlb-single');
   const btnOne     = $('#btn-analisar-um');
@@ -13,9 +12,14 @@
   const bar        = $('#progress-bar');
   const barTxt     = $('#progress-text');
   const tbody      = $('#results-body');
-  const btnXlsx    = $('#btn-download');
+  const btnDown    = $('#btn-download');
 
-  const results = []; // { mlb, ultima_venda, tipo, tempo_desde_ultima_venda, success, erro? }
+  const results = []; // armazena as respostas cruas do backend
+
+  const money = (v, moeda='BRL') =>
+    (v === null || v === undefined)
+      ? '—'
+      : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: moeda });
 
   function setProgress(cur, total) {
     const pct = total > 0 ? Math.round((cur / total) * 100) : 0;
@@ -23,18 +27,44 @@
     barTxt.textContent = `${cur} / ${total}`;
   }
 
-  function appendRow(row, idx) {
+  function ensureTableReady() {
     if (tbody.children.length === 1 && tbody.children[0].querySelector('td[colspan]')) {
-      tbody.innerHTML = ''; // limpa "Sem resultados"
+      tbody.innerHTML = ''; // limpa linha "Sem resultados ainda"
     }
+  }
+
+  function renderRow(r, idx) {
+    ensureTableReady();
+    const moeda = r.moeda || 'BRL';
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${idx}</td>
-      <td>${row.mlb || '—'}</td>
-      <td>${row.ultima_venda || '—'}</td>
-      <td>${row.tipo || '—'}</td>
-      <td>${row.tempo_desde_ultima_venda || '—'}</td>
-      <td>${row.success ? '✅ OK' : `❌ ${row.erro || 'Falha'}`}</td>
+      <td>${r.mlb || '—'}</td>
+      <td>${r.tipo || '—'}</td>
+      <td>${r.data_criacao_fmt || '—'}</td>
+      <td>${r.ultima_venda_fmt || '—'}</td>
+      <td>${r.tempo_desde_ultima_venda || '—'}</td>
+
+      <td>${r.vendas_30d ?? '0'}</td>
+      <td>${r.vendas_60d ?? '0'}</td>
+      <td>${r.vendas_90d ?? '0'}</td>
+
+      <td>${money(r.receita_30d, moeda)}</td>
+      <td>${money(r.receita_60d, moeda)}</td>
+      <td>${money(r.receita_90d, moeda)}</td>
+
+      <td>${r.tempo_medio_entre_vendas || '—'}</td>
+
+      <td>${r.ads_disponivel ? money(r.gasto_ads_30d, moeda) : '—'}</td>
+      <td>${r.ads_disponivel ? money(r.gasto_ads_60d, moeda) : '—'}</td>
+      <td>${r.ads_disponivel ? money(r.gasto_ads_90d, moeda) : '—'}</td>
+
+      <td>${
+        r.success
+          ? '<span class="badge-ok">OK</span>'
+          : `<span class="badge-err">${r.status || 'Erro'}</span>`
+      }</td>
     `;
     tbody.appendChild(tr);
   }
@@ -52,16 +82,20 @@
   btnOne.addEventListener('click', async () => {
     const v = String(inputSingle.value || '').trim();
     if (!v) return alert('Informe um MLB.');
+
     setProgress(0, 1);
+    btnOne.disabled = true;
+
     try {
-      btnOne.disabled = true;
       const data = await analisarUm(v);
       results.push(data);
-      appendRow(data, results.length);
+      renderRow(data, results.length);
       setProgress(1, 1);
-      btnXlsx.disabled = results.length === 0;
+      btnDown.disabled = results.length === 0;
     } catch (e) {
-      alert('Erro ao analisar: ' + (e?.message || e));
+      const fail = { success:false, mlb:v, status:'ERRO', message: e?.message || String(e) };
+      results.push(fail);
+      renderRow(fail, results.length);
     } finally {
       btnOne.disabled = false;
     }
@@ -85,33 +119,48 @@
       try {
         const data = await analisarUm(mlb);
         results.push(data);
-        appendRow(data, results.length);
+        renderRow(data, results.length);
       } catch (e) {
-        const fail = { success: false, mlb, erro: e?.message || String(e) };
+        const fail = { success:false, mlb, status:'ERRO', message: e?.message || String(e) };
         results.push(fail);
-        appendRow(fail, results.length);
+        renderRow(fail, results.length);
       } finally {
         done++;
         setProgress(done, lines.length);
       }
-      if (delay > 0) {
-        await new Promise(r => setTimeout(r, delay));
-      }
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
     }
 
-    btnXlsx.disabled = results.length === 0;
+    btnDown.disabled = results.length === 0;
     btnBulk.disabled = false;
   });
 
-  // Download XLSX
-  btnXlsx.addEventListener('click', async () => {
+  // Download XLSX / CSV (auto detecta pelo Content-Type)
+  btnDown.addEventListener('click', async () => {
     if (results.length === 0) return;
-    // monta linhas limpas para export (somente os campos pedidos)
+
     const rows = results.map(r => ({
       mlb: r.mlb || '',
-      ultima_venda: r.ultima_venda || '',
       tipo: r.tipo || '',
-      tempo_desde_ultima_venda: r.tempo_desde_ultima_venda || ''
+      data_criacao: r.data_criacao_fmt || '',
+      ultima_venda: r.ultima_venda_fmt || '',
+      tempo_desde_ultima_venda: r.tempo_desde_ultima_venda || '',
+
+      vendas_30d: r.vendas_30d ?? 0,
+      vendas_60d: r.vendas_60d ?? 0,
+      vendas_90d: r.vendas_90d ?? 0,
+
+      receita_30d: r.receita_30d ?? 0,
+      receita_60d: r.receita_60d ?? 0,
+      receita_90d: r.receita_90d ?? 0,
+      moeda: r.moeda || 'BRL',
+
+      tempo_medio_entre_vendas: r.tempo_medio_entre_vendas || '',
+
+      gasto_ads_30d: r.gasto_ads_30d ?? null,
+      gasto_ads_60d: r.gasto_ads_60d ?? null,
+      gasto_ads_90d: r.gasto_ads_90d ?? null,
+      ads_disponivel: r.ads_disponivel === true
     }));
 
     try {
@@ -120,20 +169,30 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ rows })
       });
+
       if (!resp.ok) {
         const t = await resp.text();
-        return alert('Falha ao gerar XLSX: ' + t);
+        return alert('Falha ao gerar arquivo: ' + t);
       }
+
+      const ct = resp.headers.get('content-type') || '';
+      const cd = resp.headers.get('content-disposition') || '';
       const blob = await resp.blob();
+
+      // tenta extrair filename do header; fallback por extensão conforme content-type
+      let filename = (cd.match(/filename="([^"]+)"/)?.[1]) || `analise-anuncios-${Date.now()}`;
+      if (ct.includes('spreadsheetml')) filename = filename.endsWith('.xlsx') ? filename : filename + '.xlsx';
+      else if (ct.includes('text/csv'))   filename = filename.endsWith('.csv')  ? filename : filename + '.csv';
+
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `analise-anuncios-${Date.now()}.xlsx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       URL.revokeObjectURL(a.href);
       a.remove();
     } catch (e) {
-      alert('Erro ao baixar XLSX: ' + (e?.message || e));
+      alert('Erro ao baixar: ' + (e?.message || e));
     }
   });
 })();
