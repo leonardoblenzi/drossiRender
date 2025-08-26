@@ -80,6 +80,21 @@
   <div class="wrap">
     <h2>Central de Promoções</h2>
 
+    <!-- Barra de busca (somente MLB) -->
+  <section id="promo-toolbar" class="promo-toolbar">
+    <label for="mlbFilter" class="block-label">Buscar item (MLB)</label>
+    <div class="inline">
+      <input id="mlbFilter" type="text" placeholder="MLB1234567890" />
+      <button id="btnFiltrarItem" class="btn">Buscar</button>
+      <button id="btnLimparItem" class="btn ghost">Limpar</button>
+    </div>
+    <small class="muted">Ao buscar, mostro apenas as campanhas que oferecem promoção para esse item.</small>
+  </section>
+
+<!-- Container dos cards -->
+<div id="cards"></div>
+
+
     <!-- Cards carregados via JS -->
     <div class="cards" id="cards">
       <div class="card">
@@ -89,38 +104,30 @@
     </div>
 
     <!-- Filtro participantes -->
-    <div class="card" style="display:flex;align-items:center;gap:16px">
-      <strong>Mostrar:</strong>
-      <label><input type="radio" name="filtro" value="all" checked onchange="aplicarFiltro()"> Todos</label>
-      <label><input type="radio" name="filtro" value="non" onchange="aplicarFiltro()"> Não participantes</label>
-      <label><input type="radio" name="filtro" value="yes" onchange="aplicarFiltro()"> Participantes</label>
-      <span id="filtroTips" class="muted" style="margin-left:auto">Clique em um card de promoção</span>
-    </div>
-
-    <!-- Ferramentas -->
-    <div class="tools">
-      <div class="card">
-        <label><strong>Buscar/Adicionar item</strong></label>
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <input id="mlbInput" type="text" placeholder="MLB123..." />
-          <button class="btn ghost" onclick="buscarItem()">Buscar</button>
-          <button class="btn ghost" onclick="adicionarItem()">Adicionar</button>
-        </div>
-        <small class="muted">Dica: cole vários MLBs na caixa abaixo (um por linha).</small>
-        <textarea id="mlbsLista" rows="6" placeholder="MLB123...\nMLB456..." style="margin-top:8px"></textarea>
+    <div class="mostrar-bar">
+      <!-- ESQUERDA: nome da campanha -->
+      <div class="lado-esquerdo">
+        <div id="campName" class="camp-name" title="— selecione um card —">— selecione um card —</div>
       </div>
 
-      <div class="card">
-        <label><strong>Percentual de desconto (%)</strong></label>
-        <input id="percent" type="number" min="1" max="90" step="0.1" placeholder="Ex: 12" oninput="atualizarPreview()" />
-        <div style="margin-top:8px" class="muted">O preço final (deal_price) é calculado automaticamente.</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-          <button class="btn primary" onclick="aplicarLoteSelecionados()">Aplicar desconto</button>
-          <button class="btn warn" onclick="removerLoteSelecionados()">Remover promoção</button>
-          <button class="btn ghost" onclick="limparTudo()">Limpar</button>
+      <!-- DIREITA: filtros (rádios + desconto máximo) -->
+      <div class="lado-direito">
+        <div class="radios-line">
+          <label><input type="radio" name="filtro" value="all" checked> Todos</label>
+          <label><input type="radio" name="filtro" value="non"> Não participantes</label>
+          <label><input type="radio" name="filtro" value="yes"> Participantes</label>
         </div>
-      </div>
+
+        <div class="filters-inline">
+          <label for="maxDescTableInput" class="sr-only">Desconto máx. (%)</label>
+          <input id="maxDescTableInput" type="number" min="0" max="99" step="0.01" placeholder="Ex: 15" />
+          <button id="btnMaxDescTable" class="btn">Aplicar</button>
+          <button id="btnLimparMaxDescTable" class="btn ghost">Limpar</button>
+        </div>
+  </div>
     </div>
+
+
 
     <!-- Tabela -->
     <div class="card">
