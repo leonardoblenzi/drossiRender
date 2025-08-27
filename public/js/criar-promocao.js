@@ -289,16 +289,26 @@ function destacarCardSelecionado(){
 // Busca por MLB: filtra cards que possuem promoção para o item
 async function filtrarCardsPorMLB(mlb){
   try {
-    const resp = await getJSONAny([`/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`]);
-    const promos = Array.isArray(resp.results) ? resp.results : [];
+    const resp = await getJSONAny([
+      `/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`,
+      `/api/promocao/items/${encodeURIComponent(mlb)}/promotions`,
+      `/api/promotions/items/${encodeURIComponent(mlb)}/promotions`,
+      // fallbacks sem "/promotions"
+      `/api/promocoes/items/${encodeURIComponent(mlb)}`,
+      `/api/promocao/items/${encodeURIComponent(mlb)}`,
+      `/api/promotions/items/${encodeURIComponent(mlb)}`
+    ]);
+
+    const promos = Array.isArray(resp) ? resp : (Array.isArray(resp.results) ? resp.results : []);
     const idsDoItem = new Set(promos.filter(p => p && p.id).map(p => p.id));
+
     state.cardsFilteredIds = new Set(state.cards.filter(c => idsDoItem.has(c.id)).map(c => c.id));
     renderCards();
 
     const list = state.cards.filter(c => state.cardsFilteredIds.has(c.id));
     if (list.length === 1) selecionarCard(list[0]);
   } catch (e) {
-    console.warn('Falha ao buscar promoções do item; caindo para varredura lenta.', e);
+    console.warn('Falha ao buscar promoções do item (todas as rotas).', e);
     state.cardsFilteredIds = null;
     renderCards();
   }
@@ -548,8 +558,16 @@ function renderPaginacao(){
 // 1) método rápido — usa /items/:ITEM_ID/promotions e tenta um brief (se existir); falhando, segue normalmente
 async function montarItemRapido(mlb){
   // promo do item
-  const resp = await getJSONAny([`/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`]);
-  const promos = Array.isArray(resp.results) ? resp.results : [];
+  const resp = await getJSONAny([
+    `/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`,
+    `/api/promocao/items/${encodeURIComponent(mlb)}/promotions`,
+    `/api/promotions/items/${encodeURIComponent(mlb)}/promotions`,
+    // fallback sem "/promotions"
+    `/api/promocoes/items/${encodeURIComponent(mlb)}`,
+    `/api/promocao/items/${encodeURIComponent(mlb)}`,
+    `/api/promotions/items/${encodeURIComponent(mlb)}`
+  ]);
+  const promos = Array.isArray(resp) ? resp : (Array.isArray(resp.results) ? resp.results : []);
   const sel = state.selectedCard;
   const match = promos.find(p => p && p.id === sel.id) || null;
   if (!match) return null;
@@ -665,16 +683,112 @@ async function carregarSomenteMLBSelecionado(){
 
 /* ================= Ações (stubs) ================= */
 
+/* ================= Ações ================= */
+
+// util: calcula o preço de negócio (deal) para enviar em SELLER_CAMPAIGN/DEAL
+function calcDealPriceFromItem(it) {
+  const orig = Number(it.original_price ?? it.price ?? NaN);
+  const deal = Number(it.deal_price ?? it.price ?? NaN);
+  let d = Number(it.discount_percentage ?? NaN);
+
+  if (!Number.isNaN(deal)) return round2(deal);
+  if (!Number.isNaN(orig) && !Number.isNaN(d)) {
+    return round2(orig * (1 - d / 100));
+  }
+  return null;
+}
+
+// util: encontra um offer_id de CANDIDATE para SMART/PRICE_MATCHING caso não venha no item atual
+async function buscarOfferIdCandidate(mlb) {
+  // varre a campanha só com status=candidate até achar o item e pegar offer_id
+  let token = null;
+  for (let i = 0; i < 200; i++) {
+    const qs = qsBuild({ limit: 50, status: 'candidate', ...(token ? { search_after: token } : {}) });
+    const data = await getJSONAny(itemsPaths(state.selectedCard.id, state.selectedCard.type, qs));
+    const items = Array.isArray(data.results) ? data.results : [];
+    const found = items.find(x => (x.id || '').toUpperCase() === mlb.toUpperCase());
+    if (found && (found.offer_id || (found.offers && found.offers[0]?.id))) {
+      return found.offer_id || found.offers[0].id;
+    }
+    token = data?.paging?.searchAfter || null;
+    if (!token) break;
+  }
+  return null;
+}
+
+async function aplicarUnico(mlb) {
+  if (!state.selectedCard) return alert('Selecione uma campanha.');
+
+  const it = state.items.find(x => (x.id || '').toUpperCase() === (mlb || '').toUpperCase());
+  if (!it) return alert('Item não encontrado na lista atual.');
+
+  const t = (state.selectedCard.type || '').toUpperCase();
+  const payload = {
+    promotion_id: state.selectedCard.id,
+    promotion_type: t
+  };
+
+  try {
+    if (t === 'SELLER_CAMPAIGN' || t === 'DEAL') {
+      // precisa de deal_price
+      let dealPrice = calcDealPriceFromItem(it);
+      if (dealPrice == null) {
+        const entrada = prompt('Informe o NOVO preço do item para a campanha (ex: 99.90):');
+        if (!entrada) return;
+        const num = Number(String(entrada).replace(',', '.'));
+        if (Number.isNaN(num) || num <= 0) return alert('Preço inválido.');
+        dealPrice = round2(num);
+      }
+      payload.deal_price = dealPrice;
+      // se você quiser usar top_deal_price, pode pedir aqui (opcional)
+      // payload.top_deal_price = ...
+    } else if (t === 'SMART' || t.startsWith('PRICE_MATCHING')) {
+      // precisa de offer_id (candidate)
+      let offerId = it.offer_id || (it.offers && it.offers[0]?.id) || null;
+      if (!offerId) offerId = await buscarOfferIdCandidate(mlb);
+      if (!offerId) return alert('Não foi possível obter o offer_id da oferta candidata para este item.');
+      payload.offer_id = offerId;
+    } else if (t === 'MARKETPLACE_CAMPAIGN') {
+      // sem campos adicionais
+    }
+
+    const r = await fetch(`/api/promocoes/items/${encodeURIComponent(mlb)}/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const resp = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      console.error('Falha ao aplicar promoção', r.status, resp);
+      return alert(`Erro ao aplicar: ${r.status} ${resp?.error || ''}`);
+    }
+
+    alert('Aplicado com sucesso!');
+    // recarrega a grade atual
+    if (state.mlbFilter) {
+      await carregarSomenteMLBSelecionado();
+    } else {
+      await carregarItensPagina(state.paging.currentPage, true);
+    }
+  } catch (e) {
+    console.error('Erro aplicarUnico:', e);
+    alert('Falha ao aplicar (ver console).');
+  }
+}
+
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){ $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked); }
 function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
-function aplicarLoteSelecionados(){
+async function aplicarLoteSelecionados(){
   const sel = getSelecionados();
-  if (!sel.length) { alert('Selecione ao menos 1 item'); return; }
-  alert(`(stub) Ação em lote com ${sel.length} itens`);
+  if (!sel.length) return alert('Selecione ao menos 1 item');
+  // aplica em série para simplificar (poucas unidades)
+  for (const mlb of sel) {
+    await aplicarUnico(mlb);
+  }
 }
 function removerUnicoDaCampanha(mlb){ alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ''}`); }
-function aplicarUnico(mlb){ alert(`(stub) Aplicar no ${mlb} em ${state.selectedCard?.id || ''}`); }
 
 window.goPage = goPage;
 window.toggleTodos = toggleTodos;
