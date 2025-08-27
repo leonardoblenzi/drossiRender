@@ -147,6 +147,33 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
   }
 });
 
+/** Detalhes rápidos de itens (título, estoque, sku, preço) */
+core.get('/api/promocoes/items-brief', async (req, res) => {
+  try {
+    const creds = res.locals.mlCreds || {};
+    const ids = String(req.query.ids || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    if (!ids.length) return res.json([]);
+
+    const url = `https://api.mercadolibre.com/items?ids=${ids.join(',')}&attributes=id,title,available_quantity,seller_custom_field,price`;
+    const r = await authFetch(req, url, {}, creds);
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      return res.status(r.status).json({ ok: false, error: 'ML error', body });
+    }
+    const arr = await r.json();
+    const out = (arr || []).map(row => row?.body || {}).filter(b => b?.id);
+    res.json(out);
+  } catch (e) {
+    console.error('[/api/promocoes/items-brief] erro:', e);
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+
 // Montagem do router com aliases
 router.use(core);                    // /api/promocoes/*
 router.use('/api/promocao', core);   // alias
