@@ -1,10 +1,6 @@
 // middleware/authMiddleware.js
-const TokenService = require('../services/tokenService');
+const TokenService = require('../services/tokenService'); // << caminho corrigido
 
-/**
- * Algumas rotas longas ou de polling podem querer pular a renovação obrigatória.
- * Ajuste os padrões conforme necessário.
- */
 const SKIP = [
   /^\/api\/pesquisa-descricao\/jobs/i,
   /^\/api\/pesquisa-descricao\/status/i,
@@ -14,25 +10,17 @@ function isSkipped(pathname = '') {
   return SKIP.some((rx) => rx.test(pathname));
 }
 
-/** Helpers */
 function getAccountMeta(res) {
-  return {
-    key: res?.locals?.accountKey || null,
-    label: res?.locals?.accountLabel || null,
-  };
+  return { key: res?.locals?.accountKey || null, label: res?.locals?.accountLabel || null };
 }
 
 function getCreds(res) {
-  // Credenciais injetadas pelo ensureAccount (multi-conta).
-  // Se não houver, o TokenService faz fallback para process.env.
   return res?.locals?.mlCreds || {};
 }
 
 function attachAuthContext(req, res, accessToken) {
   res.locals.accessToken = accessToken || null;
-  req.access_token = accessToken || null; // compatibilidade com código legado
-
-  // Metadados úteis para logs
+  req.access_token = accessToken || null;
   req.ml = {
     accessToken: accessToken || null,
     creds: getCreds(res),
@@ -41,12 +29,6 @@ function attachAuthContext(req, res, accessToken) {
   };
 }
 
-/**
- * Middleware OBRIGATÓRIO:
- * - Garante ACCESS_TOKEN válido (renova se necessário).
- * - Bloqueia (401) se não conseguir obter/renovar.
- * - Usa credenciais da conta selecionada (ensureAccount) ou .env como fallback.
- */
 const authMiddleware = async (req, res, next) => {
   if (isSkipped(req.path)) return next();
 
@@ -63,14 +45,14 @@ const authMiddleware = async (req, res, next) => {
 
     attachAuthContext(req, res, token);
 
-    // Informativo (não bloqueia se falhar)
+    // mantém o token fresco em mlCreds
+    res.locals.mlCreds = res.locals.mlCreds || {};
+    res.locals.mlCreds.access_token = token;
+
     try {
       const teste = await TokenService.testarToken(getCreds(res));
       if (teste?.success) {
-        req.user_data = {
-          user_id: teste.user_id,
-          nickname: teste.nickname,
-        };
+        req.user_data = { user_id: teste.user_id, nickname: teste.nickname };
       }
     } catch (e) {
       console.warn('⚠️ authMiddleware: falha ao testar token:', e?.message || e);
@@ -87,11 +69,6 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
-/**
- * Middleware OPCIONAL:
- * - Tenta obter/renovar token; se falhar, segue sem bloquear.
- * - Anexa token e metadados quando disponível.
- */
 const authMiddlewareOptional = async (req, res, next) => {
   if (isSkipped(req.path)) return next();
 
@@ -107,13 +84,15 @@ const authMiddlewareOptional = async (req, res, next) => {
     attachAuthContext(req, res, token);
 
     if (token) {
+      res.locals.mlCreds = res.locals.mlCreds || {};
+      res.locals.mlCreds.access_token = token;
+    }
+
+    if (token) {
       try {
         const teste = await TokenService.testarToken(getCreds(res));
         if (teste?.success) {
-          req.user_data = {
-            user_id: teste.user_id,
-            nickname: teste.nickname,
-          };
+          req.user_data = { user_id: teste.user_id, nickname: teste.nickname };
         }
       } catch (e) {
         console.warn('⚠️ authMiddlewareOptional: falha ao testar token:', e?.message || e);
@@ -127,7 +106,4 @@ const authMiddlewareOptional = async (req, res, next) => {
   }
 };
 
-module.exports = {
-  authMiddleware,
-  authMiddlewareOptional,
-};
+module.exports = { authMiddleware, authMiddlewareOptional };

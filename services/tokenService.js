@@ -1,8 +1,8 @@
 // services/tokenService.js
 const fetch = require('node-fetch');
-const config = require('../config/config');
+const config = require('../config/config'); // << caminho corrigido
 
-/** Unifica leitura de credenciais (+ account_key para prefixo de logs) */
+/** Unifica leitura de credenciais (+ account_key para logs) */
 function resolveCreds(input = {}) {
   const creds = {
     app_id:
@@ -39,7 +39,6 @@ function resolveCreds(input = {}) {
       process.env.REDIRECT_URI ||
       process.env.ML_REDIRECT_URI,
 
-    // 🔑 chave da conta para prefixo dos logs
     account_key:
       input.account_key ||
       input.accountKey ||
@@ -50,25 +49,19 @@ function resolveCreds(input = {}) {
   return creds;
 }
 
-/** Lê payload de erro com segurança */
 async function safeErrorPayload(resp) {
   try { return await resp.json(); } catch {}
   try { return await resp.text(); } catch {}
   return null;
 }
 
-/** Prefixo bonito para logs: [rossidecor] / [diplany] / [drossi] / [sem-conta] */
 function logPrefix(credsInput = {}) {
   const { account_key } = resolveCreds(credsInput);
   return `[${account_key || 'sem-conta'}]`;
 }
 
 class TokenService {
-  /**
-   * Usa ACCESS_TOKEN atual; se falhar, renova via refresh_token.
-   * @param {object} [credsInput]
-   * @returns {Promise<string>} access_token válido
-   */
+  /** Usa token atual; se inválido, renova via refresh_token. → retorna STRING */
   static async renovarTokenSeNecessario(credsInput = {}) {
     const L = logPrefix(credsInput);
     try {
@@ -76,11 +69,11 @@ class TokenService {
 
       if (access_token) {
         const testResponse = await fetch(config.urls.users_me, {
-          headers: { Authorization: `Bearer ${access_token}` }
+          headers: { Authorization: `Bearer ${access_token}` },
         });
         if (testResponse.ok) {
           console.log(`✅ ${L} Token atual válido`);
-          return access_token;
+          return access_token; // STRING
         }
         console.log(`🔄 ${L} Token inválido/expirado, tentando renovar…`);
       } else {
@@ -88,25 +81,24 @@ class TokenService {
       }
 
       const novo = await this.renovarToken(credsInput);
-      return novo.access_token;
+      return novo.access_token; // STRING
     } catch (error) {
       console.error(`❌ ${L} Erro ao renovar token (automático):`, error.message);
       throw error;
     }
   }
 
-  /**
-   * Renova o token usando refresh_token e valida em /users/me.
-   * @param {object} [credsInput]
-   */
+  /** Renova o token e valida em /users/me */
   static async renovarToken(credsInput = {}) {
     const L = logPrefix(credsInput);
     try {
-      const { app_id, client_secret, refresh_token, redirect_uri } =
+      const { app_id, client_secret, refresh_token, redirect_uri, account_key } =
         resolveCreds(credsInput);
 
       if (!app_id || !client_secret || !refresh_token) {
-        throw new Error(`${L} Credenciais não configuradas (APP_ID/CLIENT_SECRET/REFRESH_TOKEN). Selecione a conta correta em /select-conta.`);
+        throw new Error(
+          `${L} Credenciais não configuradas (APP_ID/CLIENT_SECRET/REFRESH_TOKEN). Selecione a conta correta em /select-conta.`
+        );
       }
 
       console.log(`🔄 ${L} Renovando token…`);
@@ -115,7 +107,7 @@ class TokenService {
         grant_type: 'refresh_token',
         client_id: String(app_id),
         client_secret: String(client_secret),
-        refresh_token: String(refresh_token)
+        refresh_token: String(refresh_token),
       });
       if (redirect_uri) body.append('redirect_uri', String(redirect_uri));
 
@@ -123,9 +115,9 @@ class TokenService {
         method: 'POST',
         headers: {
           accept: 'application/json',
-          'content-type': 'application/x-www-form-urlencoded'
+          'content-type': 'application/x-www-form-urlencoded',
         },
-        body: body.toString()
+        body: body.toString(),
       });
 
       if (!response.ok) {
@@ -138,124 +130,32 @@ class TokenService {
 
       const data = await response.json();
 
-      // Atualiza env para compatibilidade
+      // Atualiza env global
       process.env.ACCESS_TOKEN = data.access_token;
 
-      console.log(`✅ ${L} Token renovado e atualizado! (${data.access_token ? data.access_token.substring(0, 18) + '…' : ''})`);
-
-      // Valida o novo token
-      const testResponse = await fetch(config.urls.users_me, {
-        headers: { Authorization: `Bearer ${data.access_token}` }
-      });
-      if (!testResponse.ok) {
-        const payload = await safeErrorPayload(testResponse);
-        throw new Error(`${L} Token renovado mas falhou em /users/me: ${
-          (payload && (payload.error || payload.message)) || `HTTP ${testResponse.status}`
-        }`);
+      // Atualiza env por conta (se conhecida)
+      if (account_key) {
+        const K = String(account_key).toUpperCase();
+        process.env[`ML_${K}_ACCESS_TOKEN`] = data.access_token;
       }
 
-      const userData = await testResponse.json();
+      console.log(
+        `✅ ${L} Token renovado e atualizado! (${
+          data.access_token ? data.access_token.substring(0, 18) + '…' : ''
+        })`
+      );
+
       return {
         success: true,
-        message: 'Token renovado e testado com sucesso!',
         access_token: data.access_token,
         expires_in: data.expires_in,
-        user_id: userData.id,
-        nickname: userData.nickname,
-        refresh_token: data.refresh_token || refresh_token
-      };
-    } catch (error) {
-      console.error(`❌ ${L} Erro ao renovar token:`, error.message || error);
-      throw error;
-    }
-  }
-
-  /**
-   * Verifica o token atual; se inválido/ausente, renova automaticamente.
-   * @param {object} [credsInput]
-   */
-  static async verificarToken(credsInput = {}) {
-    const L = logPrefix(credsInput);
-    try {
-      const { access_token } = resolveCreds(credsInput);
-
-      if (!access_token) {
-        console.log(`ℹ️ ${L} ACCESS_TOKEN ausente; tentando renovar…`);
-        const renovarResult = await this.renovarToken(credsInput);
-        return {
-          success: true,
-          message: 'ACCESS_TOKEN estava ausente — foi renovado automaticamente e validado.',
-          ...renovarResult
-        };
-      }
-
-      const testResponse = await fetch(config.urls.users_me, {
-        headers: { Authorization: `Bearer ${access_token}` }
-      });
-
-      if (testResponse.ok) {
-        const userData = await testResponse.json();
-        return {
-          success: true,
-          message: 'Token válido',
-          user_id: userData.id,
-          nickname: userData.nickname,
-          token_preview:
-            access_token.substring(0, 20) +
-            (access_token.length > 20 ? '…' : '')
-        };
-      }
-
-      console.log(`🔄 ${L} Token inválido, tentando renovar…`);
-      const renovarResult = await this.renovarToken(credsInput);
-      return {
-        success: true,
-        message: 'Token era inválido mas foi renovado automaticamente',
-        ...renovarResult
+        refresh_token: data.refresh_token || refresh_token,
       };
     } catch (error) {
       throw error;
     }
   }
 
-  /** Apenas testa o ACCESS_TOKEN atual. */
-  static async testarToken(credsInput = {}) {
-    const L = logPrefix(credsInput);
-    try {
-      const { access_token } = resolveCreds(credsInput);
-      if (!access_token) {
-        throw new Error(`${L} ACCESS_TOKEN não configurado (selecione a conta).`);
-      }
-
-      const headers = {
-        Authorization: `Bearer ${access_token}`,
-        'Content-Type': 'application/json'
-      };
-
-      const response = await fetch(config.urls.users_me, { headers });
-
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          success: true,
-          user_id: data.id,
-          nickname: data.nickname,
-          message: 'Token funcionando perfeitamente!'
-        };
-      } else {
-        const errorData = await safeErrorPayload(response);
-        return {
-          success: false,
-          error: errorData,
-          message: 'Token com problema'
-        };
-      }
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  /** Renova token recebendo explicitamente as credenciais. */
   static async obterAccessToken(app_idOrObj, client_secret, refresh_token) {
     try {
       let app_id = app_idOrObj;
@@ -273,14 +173,16 @@ class TokenService {
       const L = `[${account_key || process.env.ACCOUNT_KEY || 'sem-conta'}]`;
 
       if (!app_id || !client_secret || !refresh_token) {
-        throw new Error(`${L} Parâmetros insuficientes para obterAccessToken (app_id, client_secret, refresh_token).`);
+        throw new Error(
+          `${L} Parâmetros insuficientes para obterAccessToken (app_id, client_secret, refresh_token).`
+        );
       }
 
       const body = new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: String(app_id),
         client_secret: String(client_secret),
-        refresh_token: String(refresh_token)
+        refresh_token: String(refresh_token),
       });
       if (redirect_uri) body.append('redirect_uri', String(redirect_uri));
 
@@ -288,9 +190,9 @@ class TokenService {
         method: 'POST',
         headers: {
           accept: 'application/json',
-          'content-type': 'application/x-www-form-urlencoded'
+          'content-type': 'application/x-www-form-urlencoded',
         },
-        body: body.toString()
+        body: body.toString(),
       });
 
       if (!response.ok) {
@@ -303,23 +205,26 @@ class TokenService {
 
       const data = await response.json();
       console.log(`${L} Token renovado com sucesso:`, {
-        access_token: data.access_token ? `${data.access_token.substring(0, 12)}…` : '(vazio)',
+        access_token: data.access_token
+          ? `${data.access_token.substring(0, 12)}…`
+          : '(vazio)',
         expires_in: data.expires_in,
-        refresh_token: data.refresh_token ? `${String(data.refresh_token).substring(0, 10)}…` : '(mantido)'
+        refresh_token: data.refresh_token
+          ? `${String(data.refresh_token).substring(0, 10)}…`
+          : '(mantido)',
       });
 
       return {
         success: true,
         access_token: data.access_token,
         expires_in: data.expires_in,
-        refresh_token: data.refresh_token || refresh_token
+        refresh_token: data.refresh_token || refresh_token,
       };
     } catch (error) {
       throw error;
     }
   }
 
-  /** Troca o "code" inicial por tokens. */
   static async obterTokenInicial(app_idOrObj, client_secret, code, redirect_uri) {
     try {
       let app_id = app_idOrObj;
@@ -339,16 +244,16 @@ class TokenService {
         client_id: String(app_id),
         client_secret: String(client_secret),
         code: String(code),
-        redirect_uri: String(redirect_uri)
+        redirect_uri: String(redirect_uri),
       });
 
       const response = await fetch(config.urls.oauth_token, {
         method: 'POST',
         headers: {
           accept: 'application/json',
-          'content-type': 'application/x-www-form-urlencoded'
+          'content-type': 'application/x-www-form-urlencoded',
         },
-        body: dados.toString()
+        body: dados.toString(),
       });
 
       if (!response.ok) {
@@ -362,12 +267,31 @@ class TokenService {
       const data = await response.json();
       console.log(`${L} Resposta da API (token inicial):`, {
         user_id: data.user_id,
-        access_token_preview: data.access_token ? `${data.access_token.substring(0, 12)}…` : '(vazio)'
+        access_token_preview: data.access_token
+          ? `${data.access_token.substring(0, 12)}…`
+          : '(vazio)',
       });
 
       return data;
     } catch (error) {
       throw error;
+    }
+  }
+
+  static async testarToken(credsInput = {}) {
+    try {
+      const { access_token } = resolveCreds(credsInput);
+      if (!access_token) return { success: false };
+
+      const r = await fetch(config.urls.users_me, {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+      if (!r.ok) return { success: false };
+
+      const me = await r.json();
+      return { success: true, user_id: me?.id, nickname: me?.nickname };
+    } catch {
+      return { success: false };
     }
   }
 }

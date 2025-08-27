@@ -1,8 +1,8 @@
 // public/js/criar-promocao.js
 console.log('🚀 criar-promocao.js carregado');
 
-// -------------------- helpers HTTP / utils
 const toAbs = (p) => (/^https?:\/\//i.test(p) ? p : (p.startsWith('/') ? p : `/${p}`));
+
 async function getJSONAny(paths) {
   let lastErr;
   for (const p of paths) {
@@ -10,7 +10,7 @@ async function getJSONAny(paths) {
     try {
       const r = await fetch(url, { credentials: 'same-origin' });
       if (!r.ok) {
-        const body = await r.text().catch(()=> '');
+        const body = await r.text().catch(()=>'');
         lastErr = new Error(`HTTP ${r.status} ${url}`);
         lastErr.cause = { status: r.status, body, url };
         console.warn(`❌ ${r.status} em ${url}`, body);
@@ -48,26 +48,24 @@ const fmtMoeda = (n)=> (n==null || isNaN(Number(n)) ? '—' : Number(n).toLocale
 const fmtPerc  = (n,d=2)=> (n||n===0)?`${Number(n).toFixed(d)}%`:'—';
 const round2   = (n)=> Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
-// -------------------- elementos
 function elCards(){ return document.getElementById('cards'); }
 function elTbody(){ return document.getElementById('tbody'); }
 function elPag(){ return document.getElementById('paginacao'); }
 function getTable(){ return elTbody()?.closest('table') || null; }
 
-// -------------------- estado
 const state = {
   cards: [],
-  cardsFilteredIds: null,   // Set de cards que contém o MLB buscado (null = sem filtro)
+  cardsFilteredIds: null, // Set<string> dos cards que têm o MLB buscado
   items: [],
   selectedCard: null,
   promotionBenefits: null,
-  filtroParticipacao: 'all', // rádios da faixa "Mostrar:"
-  maxDesc: null,             // filtro de desconto máximo (%) — fica na faixa "Mostrar:"
-  mlbFilter: '',             // MLB do topo
+  filtroParticipacao: 'all',
+  maxDesc: null,
+  mlbFilter: '',
   paging: { total:0, limit:PAGE_SIZE, tokensByPage:{1:null}, currentPage:1, lastPageKnown:1 },
 };
 
-// -------------------- ajustes visuais
+/* ======== UI helpers ======== */
 function hideLeadingRebateColumnIfPresent() {
   const table = getTable(); if (!table) return;
   const ths = table.querySelectorAll('thead th');
@@ -75,8 +73,6 @@ function hideLeadingRebateColumnIfPresent() {
     table.classList.add('hide-leading-rebate');
   }
 }
-
-// cabeçalho Rebate (tooltip) — preservado
 function getRebateHeaderTh() {
   const table = getTable(); if (!table) return null;
   return [...table.querySelectorAll('thead th')].find(th => th.textContent.trim().toLowerCase().startsWith('rebate'));
@@ -97,75 +93,79 @@ function applyRebateHeaderTooltip() {
   th.innerHTML = `Rebate <span class="tip" title="Tipo: ${type}\nMELI: ${mlp ?? '—'}\nSeller: ${sp ?? '—'}">ⓘ</span>${rebateTag}`;
 }
 
-// -------------------- toolbar do TOPO (somente MLB) + faixa "Mostrar:" (filtro %)
-function attachUI() {
-  // Topo — buscar e limpar MLB
-  $('#btnFiltrarItem')?.addEventListener('click', () => {
-    const mlb = $('#mlbFilter')?.value?.trim().toUpperCase() || '';
+/* ======== Delegação de eventos (funciona mesmo sem defer) ======== */
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+
+  // Buscar MLB
+  if (t.closest?.('#btnFiltrarItem')) {
+    ev.preventDefault();
+    const mlb = ($('#mlbFilter')?.value || '').trim().toUpperCase();
     state.mlbFilter = mlb;
+    console.log('[Buscar] MLB:', mlb || '(vazio)');
     if (!mlb) { state.cardsFilteredIds = null; renderCards(); return; }
     filtrarCardsPorMLB(mlb);
-  });
-  $('#btnLimparItem')?.addEventListener('click', () => {
+    return;
+  }
+
+  // Limpar MLB
+  if (t.closest?.('#btnLimparItem')) {
+    ev.preventDefault();
     state.mlbFilter = '';
     state.cardsFilteredIds = null;
     const input = $('#mlbFilter'); if (input) input.value = '';
+    console.log('[Buscar] Limpo — exibindo todos os cards');
     renderCards();
-  });
+    return;
+  }
 
-  // Faixa "Mostrar:" — rádios
-  $$('input[name="filtro"]').forEach(r => r.addEventListener('change', aplicarFiltro));
-
-  // Faixa "Mostrar:" — filtro de desconto máximo (%)
-  $('#btnMaxDescTable')?.addEventListener('click', () => {
+  // Aplicar filtro de desconto
+  if (t.closest?.('#btnMaxDescTable')) {
+    ev.preventDefault();
     const v = $('#maxDescTableInput')?.value?.trim();
     state.maxDesc = (v === '' || v == null) ? null : Number(v);
     if (state.selectedCard) carregarItensPagina(1, true);
-  });
-  $('#btnLimparMaxDescTable')?.addEventListener('click', () => {
+    return;
+  }
+
+  // Limpar filtro de desconto
+  if (t.closest?.('#btnLimparMaxDescTable')) {
+    ev.preventDefault();
     state.maxDesc = null;
     const input = $('#maxDescTableInput'); if (input) input.value = '';
     if (state.selectedCard) carregarItensPagina(1, true);
-  });
-}
-
-// filtra cards para conter o MLB
-async function filtrarCardsPorMLB(mlb) {
-  const set = new Set();
-  const statuses = ['candidate', 'started'];
-
-  for (const card of state.cards) {
-    let found = false;
-    for (const st of statuses) {
-      let token = null;
-      for (let page=0; page<3 && !found; page++) {
-        const qs = new URLSearchParams({ limit: 50, status: st });
-        if (token) qs.set('search_after', token);
-        try {
-          const data = await getJSONAny(itemsPaths(card.id, card.type, qs.toString()));
-          const results = Array.isArray(data.results) ? data.results : [];
-          if (results.some(x => (x.id || '').toUpperCase() === mlb)) { found = true; break; }
-          token = data?.paging?.searchAfter || null;
-          if (!token) break;
-        } catch (e) { break; }
-      }
-      if (found) break;
-    }
-    if (found) set.add(card.id);
+    return;
   }
+});
 
-  state.cardsFilteredIds = set;
-  renderCards();
-}
+document.addEventListener('change', (ev) => {
+  const r = ev.target;
+  if (r.name === 'filtro') {
+    state.filtroParticipacao = r.value || 'all';
+    if (state.selectedCard) carregarItensPagina(1, true);
+  }
+});
 
-// -------------------- cards
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target?.id === 'mlbFilter') {
+    ev.preventDefault();
+    const mlb = ev.target.value.trim().toUpperCase();
+    state.mlbFilter = mlb;
+    console.log('[Buscar] Enter MLB:', mlb || '(vazio)');
+    if (!mlb) { state.cardsFilteredIds = null; renderCards(); return; }
+    filtrarCardsPorMLB(mlb);
+  }
+});
+
+/* ======== Cards ======== */
 async function carregarCards() {
   const $cards = elCards();
-  $cards.classList.add('cards-grid'); // garante layout em "cards"
+  $cards.classList.add('cards-grid');
   $cards.innerHTML = `<div class="card"><h3>Carregando promoções…</h3><div class="muted">Aguarde</div></div>`;
   try {
     const data = await getJSONAny(usersPaths());
     state.cards = Array.isArray(data.results) ? data.results : [];
+    console.log(`ℹ️ ${state.cards.length} cards carregados`);
     if (state.mlbFilter) await filtrarCardsPorMLB(state.mlbFilter);
     else renderCards();
   } catch (e) {
@@ -190,7 +190,7 @@ function renderCards() {
   }
 
   const frag = document.createDocumentFragment();
-  for (const c of list) {
+  list.forEach((c) => {
     const div = document.createElement('div');
     div.className = 'card';
     div.tabIndex = 0;
@@ -204,7 +204,6 @@ function renderCards() {
       ? `Rebate MELI: ${benefits.meli_percent ?? '—'}% • Seller: ${benefits.seller_percent ?? '—'}%`
       : '';
 
-    // selo REBATE (sem mexer na sua lógica já resolvida)
     const isRebateCampaign =
       (benefits?.type === 'REBATE') || ['SMART','PRICE_MATCHING','PRICE_MATCHING_MELI_ALL'].includes((c.type||'').toUpperCase());
     const rebateTag = isRebateCampaign ? '<span class="badge badge-rebate">REBATE</span>' : '';
@@ -216,10 +215,10 @@ function renderCards() {
 
     div.addEventListener('click', () => selecionarCard(c));
     frag.appendChild(div);
-  }
+  });
+
   $cards.innerHTML = '';
   $cards.appendChild(frag);
-
   destacarCardSelecionado();
 }
 
@@ -231,6 +230,31 @@ function destacarCardSelecionado() {
   if (idx >= 0 && $cards.children[idx]) $cards.children[idx].classList.add('card--active');
 }
 
+// Busca rápida: usa 1 chamada para listar TODAS promoções do item e filtra os cards por ID
+async function filtrarCardsPorMLB(mlb) {
+  try {
+    const resp = await getJSONAny([`/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`]);
+    const promos = Array.isArray(resp.results) ? resp.results : [];
+    // Alguns tipos (PRICE_DISCOUNT, DOD) não têm "id" — ignoramos, pois não existem como “card” aqui.
+    const idsDoItem = new Set(promos.filter(p => p && p.id).map(p => p.id));
+
+    // Mantém apenas os cards cujo id está presente na lista do item:
+    state.cardsFilteredIds = new Set(state.cards.filter(c => idsDoItem.has(c.id)).map(c => c.id));
+    renderCards();
+
+    // Se desejar, já seleciona automaticamente o único card
+    const list = state.cards.filter(c => state.cardsFilteredIds.has(c.id));
+    if (list.length === 1) selecionarCard(list[0]);
+  } catch (e) {
+    console.warn('Falha ao buscar promoções do item; caindo para varredura lenta.', e);
+    // Fallback: mantém sua varredura antiga (se quiser), senão apenas zera
+    state.cardsFilteredIds = null;
+    renderCards();
+  }
+}
+
+
+/* ======== Seleção de card / Tabela ======== */
 async function selecionarCard(card) {
   state.selectedCard = { id: card.id, type: (card.type||'').toUpperCase(), name: card.name || card.id, benefits: card.benefits || null };
   state.promotionBenefits = null;
@@ -238,12 +262,10 @@ async function selecionarCard(card) {
   destacarCardSelecionado();
   hideLeadingRebateColumnIfPresent();
   applyRebateHeaderTooltip();
-  updateSelectedCampaignName();          // <- aqui
+  updateSelectedCampaignName();
   await carregarItensPagina(1, true);
 }
 
-
-// -------------------- itens + paginação
 function qsBuild(params) {
   const entries = Object.entries(params).filter(([,v]) => v !== undefined && v !== null && v !== '');
   return entries.map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
@@ -254,11 +276,6 @@ function filtroToStatusParam() {
     case 'non': return 'candidate';
     default: return '';
   }
-}
-function aplicarFiltro(){
-  const val = ($$('input[name="filtro"]').find(r=>r.checked)?.value) || 'all';
-  state.filtroParticipacao = val;
-  if (state.selectedCard) carregarItensPagina(1, true);
 }
 
 async function carregarItensPagina(pageNumber, reset=false) {
@@ -303,13 +320,13 @@ async function carregarItensPagina(pageNumber, reset=false) {
 
     let items = Array.isArray(data.results) ? data.results : [];
 
-    // filtro por MLB (se houver) — mantém só a linha do item procurado
+    // manter somente a linha do MLB buscado (se houver)
     if (state.mlbFilter) {
       const mlbUp = state.mlbFilter.toUpperCase();
       items = items.filter(x => (x.id || '').toUpperCase() === mlbUp);
     }
 
-    // filtro por desconto máximo (%) — client-side na página carregada
+    // desconto máximo (%)
     if (state.maxDesc != null) {
       items = items.filter(x => {
         const original = x.original_price ?? x.price ?? null;
@@ -402,7 +419,6 @@ function updateSelectedCampaignName() {
   }
 }
 
-
 function renderPaginacao() {
   const $pag = elPag();
   const total = state.paging.total || 0;
@@ -421,7 +437,7 @@ function renderPaginacao() {
   $pag.innerHTML = html;
 }
 
-// ------- ações (stubs mantidos)
+/* ======== ações (stubs) ======== */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){ $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked); }
 function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
@@ -439,10 +455,9 @@ window.aplicarLoteSelecionados = aplicarLoteSelecionados;
 window.removerUnicoDaCampanha = removerUnicoDaCampanha;
 window.aplicarUnico = aplicarUnico;
 
+/* ======== boot ======== */
 document.addEventListener('DOMContentLoaded', async () => {
   hideLeadingRebateColumnIfPresent();
-  attachUI();
-  updateSelectedCampaignName();          // <- aqui
+  updateSelectedCampaignName();
   await carregarCards();
 });
-

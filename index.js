@@ -5,7 +5,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 // Middlewares próprios
-const ensureAccount = require('./middleware/ensureAccount'); // ✅ importa ANTES de usar
+const ensureAccount = require('./middleware/ensureAccount');         // exige conta selecionada
+const { authMiddleware } = require('./middleware/authMiddleware');   // ✅ garante token válido
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -154,14 +155,14 @@ app.get('/', (req, res) => {
 // PROTEÇÃO: exigir conta selecionada (APÓS root redirect)
 // ==========================================
 try {
-  app.use(ensureAccount); // ✅ agora definido e aplicado uma ÚNICA vez
+  app.use(ensureAccount); // ✅ aplicado uma ÚNICA vez
   console.log('✅ Middleware ensureAccount aplicado');
 } catch (error) {
   console.error('❌ Erro ao aplicar ensureAccount:', error.message);
   console.warn('⚠️ Continuação sem exigir conta selecionada (temporário)');
 }
 
-// Debug helper (agora DEPOIS do ensureAccount, para mostrar a conta)
+// Debug helper (DEPOIS do ensureAccount)
 app.get('/api/account/whoami', (req, res) => {
   res.json({
     ok: true,
@@ -171,13 +172,19 @@ app.get('/api/account/whoami', (req, res) => {
   });
 });
 
-// (depois do ensureAccount)
-const adAnalysisRoutes = require('./routes/adAnalysisRoutes');
-app.use('/api/analise-anuncios', adAnalysisRoutes);
+// ==========================================
+// 🔒 GARANTIR TOKEN VÁLIDO PARA AS ROTAS ABAIXO
+// ==========================================
+app.use(authMiddleware); // ✅ injeta req.access_token e atualiza res.locals.mlCreds.access_token
+console.log('✅ AuthMiddleware aplicado');
 
 // ==========================================
 // Rotas PROTEGIDAS do app
 // ==========================================
+
+// Análise de anúncios (usa ML) — agora após authMiddleware
+const adAnalysisRoutes = require('./routes/adAnalysisRoutes');
+app.use('/api/analise-anuncios', adAnalysisRoutes);
 
 // Token
 try {
@@ -206,7 +213,7 @@ try {
   console.error('❌ Erro ao carregar CriarPromocaoRoutes:', error.message);
 }
 
-// Rotas novas: Items e Promoções (cards) — AGORA após ensureAccount
+// Rotas novas: Items e Promoções (cards)
 try {
   const itemsRoutes = require('./routes/itemsRoutes');
   app.use(itemsRoutes);
