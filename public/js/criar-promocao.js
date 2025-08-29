@@ -330,6 +330,14 @@ async function selecionarCard(card){
   applyRebateHeaderTooltip();
   updateSelectedCampaignName();
 
+  // >>> BULK: informa o contexto ao módulo de seleção/aplicação em massa
+  if (window.PromoBulk) {
+    window.PromoBulk.setContext({
+      promotion_id: state.selectedCard.id,
+      promotion_type: state.selectedCard.type
+    });
+  }
+
   if (state.mlbFilter) {
     await carregarSomenteMLBSelecionado(); // modo busca unitária
   } else {
@@ -463,10 +471,24 @@ function renderTabela(items){
       if (it.rebate_meli_percent == null && m != null) it.rebate_meli_percent = m;
     }
 
-    // "Novo preço": prioriza o valor de deal; se não houver, calcula pelo desconto
-    const novo = (deal != null)
-      ? deal
-      : (original != null && descPct != null) ? round2(original * (1 - (descPct/100))) : null;
+    // >>> DEAL: "Novo preço" preferindo min_discounted_price, depois suggested_discounted_price
+    let novo;
+    const typeUp = (state.selectedCard?.type || '').toUpperCase();
+    if (['DEAL','SELLER_CAMPAIGN','PRICE_DISCOUNT','DOD'].includes(typeUp)) {
+      const minDeal = toNum(it.min_discounted_price);
+      const sugDeal = toNum(it.suggested_discounted_price);
+      if (minDeal != null)       novo = minDeal;
+      else if (sugDeal != null)  novo = sugDeal;
+      else if (deal != null)     novo = deal;
+      else if (original != null && descPct != null) novo = round2(original * (1 - (descPct/100)));
+      else novo = null;
+    } else {
+      // outros tipos: mantém priorização antiga
+      novo = (deal != null)
+        ? deal
+        : (original != null && descPct != null) ? round2(original * (1 - (descPct/100))) : null;
+    }
+    // <<< DEAL
 
     const precoAtual = (original != null) ? fmtMoeda(original) : '—';
     const precoFinal = (deal     != null) ? fmtMoeda(deal)     : '—';
@@ -778,7 +800,13 @@ async function aplicarUnico(mlb) {
 }
 
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
-function toggleTodos(master){ $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked); }
+function toggleTodos(master){
+  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked);
+  // >>> BULK: quando marcar o checkbox do header, prepara seleção global
+  if (window.PromoBulk) {
+    window.PromoBulk.onHeaderToggle(!!master.checked);
+  }
+}
 function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
 async function aplicarLoteSelecionados(){
   const sel = getSelecionados();

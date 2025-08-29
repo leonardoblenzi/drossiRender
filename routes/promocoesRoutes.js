@@ -286,6 +286,91 @@ core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+// ===== NOVO: seleção global + job em massa =====
+const PromoSelectionStore = require('../services/promoSelectionStore');
+let PromoJobsService = null;
+try { PromoJobsService = require('../services/promoJobsService'); } catch { PromoJobsService = null; }
+
+/**
+ * Prepara seleção global (conta quantos itens a partir dos filtros) e devolve token.
+ * Body: { promotion_id, promotion_type, status, percent_min, percent_max }
+ */
+core.post('/api/promocoes/selection/prepare', async (req, res) => {
+  try {
+    const creds = res.locals.mlCreds || {};
+    const accountKey = String(res.locals.accountKey || 'default');
+    const { promotion_id, promotion_type, status, percent_min, percent_max } = req.body || {};
+    if (!promotion_id || !promotion_type) {
+      return res.status(400).json({ ok:false, error:'promotion_id e promotion_type são obrigatórios' });
+    }
+
+    // Conta rápido paginando
+    let total = 0;
+    let next = null;
+    const qsBase = new URLSearchParams();
+    qsBase.set('promotion_type', String(promotion_type));
+    if (status) qsBase.set('status', String(status));
+    qsBase.set('limit', '50');
+    qsBase.set('app_version','v2');
+
+    const num = (v) => (v==null?null:Number(v));
+    const min = num(percent_min); const max = num(percent_max);
+
+    for (let guard=0; guard<500; guard++) { // máx 25k itens
+      const qs = new URLSearchParams(qsBase);
+      if (next) qs.set('search_after', String(next));
+      const url = `https://api.mercadolibre.com/seller-promotions/promotions/${encodeURIComponent(promotion_id)}/items?${qs.toString()}`;
+      const r = await authFetch(req, url, {}, creds);
+      if (!r.ok) break;
+      const j = await r.json().catch(()=>({}));
+      const rows = Array.isArray(j.results)? j.results : [];
+      rows.forEach(it => {
+        const original = it.original_price ?? null;
+        let p = it.price ?? it.top_deal_price ?? it.min_discounted_price ?? it.suggested_discounted_price ?? null;
+        let pct = (original && p) ? (1 - (Number(p)/Number(original)))*100 : null;
+        if (min!=null && (pct==null || pct < min)) return;
+        if (max!=null && (pct==null || pct > max)) return;
+        total++;
+      });
+      next = j?.paging?.next_token || null;
+      if (!next || rows.length === 0) break;
+    }
+
+    const { token } = await PromoSelectionStore.saveSelection({
+      accountKey,
+      data: { promotion_id, promotion_type, status, percent_min, percent_max },
+      total
+    });
+
+    return res.json({ ok:true, token, total });
+  } catch (e) {
+    console.error('[/api/promocoes/selection/prepare] erro:', e);
+    return res.status(500).json({ ok:false, error: e.message || String(e) });
+  }
+});
+
+/**
+ * Dispara job em massa (apply/remove) a partir do token da seleção preparada.
+ * Body: { token, action: "apply"|"remove", values?: {...} }
+ */
+core.post('/api/promocoes/jobs/apply-mass', async (req, res) => {
+  try {
+    if (!PromoJobsService) return res.status(503).json({ ok:false, error:'PromoJobsService indisponível' });
+    const accountKey = String(res.locals.accountKey || 'default');
+    const { token, action, values } = req.body || {};
+    if (!token || !action) return res.status(400).json({ ok:false, error:'token e action são obrigatórios' });
+
+    const meta = await PromoSelectionStore.getMeta(token);
+    const job = await PromoJobsService.enqueueApplyMass({
+      token, action, values: values||{}, accountKey,
+      expected_total: meta?.total || 0
+    });
+    return res.json({ ok:true, job_id: job?.id || null });
+  } catch (e) {
+    console.error('[/api/promocoes/jobs/apply-mass] erro:', e);
+    return res.status(500).json({ ok:false, error: e.message || String(e) });
+  }
+});
 
 
 // ---- Montagem do router com aliases

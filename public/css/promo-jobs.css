@@ -1,0 +1,16 @@
+/* public/css/promo-jobs.css */
+.jobs-sidebar{
+  position: fixed; right: 12px; top: 72px; width: 320px; max-height: calc(100vh - 96px);
+  overflow:auto; background:#0b0b0c; color:#fff; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.35);
+  padding:12px; z-index: 9999;
+}
+.jobs-sidebar .job{ background:#16171a; border:1px solid #24262a; border-radius:10px; padding:10px; margin-bottom:10px;}
+.jobs-sidebar .job-title{ font-weight:600; margin-bottom:4px;}
+.jobs-sidebar .job-sub{ font-size:.85rem; color:#9aa0a6; margin-bottom:6px;}
+.jobs-sidebar .bar{ height:6px; background:#2a2d33; border-radius:999px; overflow:hidden;}
+.jobs-sidebar .bar .prog{ height:100%; background:#4f46e5; }
+.btn{ padding:6px 10px; border-radius:8px; border:1px solid #2b2f36; background:#1f232a; color:#ddd; cursor:pointer;}
+.btn:hover{ filter:brightness(1.1); }
+.btn-primary{ background:#2563eb; border-color:#1d4ed8; color:#fff; }
+.btn-secondary{ background:#334155; border-color:#334155; color:#fff;}
+.btn-xs{ font-size:.80rem; padding:4px 8px; }

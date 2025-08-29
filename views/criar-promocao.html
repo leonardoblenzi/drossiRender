@@ -4,10 +4,13 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Promoções • Central</title>
-
+  <link rel="stylesheet" href="/css/promo-jobs.css">
   <link rel="stylesheet" href="/css/criar-promocao.css">
 
   <style>
+    .bulk-controls{ display:flex; gap:8px; align-items:center; margin-left:12px; }
+    .bulk-controls.hidden{ display:none; }
+
     /* Topo (compatível com analise-anuncios) */
     .account-bar{position:sticky;top:0;z-index:10;background:#111827;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
     .account-bar .app-name{font-weight:700}
@@ -98,6 +101,13 @@
       <div class="lado-esquerdo">
         <div id="campName" class="camp-name" title="— selecione um card —">— selecione um card —</div>
       </div>
+      <!-- depois do <h3 id="campName"> ... -->
+      <div id="bulkControls" class="bulk-controls hidden">
+        <button id="bulkSelectAllBtn" class="btn ghost"></button>
+        <button id="bulkApplyAllBtn"  class="btn primary" disabled>Aplicar a todos</button>
+        <button id="bulkRemoveAllBtn" class="btn ghost"   disabled>Remover todos</button>
+      </div>
+
       <div class="lado-direito">
         <div class="radios-line">
           <label><input type="radio" name="filtro" value="all" checked> Todos</label>
@@ -152,7 +162,10 @@
     </div>
   </div>
 
+
   <script src="/js/account-bar.js" defer></script>
   <script src="/js/criar-promocao.js" defer></script>
+  <script src="/js/promo-bulk-actions.js" defer></script>
+
 </body>
 </html>
