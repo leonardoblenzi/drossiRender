@@ -3,6 +3,18 @@ const express = require('express');
 const fetch = require('node-fetch');
 const TokenService = require('../services/tokenService');
 
+// Serviços opcionais (se existirem)
+let PromoJobsService = null;
+try { PromoJobsService = require('../services/promoJobsService'); } catch { PromoJobsService = null; }
+
+// Adapter para remoção em massa (reutiliza seu services/promocaoService.js)
+let PromoBulkRemove = null;
+try { PromoBulkRemove = require('../services/promoBulkRemoveAdapter'); } catch { PromoBulkRemove = null; }
+
+// Store de seleção (fase 2)
+let PromoSelectionStore = null;
+try { PromoSelectionStore = require('../services/promoSelectionStore'); } catch { PromoSelectionStore = null; }
+
 const core = express.Router();
 
 /** Fetch com Authorization + 1 tentativa de renovação em 401 */
@@ -11,7 +23,11 @@ async function authFetch(req, url, init = {}, creds = {}) {
   if (!token) token = await TokenService.renovarTokenSeNecessario(creds);
 
   const call = async (tkn) => {
-    const headers = { ...(init.headers || {}), Authorization: `Bearer ${tkn}` };
+    const headers = {
+      Accept: 'application/json',
+      ...(init.headers || {}),
+      Authorization: `Bearer ${tkn}`
+    };
     return fetch(url, { ...init, headers });
   };
 
@@ -21,6 +37,13 @@ async function authFetch(req, url, init = {}, creds = {}) {
   const renewed = await TokenService.renovarToken(creds);
   const newToken = renewed?.access_token;
   return call(newToken);
+}
+
+/** Helper: lotear array */
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
 }
 
 /** Lista promoções disponíveis para o vendedor atual */
@@ -76,6 +99,9 @@ core.get('/api/promocoes/items/:itemId', async (req, res) => {
 /**
  * Itens de uma promoção (com enriquecimento de título/sku/price)
  * GET /api/promocoes/promotions/:promotionId/items
+ *
+ * Normaliza paginação para sempre expor paging.searchAfter
+ * (aceita searchAfter | next_token | search_after do ML)
  */
 core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
   try {
@@ -84,8 +110,8 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
     const { promotion_type = 'DEAL', status, limit = 50, search_after } = req.query;
 
     const qs = new URLSearchParams();
-    qs.set('promotion_type', promotion_type);
-    if (status) qs.set('status', status);
+    qs.set('promotion_type', String(promotion_type));
+    if (status) qs.set('status', String(status));
     if (limit) qs.set('limit', String(limit));
     if (search_after) qs.set('search_after', String(search_after));
     qs.set('app_version', 'v2');
@@ -93,23 +119,37 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
     const url = `https://api.mercadolibre.com/seller-promotions/promotions/${encodeURIComponent(promotionId)}/items?${qs.toString()}`;
 
     const pr = await authFetch(req, url, {}, creds);
-    const promoJson = await pr.json();
+    const promoJson = await pr.json().catch(() => ({}));
 
     const results = Array.isArray(promoJson.results) ? promoJson.results : [];
-    if (results.length === 0) return res.json(promoJson);
+    if (results.length === 0) {
+      // Normaliza paging
+      const p = promoJson.paging || {};
+      return res.json({
+        ...promoJson,
+        paging: {
+          ...p,
+          searchAfter: p.searchAfter ?? p.next_token ?? p.search_after ?? null
+        }
+      });
+    }
 
-    const ids = results.map(r => r.id).filter(Boolean);
-    const chunk = (arr, n) => arr.reduce((a, _, i) => (i % n ? a[a.length - 1].push(arr[i]) : a.push([arr[i]]), a), []);
+    const ids = results.map(r => r.id || r.item_id).filter(Boolean);
     const packs = chunk(ids, 20);
     const details = {};
 
     for (const pack of packs) {
-      const urlItems = `https://api.mercadolibre.com/items?ids=${pack.join(',')}&attributes=id,title,available_quantity,seller_custom_field,price`;
+      const urlItems = `https://api.mercadolibre.com/items?ids=${encodeURIComponent(pack.join(','))}&attributes=${encodeURIComponent('id,title,available_quantity,seller_custom_field,price')}`;
       const ir = await authFetch(req, urlItems, {}, creds);
-      const blob = await ir.json();
-      (blob || []).forEach((row) => {
-        const b = row.body || {};
-        if (b.id) {
+      if (!ir.ok) {
+        const txt = await ir.text().catch(() => '');
+        console.warn('[promocoesRoutes] enrich items erro:', ir.status, txt);
+        continue;
+      }
+      const blob = await ir.json().catch(() => []);
+      (Array.isArray(blob) ? blob : []).forEach((row) => {
+        const b = row?.body || row || {};
+        if (b?.id) {
           details[b.id] = {
             title: b.title,
             available_quantity: b.available_quantity,
@@ -121,15 +161,17 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
     }
 
     const merged = results.map((r) => {
-      const d = details[r.id] || {};
+      const id = r.id || r.item_id;
+      const d = details[id] || {};
       const original = r.original_price ?? d.price ?? null;
-      const deal = r.price ?? null;
+      const deal = r.price ?? r.deal_price ?? null;
       let discount = r.discount_percentage;
       if ((discount == null) && original && deal && Number(original) > 0) {
         discount = (1 - (Number(deal) / Number(original))) * 100;
       }
       return {
         ...r, // mantém offer_id, status etc.
+        id,
         title: d.title,
         available_quantity: d.available_quantity,
         seller_custom_field: d.seller_custom_field,
@@ -139,7 +181,15 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
       };
     });
 
-    return res.json({ ...promoJson, results: merged });
+    const p = promoJson.paging || {};
+    return res.json({
+      ...promoJson,
+      results: merged,
+      paging: {
+        ...p,
+        searchAfter: p.searchAfter ?? p.next_token ?? p.search_after ?? null
+      }
+    });
   } catch (e) {
     console.error('[/api/promocoes/promotions/:id/items] erro:', e);
     return res.status(500).json({ ok: false, error: e.message || String(e) });
@@ -147,16 +197,9 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
 });
 
 /**
- * APLICAR ITENS A UMA PROMOÇÃO
+ * APLICAR ITENS A UMA PROMOÇÃO (lote)
  * POST /api/promocoes/apply
  * body: { promotion_id, promotion_type, items: [{ id, deal_price?, top_deal_price?, offer_id? }] }
- *
- * Regras por tipo (com base na doc que você enviou):
- * - MARKETPLACE_CAMPAIGN: POST /seller-promotions/items/:ITEM_ID  {promotion_id, promotion_type}
- * - SMART / PRICE_MATCHING: POST ... {promotion_id, promotion_type, offer_id}
- * - SELLER_CAMPAIGN: POST ... {promotion_id, promotion_type, deal_price, top_deal_price?}
- * - DEAL (campanhas tradicionais): POST ... {promotion_id, promotion_type, deal_price, top_deal_price?}
- * - PRICE_MATCHING_MELI_ALL: participação 100% ML → não aplicamos via API (retornamos 400)
  */
 core.post('/api/promocoes/apply', async (req, res) => {
   try {
@@ -165,7 +208,7 @@ core.post('/api/promocoes/apply', async (req, res) => {
     const type = String(promotion_type || '').toUpperCase();
 
     if (!promotion_id || !promotion_type || !Array.isArray(items) || !items.length) {
-      return res.status(400).json({ ok: false, error: 'Parâmetros inválidos', body: { promotion_id, promotion_type, items_len: items?.length }});
+      return res.status(400).json({ ok: false, error: 'Parâmetros inválidos', body: { promotion_id, promotion_type, items_len: items?.length } });
     }
 
     if (type === 'PRICE_MATCHING_MELI_ALL') {
@@ -180,11 +223,10 @@ core.post('/api/promocoes/apply', async (req, res) => {
         continue;
       }
 
-      // monta o corpo conforme o tipo
       let payload = { promotion_id, promotion_type: type };
 
       if (type === 'MARKETPLACE_CAMPAIGN') {
-        // nada além do promotion_id/type
+        // nada além de id/type
       } else if (type === 'SMART' || type === 'PRICE_MATCHING') {
         if (!it.offer_id) {
           results.push({ id: itemId, ok: false, status: 400, error: 'offer_id obrigatório para SMART/PRICE_MATCHING' });
@@ -199,7 +241,7 @@ core.post('/api/promocoes/apply', async (req, res) => {
         payload.deal_price = Number(it.deal_price);
         if (it.top_deal_price != null) payload.top_deal_price = Number(it.top_deal_price);
       } else {
-        // fallback seguro: se veio deal_price, envia; se veio offer_id, envia
+        // fallback: se veio deal_price/offer_id, envia
         if (it.offer_id) payload.offer_id = it.offer_id;
         if (it.deal_price != null) payload.deal_price = Number(it.deal_price);
         if (it.top_deal_price != null) payload.top_deal_price = Number(it.top_deal_price);
@@ -212,7 +254,7 @@ core.post('/api/promocoes/apply', async (req, res) => {
         body: JSON.stringify(payload)
       }, creds);
 
-      const text = await upstream.text().catch(()=>'');
+      const text = await upstream.text().catch(() => '');
       let json; try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
 
       results.push({
@@ -231,9 +273,8 @@ core.post('/api/promocoes/apply', async (req, res) => {
   }
 });
 
-// === APLICAR UM ITEM EM UMA CAMPANHA ===
+// APLICAR UM ITEM EM UMA CAMPANHA
 // POST /api/promocoes/items/:itemId/apply
-// Body: { promotion_id, promotion_type, offer_id?, deal_price?, top_deal_price? }
 core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
   try {
     const creds = res.locals.mlCreds || {};
@@ -254,7 +295,6 @@ core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
     const t = String(promotion_type).toUpperCase();
     const payload = { promotion_id, promotion_type: t };
 
-    // Regras por tipo (conforme documentação ML)
     if (t === 'SMART' || t.startsWith('PRICE_MATCHING')) {
       if (!offer_id) {
         return res.status(400).json({ ok: false, error: 'offer_id é obrigatório para SMART/PRICE_MATCHING.' });
@@ -278,18 +318,114 @@ core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
     }, creds);
 
     const text = await r.text();
-    let json;
-    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
     return res.status(r.status).send(json);
   } catch (e) {
     console.error('[/api/promocoes/items/:itemId/apply] erro:', e);
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
-// ===== NOVO: seleção global + job em massa =====
-const PromoSelectionStore = require('../services/promoSelectionStore');
-let PromoJobsService = null;
-try { PromoJobsService = require('../services/promoJobsService'); } catch { PromoJobsService = null; }
+
+// === PREPARAR JOB EM MASSA (todas as páginas/filtrados) ===
+core.post('/api/promocoes/bulk/prepare', async (req, res) => {
+  try {
+    if (!PromoJobsService || typeof PromoJobsService.enqueueBulkApply !== 'function') {
+      return res.status(503).json({ ok: false, error: 'PromoJobsService indisponível' });
+    }
+    PromoJobsService.init?.();
+
+    const creds = res.locals.mlCreds || {};
+    const accountKey = res.locals.accountKey || 'default';
+
+    const {
+      action = 'apply',                       // 'apply' | 'remove'
+      promotion_id,
+      promotion_type,
+      filters = {},                           // { status, maxDesc, mlb }
+      price_policy = 'min'                    // 'min' | 'suggested' | 'max'
+    } = req.body || {};
+
+    if (!promotion_id || !promotion_type) {
+      return res.status(400).json({ ok: false, error: 'promotion_id e promotion_type são obrigatórios.' });
+    }
+
+    const jobId = await PromoJobsService.enqueueBulkApply({
+      mlCreds: creds,
+      accountKey,
+      action,
+      promotion: { id: promotion_id, type: String(promotion_type).toUpperCase() },
+      filters,
+      price_policy
+    });
+
+    return res.json({ ok: true, job_id: jobId });
+  } catch (e) {
+    console.error('[/api/promocoes/bulk/prepare] erro:', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+/** Jobs – barra lateral de progresso (lista + detalhe + remover em massa) */
+core.get('/api/promocoes/jobs', async (_req, res) => {
+  try {
+    const ours = PromoBulkRemove?.listRecent ? PromoBulkRemove.listRecent(15) : [];
+    let bull = [];
+    if (PromoJobsService?.listRecent) {
+      try { bull = await PromoJobsService.listRecent(15); } catch {}
+    }
+    return res.json({ jobs: [...ours, ...bull] });
+  } catch (e) {
+    console.error('[/api/promocoes/jobs] erro:', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+core.get('/api/promocoes/jobs/:job_id', async (req, res) => {
+  try {
+    const id = String(req.params.job_id || '');
+    const j = PromoBulkRemove?.jobDetail ? PromoBulkRemove.jobDetail(id) : null;
+    if (j) return res.json(j);
+
+    if (PromoJobsService?.jobDetail) {
+      const jb = await PromoJobsService.jobDetail(id);
+      if (jb) return res.json(jb);
+    }
+
+    return res.status(404).json({ ok: false, error: 'job não encontrado' });
+  } catch (e) {
+    console.error('[/api/promocoes/jobs/:id] erro:', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// Iniciar job de REMOÇÃO em massa (via seu service -> adapter)
+core.post('/api/promocoes/jobs/remove', async (req, res) => {
+  try {
+    if (!PromoBulkRemove?.startRemoveJob) {
+      return res.status(503).json({ ok: false, error: 'Adapter de remoção não configurado' });
+    }
+    const body = req.body || {};
+    const items = Array.isArray(body.items) ? body.items : [];
+    const delay = Number(body.delay_ms ?? 250) || 0;
+
+    if (!items.length) {
+      return res.status(400).json({ ok: false, error: 'Informe "items": [MLB...]' });
+    }
+
+    const job = await PromoBulkRemove.startRemoveJob({
+      mlbIds: items,
+      delayMs: delay,
+      mlCreds: res.locals.mlCreds || {},
+      accountKey: res.locals.accountKey || null,
+      logger: console
+    });
+
+    return res.json({ ok: true, job_id: job.id, job });
+  } catch (e) {
+    console.error('[/api/promocoes/jobs/remove] erro:', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
 
 /**
  * Prepara seleção global (conta quantos itens a partir dos filtros) e devolve token.
@@ -297,6 +433,9 @@ try { PromoJobsService = require('../services/promoJobsService'); } catch { Prom
  */
 core.post('/api/promocoes/selection/prepare', async (req, res) => {
   try {
+    if (!PromoSelectionStore?.saveSelection) {
+      return res.status(503).json({ ok: false, error: 'PromoSelectionStore indisponível' });
+    }
     const creds = res.locals.mlCreds || {};
     const accountKey = String(res.locals.accountKey || 'default');
     const { promotion_id, promotion_type, status, percent_min, percent_max } = req.body || {};
@@ -316,7 +455,7 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
     const num = (v) => (v==null?null:Number(v));
     const min = num(percent_min); const max = num(percent_max);
 
-    for (let guard=0; guard<500; guard++) { // máx 25k itens
+    for (let guard=0; guard<500; guard++) { // máx ~25k itens
       const qs = new URLSearchParams(qsBase);
       if (next) qs.set('search_after', String(next));
       const url = `https://api.mercadolibre.com/seller-promotions/promotions/${encodeURIComponent(promotion_id)}/items?${qs.toString()}`;
@@ -332,7 +471,8 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
         if (max!=null && (pct==null || pct > max)) return;
         total++;
       });
-      next = j?.paging?.next_token || null;
+      const paging = j?.paging || {};
+      next = paging.searchAfter ?? paging.next_token ?? paging.search_after ?? null;
       if (!next || rows.length === 0) break;
     }
 
@@ -355,12 +495,14 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
  */
 core.post('/api/promocoes/jobs/apply-mass', async (req, res) => {
   try {
-    if (!PromoJobsService) return res.status(503).json({ ok:false, error:'PromoJobsService indisponível' });
+    if (!PromoJobsService?.enqueueApplyMass) {
+      return res.status(503).json({ ok:false, error:'PromoJobsService indisponível' });
+    }
     const accountKey = String(res.locals.accountKey || 'default');
     const { token, action, values } = req.body || {};
     if (!token || !action) return res.status(400).json({ ok:false, error:'token e action são obrigatórios' });
 
-    const meta = await PromoSelectionStore.getMeta(token);
+    const meta = await PromoSelectionStore?.getMeta?.(token);
     const job = await PromoJobsService.enqueueApplyMass({
       token, action, values: values||{}, accountKey,
       expected_total: meta?.total || 0
@@ -372,10 +514,10 @@ core.post('/api/promocoes/jobs/apply-mass', async (req, res) => {
   }
 });
 
-
 // ---- Montagem do router com aliases
 const router = express.Router();
 router.use(core);                    // /api/promocoes/*
 router.use('/api/promocao', core);   // alias
 router.use('/api/promotions', core); // alias
+
 module.exports = router;

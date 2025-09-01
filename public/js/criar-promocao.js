@@ -13,13 +13,13 @@ async function getJSONAny(paths) {
         const body = await r.text().catch(()=> '');
         lastErr = new Error(`HTTP ${r.status} ${url}`);
         lastErr.cause = { status: r.status, body, url };
-        console.warn(`❌ ${r.status} em ${url}`, body);
+        console.error(`❌ HTTP ${r.status} em ${url}`, body);
         continue;
       }
       return await r.json();
     } catch (e) {
       lastErr = e;
-      console.warn('❌ Falha em', url, e.message || e);
+      console.error('❌ Falha em', url, e.message || e);
     }
   }
   throw lastErr || new Error('Nenhum endpoint respondeu');
@@ -153,6 +153,14 @@ document.addEventListener('click', (ev) => {
     if (state.selectedCard) carregarItensPagina(1, true);
     return;
   }
+
+  // <<< Botão "Remover a todos" no header
+  if (t.closest?.('#btnRemoverTodos')) {
+    ev.preventDefault();
+    removerEmMassaSelecionados().catch(err => console.error(err));
+    return;
+  }
+  // >>>
 });
 
 document.addEventListener('change', (ev) => {
@@ -228,6 +236,7 @@ async function carregarCards(){
     const authMsg = (e?.cause?.status === 401 || e?.cause?.status === 403)
       ? 'Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em “Trocar Conta” e reconecte.'
       : 'Não foi possível carregar promoções (ver console).';
+    console.error('[/users] erro ao carregar cards:', e, e?.cause);
     $cards.innerHTML = `<div class="card"><h3>Falha</h3><pre class="muted">${esc(authMsg)}</pre></div>`;
   }
 }
@@ -426,10 +435,17 @@ async function carregarItensPagina(pageNumber, reset=false){
     renderPaginacao();
     applyRebateHeaderTooltip();
   } catch (e) {
-    const authMsg = (e?.cause?.status === 401 || e?.cause?.status === 403)
+    const isAuth = (e?.cause?.status === 401 || e?.cause?.status === 403);
+    const authMsg = isAuth
       ? 'Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em “Trocar Conta” e reconecte.'
       : 'Falha ao listar itens (ver console).';
-    $body.innerHTML = `<tr><td colspan="12" class="muted">${esc(authMsg)}</td></tr>`;
+
+    console.error('[carregarItensPagina] erro:', e, e?.cause);
+
+    const code = e?.cause?.status ? ` (HTTP ${e.cause.status})` : '';
+    const snippet = e?.cause?.body ? String(e.cause.body).slice(0,180) : '';
+    $body.innerHTML = `<tr><td colspan="12" class="muted">${esc(authMsg + code)}</td></tr>` +
+      (snippet ? `<tr><td colspan="12"><pre class="muted" style="white-space:pre-wrap">${esc(snippet)}</pre></td></tr>` : '');
   } finally {
     state.loading = false;
     renderPaginacao();
@@ -527,6 +543,18 @@ function renderTabela(items){
   }).join('');
 
   $body.innerHTML = rows;
+
+  // >>> FASE 2: sincroniza contexto (filtros atuais) com PromoBulk para o job em background
+  if (window.PromoBulk && state.selectedCard) {
+    window.PromoBulk.setContext({
+      promotion_id: state.selectedCard.id,
+      promotion_type: state.selectedCard.type,
+      filtroParticipacao: state.filtroParticipacao,
+      maxDesc: state.maxDesc,
+      mlbFilter: state.mlbFilter
+    });
+  }
+
 }
 
 function updateSelectedCampaignName(){
@@ -534,10 +562,10 @@ function updateSelectedCampaignName(){
   if (!el) return;
   if (state.selectedCard) {
     const name = state.selectedCard.name || state.selectedCard.id;
-    el.textContent = name;
+    el.textContent = `Campanha: “${name}”`;
     el.title = name;
   } else {
-    el.textContent = '— selecione um card —';
+    el.textContent = 'Campanha: — selecione um card —';
     el.title = '— selecione um card —';
   }
 }
@@ -799,6 +827,109 @@ async function aplicarUnico(mlb) {
   }
 }
 
+// <<< NOVO: coleta TODOS os MLBs que atendem aos filtros atuais (todas as páginas)
+async function coletarTodosIdsFiltrados() {
+  if (!state.selectedCard) return [];
+  const status = filtroToStatusParam();
+  const ids = [];
+
+  // Se estiver filtrando por um MLB específico, devolve só ele
+  if (state.mlbFilter) {
+    const mlb = state.mlbFilter.toUpperCase();
+    // valida se ele passa pelo filtro de % (quando houver)
+    // pega a página única do item (rápido)
+    const item = await montarItemRapido(mlb).catch(()=>null);
+    if (!item) return [];
+    if (state.maxDesc != null) {
+      let descPct = toNum(item.discount_percentage);
+      const original = toNum(item.original_price ?? item.price ?? null);
+      const deal     = toNum(item.deal_price     ?? item.price ?? null);
+      if (descPct == null && original && deal && Number(original) > 0) {
+        descPct = (1 - (Number(deal)/Number(original))) * 100;
+      }
+      if (descPct == null || descPct > Number(state.maxDesc)) return [];
+    }
+    return [mlb];
+  }
+
+  let token = null;
+  for (let guard=0; guard<500; guard++) { // ~25k máx
+    const qs = qsBuild({ limit: 50, ...(status ? { status } : {}), ...(token ? { search_after: token } : {}) });
+    const data = await getJSONAny(itemsPaths(state.selectedCard.id, state.selectedCard.type, qs));
+    const items = Array.isArray(data.results) ? data.results : [];
+
+    for (const x of items) {
+      let keep = true;
+      if (state.maxDesc != null) {
+        const original = x.original_price ?? x.price ?? null;
+        const deal     = x.deal_price ?? x.price ?? null;
+        let descPct = x.discount_percentage;
+        if ((descPct == null) && original && deal && Number(original) > 0) {
+          descPct = (1 - (Number(deal)/Number(original))) * 100;
+        }
+        if (descPct == null || Number(descPct) > Number(state.maxDesc)) keep = false;
+      }
+      if (keep && x.id) ids.push(String(x.id));
+    }
+
+    const p = data?.paging || {};
+    token = p.searchAfter ?? p.next_token ?? p.search_after ?? null;
+    if (!token || items.length === 0) break;
+  }
+
+  // remove duplicados
+  return [...new Set(ids)];
+}
+// >>>
+
+// <<< NOVO: remover em massa (selecionados da página OU todos filtrados)
+async function removerEmMassaSelecionados() {
+  if (!state.selectedCard) {
+    alert('Selecione uma campanha.');
+    return;
+  }
+
+  // prioriza itens marcados nesta página
+  let itens = getSelecionados();
+
+  if (!itens.length) {
+    const ok = confirm('Nenhum item marcado nesta página. Deseja remover da promoção TODOS os itens filtrados da campanha (todas as páginas)?');
+    if (!ok) return;
+    itens = await coletarTodosIdsFiltrados();
+  }
+
+  if (!itens.length) {
+    alert('Nenhum item para remover (verifique os filtros).');
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/promocoes/jobs/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: itens, delay_ms: 250 })
+    });
+    const resp = await r.json().catch(() => ({}));
+
+    if (!r.ok || !resp.ok) {
+      console.error('Falha ao iniciar remoção em massa', r.status, resp);
+      alert('Falha ao iniciar remoção em massa.');
+      return;
+    }
+
+    console.log('Job de remoção iniciado:', resp.job_id || resp.job?.id, resp);
+    if (window.PromoBulk?.onJobStarted) {
+      window.PromoBulk.onJobStarted({ id: resp.job_id || resp.job?.id, kind: 'remove', total: itens.length });
+    }
+
+    alert(`Remoção em massa iniciada para ${itens.length} item(ns).`);
+  } catch (e) {
+    console.error('Erro removerEmMassaSelecionados:', e);
+    alert('Erro ao iniciar remoção em massa (ver console).');
+  }
+}
+// >>>
+
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){
   $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked);
@@ -823,6 +954,7 @@ window.toggleTodos = toggleTodos;
 window.aplicarLoteSelecionados = aplicarLoteSelecionados;
 window.removerUnicoDaCampanha = removerUnicoDaCampanha;
 window.aplicarUnico = aplicarUnico;
+window.removerEmMassaSelecionados = removerEmMassaSelecionados;
 
 /* ================= Boot ================= */
 

@@ -280,10 +280,38 @@ table.hide-leading-rebate tbody td:first-child { display:none; }
   border:1px solid #d1d5db; border-radius:8px; background:#fff;
 }
 
+/* NOVO: barra de seleção (segunda linha sob os filtros) */
+.selection-bar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  background:#f8fafc;
+  border:1px dashed #e5e7eb;
+  border-radius:10px;
+  padding:10px 12px;
+  margin-top:8px;
+}
+.selection-bar.hidden{ display:none; }
+
+/* NOVO: botões da barra de seleção em coluna (Aplicar em cima, Remover embaixo) */
+.selection-bar .actions{
+  display:flex;
+  flex-direction:column;      /* << garante Remover abaixo do Aplicar */
+  align-items:flex-start;
+  gap:8px;
+}
+
+/* NOVAS variações de botão para cores de ação */
+.btn.success{ background:#10b981; color:#fff; }
+.btn.success:hover{ filter:brightness(0.95); }
+
+.btn.danger{ background:#ef4444; color:#fff; }
+.btn.danger:hover{ filter:brightness(0.95); }
+
 /* Responsivo */
 @media (max-width:900px){
   .mostrar-bar{ flex-direction:column; align-items:stretch; }
   .mostrar-bar .lado-direito{ justify-content:space-between; gap:12px; flex-wrap:wrap; }
   .filters-inline{ margin-left:auto; }
 }
-

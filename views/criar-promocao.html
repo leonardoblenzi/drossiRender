@@ -11,55 +11,83 @@
     .bulk-controls{ display:flex; gap:8px; align-items:center; margin-left:12px; }
     .bulk-controls.hidden{ display:none; }
 
-    /* Topo (compatível com analise-anuncios) */
+    /* barra de seleção (2ª linha) */
+    .selection-bar{
+      display:flex; gap:12px; align-items:center; justify-content:space-between;
+      margin-top:2px; background:#f7f9ff; border:1px dashed #dbe4ff; border-radius:10px; padding:10px 12px;
+    }
+    .selection-bar.hidden{ display:none; }
+    /* EMPILHA os botões: Aplicar em cima, Remover embaixo */
+    .selection-bar .actions{
+      display:flex; gap:8px; align-items:flex-start; flex-direction:column;
+    }
+
+    .jobs-panel{
+      position: fixed; right: 16px; top: 90px;
+      width: 320px; max-height: 70vh; overflow:auto;
+      background: #fff; color:#333; border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.2);
+      padding: 12px; z-index: 9999;
+    }
+    .jobs-panel.hidden{ display:none; }
+
+    /* Topo */
     .account-bar{position:sticky;top:0;z-index:10;background:#111827;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
     .account-bar .app-name{font-weight:700}
     .account-bar .right{display:flex;gap:8px;align-items:center}
 
-    /* Botões rápidos */
+    /* Botões */
     .btn{border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
     .btn.primary{background:#0ea5e9;color:#fff}
     .btn.warn{background:#f59e0b;color:#111}
     .btn.ghost{background:#eef2f7}
+    /* NOVAS cores para ações principais */
+    .btn.success{ background:#10b981; color:#fff; }
+    .btn.success:hover{ filter:brightness(0.95); }
+    .btn.danger{ background:#ef4444; color:#fff; }
+    .btn.danger:hover{ filter:brightness(0.95); }
 
-    /* Layout geral */
+    /* Layout */
     body{background:linear-gradient(180deg,#6467d6,#7c5eb0) fixed;margin:0;font-family:Inter,system-ui,Segoe UI,Arial}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px;color:#111}
     h2{margin:12px 0 6px 0}
 
-    /* Cards de promoções */
+    /* Cards */
     .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}
     .card{border-radius:14px;background:#fff;box-shadow:0 10px 25px rgba(0,0,0,.07);padding:16px;border:1px solid #eee}
-    .card h3{margin:0 0 6px 0;font-size:16px}
     .muted{color:#6b7280}
     .card--active{outline:2px solid #2dd4bf}
     .card--disabled{opacity:.55}
 
-    /* Tabela */
-    .table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
-    .table th,.table td{padding:10px;border-bottom:1px solid #efefef;text-align:left;vertical-align:middle}
-    .table th{background:#f8fafc;font-weight:600}
+    /* Top bar (nome em cima, controles embaixo) */
+    .mostrar-bar{
+      display:flex; flex-direction:column; gap:10px;
+      background:#fff;border:1px solid #eee;border-radius:12px;
+      padding:12px 16px;margin:8px 0 16px;
+    }
+    .camp-header{ display:flex; justify-content:center; align-items:center; }
+    .camp-name{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100% }
 
-    /* Paginação */
-    .pagination{display:flex;gap:6px;align-items:center;justify-content:center;margin:12px 0}
-    .page-btn{min-width:32px;height:32px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
-    .page-btn.active{background:#0f172a;color:#fff;border-color:#0f172a}
-
-    /* Barra de filtros abaixo dos cards */
-    .mostrar-bar{display:flex;gap:12px;align-items:center;justify-content:space-between;background:#fff;border:1px solid #eee;border-radius:12px;padding:12px 16px;margin:8px 0 16px}
-    .camp-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+    .controls-line{ display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
     .lado-direito{display:flex;gap:16px;align-items:center}
     .radios-line{display:flex;gap:16px;align-items:center}
     .filters-inline{display:flex;gap:8px;align-items:center}
 
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
+    /* Tabela / paginação */
+    .table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
+    .table th,.table td{padding:10px;border-bottom:1px solid #efefef;text-align:left;vertical-align:middle}
+    .table th{background:#f8fafc;font-weight:600}
+    .pagination{display:flex;gap:6px;align-items:center;justify-content:center;margin:12px 0}
+    .page-btn{min-width:32px;height:32px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+    .page-btn.active{background:#0f172a;color:#fff;border-color:#0f172a}
+
     @media (max-width:960px){
       .cards{grid-template-columns:repeat(2,1fr)}
       .table{font-size:14px}
-      .mostrar-bar{flex-direction:column;align-items:flex-start;gap:10px}
-      .lado-direito{width:100%;justify-content:space-between}
-      .camp-name{max-width:100%}
+      .controls-line{flex-direction:column; align-items:flex-start}
+      .selection-bar{flex-direction:column; align-items:flex-start}
     }
   </style>
 </head>
@@ -88,7 +116,7 @@
       <small class="muted">Ao buscar, mostro apenas as campanhas que oferecem promoção para esse item.</small>
     </section>
 
-    <!-- Container único dos cards -->
+    <!-- Cards -->
     <div class="cards" id="cards">
       <div class="card">
         <h3>Carregando promoções…</h3>
@@ -96,29 +124,47 @@
       </div>
     </div>
 
-    <!-- Filtros por participação e desconto -->
+    <!-- Cabeçalho da campanha (2 linhas) -->
     <div class="mostrar-bar">
-      <div class="lado-esquerdo">
+      <!-- Linha 1: título + filtros -->
+      <div class="camp-header">
         <div id="campName" class="camp-name" title="— selecione um card —">— selecione um card —</div>
       </div>
-      <!-- depois do <h3 id="campName"> ... -->
-      <div id="bulkControls" class="bulk-controls hidden">
-        <button id="bulkSelectAllBtn" class="btn ghost"></button>
-        <button id="bulkApplyAllBtn"  class="btn primary" disabled>Aplicar a todos</button>
-        <button id="bulkRemoveAllBtn" class="btn ghost"   disabled>Remover todos</button>
+
+      <div class="controls-line">
+        <div class="lado-esquerdo">
+          <!-- mantém por compatibilidade; será controlado via JS -->
+          <div id="bulkControls" class="bulk-controls hidden">
+            <button id="bulkSelectAllBtn" class="btn ghost"></button>
+            <button id="bulkApplyAllBtn"  class="btn success" disabled>Aplicar a todos</button>
+            <button id="bulkRemoveAllBtn" class="btn danger"   disabled>Remover todos</button>
+          </div>
+        </div>
+
+        <div class="lado-direito">
+          <div class="radios-line">
+            <label><input type="radio" name="filtro" value="all" checked> Todos</label>
+            <label><input type="radio" name="filtro" value="non"> Não participantes</label>
+            <label><input type="radio" name="filtro" value="yes"> Participantes</label>
+          </div>
+          <div class="filters-inline">
+            <label for="maxDescTableInput">Desc. máx. (%)</label>
+            <input id="maxDescTableInput" type="number" min="0" max="99" step="0.01" placeholder="Ex: 15" />
+            <button id="btnMaxDescTable" class="btn">Aplicar</button>
+            <button id="btnLimparMaxDescTable" class="btn ghost">Limpar</button>
+          </div>
+        </div>
       </div>
 
-      <div class="lado-direito">
-        <div class="radios-line">
-          <label><input type="radio" name="filtro" value="all" checked> Todos</label>
-          <label><input type="radio" name="filtro" value="non"> Não participantes</label>
-          <label><input type="radio" name="filtro" value="yes"> Participantes</label>
-        </div>
-        <div class="filters-inline">
-          <label for="maxDescTableInput" class="sr-only">Desconto máx. (%)</label>
-          <input id="maxDescTableInput" type="number" min="0" max="99" step="0.01" placeholder="Ex: 15" />
-          <button id="btnMaxDescTable" class="btn">Aplicar</button>
-          <button id="btnLimparMaxDescTable" class="btn ghost">Limpar</button>
+      <!-- Linha 2: aparece apenas quando há seleção -->
+      <div id="selectionBar" class="selection-bar hidden">
+        <div id="selMsg">0 anúncios selecionados nesta página.</div>
+        <div class="actions">
+          <button id="selAllCampaignBtn" class="btn ghost" type="button">
+            Selecionar toda a campanha (filtrados)
+          </button>
+          <button id="selApplyBtn"  class="btn success" type="button" disabled>Aplicar a todos</button>
+          <button id="selRemoveBtn" class="btn danger"   type="button" disabled>Remover todos</button>
         </div>
       </div>
     </div>
@@ -129,7 +175,12 @@
         <thead>
           <tr>
             <th style="width:44px; text-align:center">
-              <input type="checkbox" id="checkAll" onchange="toggleTodos(this)">
+              <input
+                type="checkbox"
+                id="checkAll"
+                aria-label="Selecionar página"
+                onchange="toggleTodos(this); window.PromoBulk && window.PromoBulk.onHeaderToggle(this.checked)"
+              >
             </th>
             <th>MLB</th>
             <th>Título</th>
@@ -152,7 +203,7 @@
       <div id="paginacao" class="pagination" aria-label="Paginação"></div>
     </div>
 
-    <!-- Progresso (mantido para futuras ações) -->
+    <!-- Progresso -->
     <div class="progress-wrap">
       <div id="progressText" class="muted" aria-live="polite">Aguardando…</div>
       <div class="progress" aria-hidden="true">
@@ -162,10 +213,11 @@
     </div>
   </div>
 
+  <div id="bulkJobsPanel" class="jobs-panel hidden"></div>
 
   <script src="/js/account-bar.js" defer></script>
   <script src="/js/criar-promocao.js" defer></script>
   <script src="/js/promo-bulk-actions.js" defer></script>
-
+  <script src="/js/promo-bulk.js" defer></script>
 </body>
 </html>
