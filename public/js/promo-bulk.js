@@ -5,10 +5,10 @@
   const esc = (s)=> (s==null?'':String(s));
 
   const ui = {
-    wrap:   null,           // container dos botões de cima (bulkControls)
-    btnSel: null,           // "Selecionar todos (N exibidos)"
-    btnApp: null,           // (botão superior) aplicar – ocultamos (linha de baixo agora)
-    btnRem: null,           // (botão superior) remover – idem
+    wrap:   null,
+    btnSel: null,
+    btnApp: null,
+    btnRem: null,
     chkAllPages: null,
 
     // Barra de seleção (linha de baixo)
@@ -46,6 +46,68 @@
     _autoTimer: null,
     _lastKey: ''
   };
+
+  /* ------------------------------ UI / Jobs Panel helpers ------------------------------ */
+
+  // Placeholders e jobs locais (sem backend)
+  const jobsLocal = [];
+
+  function showJobsPanel(){
+    if (!ui.jobsPanel) return;
+    ui.jobsPanel.classList.remove('hidden');
+  }
+  function hideJobsPanel(){
+    if (!ui.jobsPanel) return;
+    ui.jobsPanel.classList.add('hidden');
+  }
+
+  // cria um job local e retorna a referência para atualizar progresso
+  function noteLocalJobStart(title){
+    const job = { title, progress: 0, state: 'iniciando…', _ts: Date.now(), _local: true };
+    jobsLocal.push(job);
+    showJobsPanel();
+    renderJobsPanel([]);          // mostra placeholder imediatamente
+    setTimeout(pollJobs, 1000);   // força 1º refresh logo em seguida
+    return job;
+  }
+  function updateLocalJob(job, progress, state){
+    if (!job) return;
+    job.progress = Math.max(0, Math.min(100, Number(progress||0)));
+    if (state) job.state = state;
+    renderJobsPanel([]); // re-render rápido usando apenas locais
+  }
+
+  function renderJobsPanel(apiJobs){
+    // descarta placeholders muito antigos (exceto os que estamos atualizando)
+    const now = Date.now();
+    const placeholders = jobsLocal.filter(j => j._local || (now - j._ts < 20000));
+
+    const jobs = [...placeholders, ...(apiJobs || [])];
+    const rows = jobs.map(j => {
+      const pct = j.progress || 0;
+      const state = j.state || '';
+      const title = j.title || 'Job';
+      return `<div class="job-row">
+        <div class="job-title">${esc(title)}</div>
+        <div class="job-state">${esc(state)} – ${pct}%</div>
+        <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+
+    if (ui.jobsPanel) {
+      ui.jobsPanel.innerHTML = `
+        <div class="job-head">
+          <strong>Processos</strong>
+          <button class="btn ghost" id="bulkJobsClose">×</button>
+        </div>
+        <div class="job-list">${rows || '<div class="muted">Sem processos.</div>'}</div>`;
+      ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
+    }
+  }
+
+  function getCampanhaNome(){
+    return (document.getElementById('campName')?.textContent || 'Campanha').trim();
+  }
 
   /* ------------------------------ UI básica ------------------------------ */
 
@@ -102,7 +164,6 @@
       ui.btnSel.textContent = `Selecionar todos (${totalVisiveis} exibidos)`;
     }
   }
-
   function updateSelectionBar(){
     ensureUI();
     if (!ui.selBar || !ui.selMsg) return;
@@ -250,78 +311,179 @@
     ctx._autoTimer = setTimeout(() => autoPrepare().catch(()=>{}), 800);
   }
 
+  /* ---------------------- Fila local (apply 1 a 1) ---------------------- */
+
+  const DEFAULT_DELAY_MS = 900; // pausa entre itens
+
+  const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+  async function applyQueue(ids, delayMs = DEFAULT_DELAY_MS){
+    if (!Array.isArray(ids) || !ids.length) return;
+
+    // delay configurável via input opcional
+    const delayInput = document.getElementById('bulkDelayMs');
+    if (delayInput) {
+      const v = Number(String(delayInput.value || '').replace(',','.'));
+      if (!Number.isNaN(v) && v >= 0) delayMs = v;
+    }
+
+    const camp = getCampanhaNome();
+    const job  = noteLocalJobStart(`Aplicação (fila) – ${camp} (${ids.length} itens)`);
+
+    let done = 0, ok = 0, err = 0;
+    showJobsPanel();
+
+    if (typeof window.aplicarUnico !== 'function') {
+      alert('Função aplicarUnico não encontrada.');
+      updateLocalJob(job, 0, 'erro ao iniciar');
+      return;
+    }
+
+    for (const id of ids) {
+      try {
+        const res = await window.aplicarUnico(id, { silent: true });
+        if (res) ok++; else err++;
+      } catch (e) {
+        console.warn('[bulk] falha aplicar', id, e);
+        err++;
+      }
+      done++;
+      const pct = Math.round((done / ids.length) * 100);
+      updateLocalJob(job, pct, `processando ${done}/${ids.length}…`);
+      if (delayMs > 0 && done < ids.length) await sleep(delayMs);
+    }
+
+    updateLocalJob(job, 100, `concluído: ${ok} ok, ${err} erros`);
+  }
+
   /* ------------------- Ações (aplicar / remover todos) ------------------- */
 
   async function onApplyClick(){
-    // 1) Modo campanha (token)
+    // 1) Modo campanha: tentar o endpoint novo com token
     if (ctx.global.selectedAll && ctx.global.token) {
       try {
-        const r = await fetch('/api/promocoes/jobs/apply-mass', {
+        let r = await fetch('/api/promocoes/jobs/apply-mass', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: ctx.global.token, action: 'apply', values: {} }),
           credentials: 'same-origin'
         });
-        const js = await r.json().catch(()=> ({}));
-        if (!r.ok || js?.ok === false) {
-          console.error('jobs/apply-mass (apply) erro', r.status, js);
-          alert('Falha ao iniciar aplicação em massa.');
+
+        // Se 5xx (503/500) ou 404 -> fallback para fila local 1 a 1
+        if (r.status === 404 || r.status >= 500 || !r.ok) {
+          let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
+          if (!ids || !ids.length) {
+            const getAll = window.coletarTodosIdsFiltrados;
+            if (typeof getAll === 'function') ids = await getAll();
+          }
+          if (!ids || !ids.length) {
+            alert('Não foi possível obter a lista de itens para aplicar.');
+            return;
+          }
+          await applyQueue(ids, DEFAULT_DELAY_MS);
           return;
         }
+
+        const js = await r.json().catch(()=> ({}));
+        if (!r.ok || js?.ok === false) {
+          console.error('apply mass error', r.status, js);
+          // fallback final: fila local 1 a 1
+          let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
+          if (!ids || !ids.length) {
+            const getAll = window.coletarTodosIdsFiltrados;
+            if (typeof getAll === 'function') ids = await getAll();
+          }
+          if (!ids || !ids.length) {
+            alert('Falha ao iniciar aplicação em massa.');
+            return;
+          }
+          await applyQueue(ids, DEFAULT_DELAY_MS);
+          return;
+        }
+
+        // Se o backend iniciou o job, apenas mostramos placeholder e seguimos
+        const camp = getCampanhaNome();
+        const qtd  = Number(ctx.global.total || 0);
+        noteLocalJobStart(`Aplicação – ${camp} (${qtd} itens)`);
         showJobsPanel();
-        alert('Aplicação em massa iniciada!');
+        pollJobs();
         return;
       } catch (e) {
         console.warn('onApplyClick err', e);
-        alert('Erro ao iniciar aplicação em massa.');
+        // fallback: fila local 1 a 1
+        let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
+        if (!ids || !ids.length) {
+          const getAll = window.coletarTodosIdsFiltrados;
+          if (typeof getAll === 'function') ids = await getAll();
+        }
+        if (!ids || !ids.length) {
+          alert('Erro ao iniciar aplicação em massa.');
+          return;
+        }
+        await applyQueue(ids, DEFAULT_DELAY_MS);
         return;
       }
     }
 
-    // 2) Modo campanha (fallback ids)
+    // 2) Modo campanha (fallback ids explícitos) -> fila local
     if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
-      // aplica um a um usando a função existente
-      if (!window.aplicarUnico) return alert('Função aplicarUnico não encontrada.');
-      ui.selApplyBtn.disabled = true;
-      for (const id of ctx.global.ids) {
-        try { await window.aplicarUnico(id); } catch(e) { console.warn('[bulk] falha aplicar', id, e); }
-      }
-      ui.selApplyBtn.disabled = false;
-      alert(`Aplicação concluída para ${ctx.global.ids.length} itens filtrados.`);
+      await applyQueue(ctx.global.ids, DEFAULT_DELAY_MS);
       return;
     }
 
-    // 3) Página atual (selecionados)
-    if (!window.aplicarUnico) return alert('Função aplicarUnico não encontrada.');
+    // 3) Página atual (selecionados) -> fila local
     const mlbs = getSelectedMLBs();
     if (!mlbs.length) return;
 
-    ui.selApplyBtn.disabled = true;
-    for (const id of mlbs) {
-      try { await window.aplicarUnico(id); } catch(e) { console.warn('[bulk] falha aplicar', id, e); }
-    }
-    ui.selApplyBtn.disabled = false;
+    await applyQueue(mlbs, DEFAULT_DELAY_MS);
     render();
   }
 
   async function onRemoveClick(){
-    // 1) Modo campanha (token)
+    // 1) Modo campanha: tentar o endpoint novo com token
     if (ctx.global.selectedAll && ctx.global.token) {
       try {
-        const r = await fetch('/api/promocoes/jobs/apply-mass', {
+        let r = await fetch('/api/promocoes/jobs/apply-mass', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: ctx.global.token, action: 'remove' }),
           credentials: 'same-origin'
         });
+
+        // Fallback para o endpoint antigo se não existir ou falhar
+        if (r.status === 404 || !r.ok) {
+          const body = {
+            action: 'remove',
+            promotion_id: ctx.promotion_id,
+            promotion_type: ctx.promotion_type,
+            filters: {
+              status: ctx.filtros.status,
+              maxDesc: ctx.filtros.maxDesc,
+              mlb: ctx.filtros.mlb || null
+            }
+          };
+          r = await fetch('/api/promocoes/bulk/prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            credentials: 'same-origin'
+          });
+        }
+
         const js = await r.json().catch(()=> ({}));
         if (!r.ok || js?.ok === false) {
-          console.error('jobs/apply-mass (remove) erro', r.status, js);
+          console.error('remove mass error', r.status, js);
           alert('Falha ao iniciar remoção em massa.');
           return;
         }
+
+        // Placeholder otimista
+        const camp = getCampanhaNome();
+        const qtd  = Number(ctx.global.total || 0);
+        noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
+
         showJobsPanel();
-        alert('Remoção em massa iniciada!');
+        pollJobs();
         return;
       } catch (e) {
         console.warn('onRemoveClick err', e);
@@ -330,7 +492,7 @@
       }
     }
 
-    // 2) Modo campanha (fallback ids)
+    // 2) Modo campanha (fallback ids) -> endpoint de remoção em lote
     if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
       try {
         const r = await fetch('/api/promocoes/jobs/remove', {
@@ -345,8 +507,14 @@
           alert('Falha ao iniciar remoção em massa (filtrados).');
           return;
         }
+
+        // Placeholder otimista
+        const camp = getCampanhaNome();
+        const qtd  = Number(ctx.global.ids.length || 0);
+        noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
+
         showJobsPanel();
-        alert(`Remoção iniciada para ${ctx.global.ids.length} item(ns) filtrados.`);
+        pollJobs();
       } catch (e) {
         console.warn('remove fallback err', e);
         alert('Erro ao iniciar remoção (filtrados).');
@@ -371,49 +539,34 @@
         alert('Falha ao iniciar remoção em massa (selecionados).');
         return;
       }
+
+      // Placeholder otimista
+      const camp = getCampanhaNome();
+      const qtd  = Number(mlbs.length || 0);
+      noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
+
       showJobsPanel();
-      alert(`Remoção iniciada para ${mlbs.length} item(ns).`);
+      pollJobs();
     } catch (e) {
       console.warn('remove selecionados err', e);
       alert('Erro ao iniciar remoção (selecionados).');
     }
   }
 
-  /* ------------------------------- Jobs UI ------------------------------- */
+  /* -------------------------------- Jobs Poll -------------------------------- */
 
-  function showJobsPanel(){
-    if (!ui.jobsPanel) return;
-    ui.jobsPanel.classList.remove('hidden');
-  }
-  function hideJobsPanel(){
-    if (!ui.jobsPanel) return;
-    ui.jobsPanel.classList.add('hidden');
-  }
   async function pollJobs(){
     try {
       const r = await fetch('/api/promocoes/jobs', { credentials: 'same-origin' });
-      if (!r.ok) return;
-      const data = await r.json().catch(()=>({}));
-      const rows = (data?.jobs || []).map(j => {
-        const pct = j.progress || 0;
-        const state = j.state || '';
-        const title = j.title || 'Job';
-        return `<div class="job-row">
-          <div class="job-title">${esc(title)}</div>
-          <div class="job-state">${esc(state)} – ${pct}%</div>
-          <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
-        </div>`;
-      }).join('');
-      if (ui.jobsPanel) {
-        ui.jobsPanel.innerHTML = `
-          <div class="job-head">
-            <strong>Processos</strong>
-            <button class="btn ghost" id="bulkJobsClose">×</button>
-          </div>
-          <div class="job-list">${rows || '<div class="muted">Sem processos.</div>'}</div>`;
-        ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
+      if (!r.ok) { 
+        renderJobsPanel([]); 
+        return; 
       }
-    } catch {}
+      const data = await r.json().catch(()=>({}));
+      renderJobsPanel(data?.jobs || []);
+    } catch {
+      renderJobsPanel([]);
+    }
   }
   setInterval(pollJobs, 5000);
 
@@ -446,11 +599,16 @@
   document.addEventListener('change', (ev) => {
     if (ev.target?.matches?.('#tbody input[type="checkbox"][data-mlb]')) render();
   });
+
   const tbody = document.getElementById('tbody');
   if (tbody) {
     const obs = new MutationObserver(render);
     obs.observe(tbody, { childList: true, subtree: false });
   }
 
-  document.addEventListener('DOMContentLoaded', () => { ensureUI(); render(); pollJobs(); });
+  document.addEventListener('DOMContentLoaded', () => { 
+    ensureUI(); 
+    render(); 
+    pollJobs(); 
+  });
 })();

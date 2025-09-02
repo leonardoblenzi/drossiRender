@@ -1,6 +1,8 @@
 // public/js/criar-promocao.js
 console.log('🚀 criar-promocao.js carregado');
 
+/* ======================== Helpers HTTP / Paths ======================== */
+
 const toAbs = (p) => (/^https?:\/\//i.test(p) ? p : (p.startsWith('/') ? p : `/${p}`));
 
 async function getJSONAny(paths) {
@@ -30,6 +32,7 @@ const usersPaths = () => [
   '/api/promocao/users',
   '/api/promotions/users',
 ];
+
 const itemsPaths = (promotionId, type, qs) => {
   const suffix = `?promotion_type=${encodeURIComponent(type)}${qs ? `&${qs}` : ''}`;
   const pid = encodeURIComponent(promotionId);
@@ -39,6 +42,8 @@ const itemsPaths = (promotionId, type, qs) => {
     `/api/promotions/promotions/${pid}/items${suffix}`,
   ];
 };
+
+/* ======================== DOM / Format Helpers ======================== */
 
 const PAGE_SIZE = 50;
 const $  = (s) => document.querySelector(s);
@@ -53,6 +58,8 @@ function elTbody(){ return document.getElementById('tbody'); }
 function elPag(){ return document.getElementById('paginacao'); }
 function getTable(){ return elTbody()?.closest('table') || null; }
 
+/* ======================== State ======================== */
+
 const state = {
   cards: [],
   cardsFilteredIds: null,
@@ -64,12 +71,145 @@ const state = {
   mlbFilter: '',
   paging: { total:0, limit:PAGE_SIZE, tokensByPage:{1:null}, currentPage:1, lastPageKnown:1 },
   loading: false,
-  searchMlb: null
+  searchMlb: null,
+
+  // sessão de aplicação p/ HUD
+  applySession: {
+    started: false,
+    totalHint: null,  // se soubermos o total
+    processed: 0,
+    added: 0,
+    changed: 0,
+    removed: 0,
+    errors: 0,
+    lastTitle: ''
+  }
 };
 
-/* ================= Helpers/UI ================= */
+/* ======================== HUD / Aba de Progresso ======================== */
+/*  Abre um resumo no #bulkJobsPanel:
+    - Mostra contadores de aplicados/alterados/removidos/erros
+    - Abre mesmo quando só há erros (400 etc.)
+    - Atualiza em tempo real (aplicarUnico e operações silenciosas)
+*/
+
+const HUD = (() => {
+  const SEL = '#bulkJobsPanel';
+  let root = null;
+
+  function ensure() {
+    if (!root) root = document.querySelector(SEL);
+    return root;
+  }
+
+  function icon(ok){ return ok ? '✅' : '❗'; }
+
+  function render() {
+    const el = ensure();
+    if (!el) return;
+
+    const s = state.applySession;
+    const titulo = (s.errors > 0) ? 'Alguns anúncios com erros' : 'Aplicação de campanha';
+    const camp = document.getElementById('campName')?.textContent?.replace(/^Campanha:\s*/,'') || 'Campanha';
+    const prog = s.totalHint ? Math.min(100, Math.round((s.processed / s.totalHint) * 100)) : null;
+
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="job-head">
+        <strong>${esc(titulo)}</strong>
+        <button class="btn ghost" id="hudClose">×</button>
+      </div>
+      <div class="job-list">
+        <div class="job-row">
+          <div class="job-title">${esc(camp)}</div>
+          <div class="job-state">${s.processed}${s.totalHint?`/${s.totalHint}`:''} itens processados.</div>
+          <div class="job-bar"><div class="job-bar-fill" style="width:${prog!=null?prog:0}%"></div></div>
+        </div>
+        <div class="job-row">
+          <div class="job-state">${icon(true)} ${s.added} anúncios novos participando</div>
+        </div>
+        <div class="job-row">
+          <div class="job-state">${icon(true)} ${s.changed} anúncios alterados</div>
+        </div>
+        <div class="job-row">
+          <div class="job-state">${icon(true)} ${s.removed} anúncios deixaram de participar</div>
+        </div>
+        <div class="job-row">
+          <div class="job-state">${icon(false)} ${s.errors} anúncios com erros</div>
+          <div style="margin-top:6px">
+            <a href="#" id="hudFixLink" class="btn warn">Ver e corrigir</a>
+          </div>
+        </div>
+      </div>
+    `;
+    el.querySelector('#hudClose')?.addEventListener('click', () => el.classList.add('hidden'));
+    el.querySelector('#hudFixLink')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.querySelector('input[name="filtro"][value="non"]')?.click();
+    });
+  }
+
+  function open(totalHint, title) {
+    state.applySession.started = true;
+    state.applySession.totalHint = totalHint ?? state.applySession.totalHint;
+    state.applySession.lastTitle = title || state.applySession.lastTitle || '';
+    render();
+  }
+
+  function bump(kind) {
+    if (kind && kind in state.applySession) state.applySession[kind]++;
+    render();
+  }
+
+  function tickProcessed() {
+    state.applySession.processed++;
+    render();
+  }
+
+  function reset() {
+    state.applySession = {
+      started: false, totalHint: null, processed:0, added:0, changed:0, removed:0, errors:0, lastTitle:''
+    };
+  }
+
+  return { open, bump, tickProcessed, reset, render };
+})();
+
+/* ======================== Helpers de dados ======================== */
 
 function toNum(x){ return (x===null || x===undefined || x==='') ? null : Number(x); }
+
+// Normaliza nomenclaturas da API para comparações consistentes
+function normalizeStatus(s) {
+  s = String(s || '').toLowerCase();
+  if (s === 'in_progress') return 'pending';
+  return s;
+}
+
+// Deduplica por MLB escolhendo o "status real" com prioridade
+// started > pending > candidate > outros
+function dedupeByMLB(items, statusFilter /* 'started' | 'pending' | 'candidate' | '' */) {
+  const rank = { started: 3, pending: 2, candidate: 1 };
+  const pickRank = (st) => rank[normalizeStatus(st)] ?? 0;
+
+  const map = new Map();
+  for (const it of items) {
+    const id = String(it?.id || '');
+    if (!id) continue;
+    const st  = normalizeStatus(it.status);
+    const cur = map.get(id);
+    if (!cur || pickRank(st) > pickRank(cur.status)) {
+      map.set(id, { ...it, status: st });
+    }
+  }
+
+  let arr = [...map.values()];
+  if (statusFilter) {
+    const want = normalizeStatus(statusFilter);
+    arr = arr.filter(x => normalizeStatus(x.status) === want);
+  }
+  return arr;
+}
 
 // Lê rebate (MELI/Seller) de diversos formatos do payload
 function pickRebate(obj){
@@ -116,7 +256,7 @@ function applyRebateHeaderTooltip(){
   th.innerHTML = `Rebate <span class="tip" title="Tipo: ${type}\nMELI: ${mlp ?? '—'}\nSeller: ${sp ?? '—'}">ⓘ</span>${rebateTag}`;
 }
 
-/* ================= Eventos ================= */
+/* ======================== Eventos da UI ======================== */
 
 document.addEventListener('click', (ev) => {
   const t = ev.target;
@@ -125,7 +265,6 @@ document.addEventListener('click', (ev) => {
     ev.preventDefault();
     const mlb = ($('#mlbFilter')?.value || '').trim().toUpperCase();
     state.mlbFilter = mlb;
-    console.log('[Buscar] MLB:', mlb || '(vazio)');
     if (!mlb) { state.cardsFilteredIds = null; renderCards(); return; }
     filtrarCardsPorMLB(mlb);
     return;
@@ -135,7 +274,6 @@ document.addEventListener('click', (ev) => {
     state.mlbFilter = '';
     state.cardsFilteredIds = null;
     const input = $('#mlbFilter'); if (input) input.value = '';
-    console.log('[Buscar] Limpo — exibindo todos os cards');
     renderCards();
     return;
   }
@@ -154,13 +292,11 @@ document.addEventListener('click', (ev) => {
     return;
   }
 
-  // <<< Botão "Remover a todos" no header
   if (t.closest?.('#btnRemoverTodos')) {
     ev.preventDefault();
     removerEmMassaSelecionados().catch(err => console.error(err));
     return;
   }
-  // >>>
 });
 
 document.addEventListener('change', (ev) => {
@@ -176,15 +312,15 @@ document.addEventListener('keydown', (ev) => {
     ev.preventDefault();
     const mlb = ev.target.value.trim().toUpperCase();
     state.mlbFilter = mlb;
-    console.log('[Buscar] Enter MLB:', mlb || '(vazio)');
     if (!mlb) { state.cardsFilteredIds = null; renderCards(); return; }
     filtrarCardsPorMLB(mlb);
   }
 });
 
-// -------- busca por MLB (cards do item)
+/* ======================== Busca por MLB (cards do item) ======================== */
+
 const ITEM_PROMO_TYPES = new Set([
-  'SMART', 'MARKETPLACE_CAMPAIGN', 'DEAL', 'PRICE_MATCHING', 'PRICE_MATCHING_MELI_ALL', 'SELLER_CAMPAIGN'
+  'SMART','MARKETPLACE_CAMPAIGN','DEAL','PRICE_MATCHING','PRICE_MATCHING_MELI_ALL','SELLER_CAMPAIGN'
 ]);
 
 const itemPromosPaths = (mlb) => [
@@ -218,15 +354,13 @@ async function buscarCardsDoItem(mlb) {
   return [];
 }
 
-
-/* ================= Cards ================= */
+/* ======================== Cards ======================== */
 
 async function carregarCards(){
   const $cards = elCards();
   $cards.classList.add('cards-grid');
   $cards.innerHTML = `<div class="card"><h3>Carregando promoções…</h3><div class="muted">Aguarde</div></div>`;
   try {
-    // FIX: chamar apenas uma vez (evitava sobrescrever filtro de MLB)
     const data = await getJSONAny(usersPaths());
     state.cards = Array.isArray(data.results) ? data.results : [];
     console.log(`ℹ️ ${state.cards.length} cards carregados`);
@@ -302,7 +436,6 @@ async function filtrarCardsPorMLB(mlb){
       `/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`,
       `/api/promocao/items/${encodeURIComponent(mlb)}/promotions`,
       `/api/promotions/items/${encodeURIComponent(mlb)}/promotions`,
-      // fallbacks sem "/promotions"
       `/api/promocoes/items/${encodeURIComponent(mlb)}`,
       `/api/promocao/items/${encodeURIComponent(mlb)}`,
       `/api/promotions/items/${encodeURIComponent(mlb)}`
@@ -323,7 +456,7 @@ async function filtrarCardsPorMLB(mlb){
   }
 }
 
-/* ============== Seleção de card / Tabela ============== */
+/* ======================== Seleção de card / Tabela ======================== */
 
 async function selecionarCard(card){
   state.selectedCard = {
@@ -339,7 +472,7 @@ async function selecionarCard(card){
   applyRebateHeaderTooltip();
   updateSelectedCampaignName();
 
-  // >>> BULK: informa o contexto ao módulo de seleção/aplicação em massa
+  // Informa contexto ao módulo bulk (se existir)
   if (window.PromoBulk) {
     window.PromoBulk.setContext({
       promotion_id: state.selectedCard.id,
@@ -410,6 +543,10 @@ async function carregarItensPagina(pageNumber, reset=false){
 
     let items = Array.isArray(data.results) ? data.results : [];
 
+    // 🔽 normaliza e deduplica quando buscamos "all"
+    items = items.map(x => ({ ...x, status: normalizeStatus(x.status) }));
+    items = dedupeByMLB(items, filtroToStatusParam() || '');
+
     if (state.mlbFilter) {
       const mlbUp = state.mlbFilter.toUpperCase();
       items = items.filter(x => (x.id || '').toUpperCase() === mlbUp);
@@ -443,7 +580,7 @@ async function carregarItensPagina(pageNumber, reset=false){
     console.error('[carregarItensPagina] erro:', e, e?.cause);
 
     const code = e?.cause?.status ? ` (HTTP ${e.cause.status})` : '';
-    const snippet = e?.cause?.body ? String(e.cause.body).slice(0,180) : '';
+    const snippet = e?.cause?.body ? String(e.cause?.body).slice(0,180) : '';
     $body.innerHTML = `<tr><td colspan="12" class="muted">${esc(authMsg + code)}</td></tr>` +
       (snippet ? `<tr><td colspan="12"><pre class="muted" style="white-space:pre-wrap">${esc(snippet)}</pre></td></tr>` : '');
   } finally {
@@ -471,7 +608,6 @@ function renderTabela(items){
     let   deal     = toNum(it.deal_price     ?? it.price ?? null);
 
     let descPct = toNum(it.discount_percentage);
-    // ➕ fallback: se vier original e deal, calcula o % de desconto
     if (descPct == null && original != null && deal != null && original > 0) {
       descPct = (1 - (deal / original)) * 100;
     }
@@ -487,7 +623,7 @@ function renderTabela(items){
       if (it.rebate_meli_percent == null && m != null) it.rebate_meli_percent = m;
     }
 
-    // >>> DEAL: "Novo preço" preferindo min_discounted_price, depois suggested_discounted_price
+    // "Novo preço" para DEAL/SELLER_CAMPAIGN
     let novo;
     const typeUp = (state.selectedCard?.type || '').toUpperCase();
     if (['DEAL','SELLER_CAMPAIGN','PRICE_DISCOUNT','DOD'].includes(typeUp)) {
@@ -499,17 +635,15 @@ function renderTabela(items){
       else if (original != null && descPct != null) novo = round2(original * (1 - (descPct/100)));
       else novo = null;
     } else {
-      // outros tipos: mantém priorização antiga
       novo = (deal != null)
         ? deal
         : (original != null && descPct != null) ? round2(original * (1 - (descPct/100))) : null;
     }
-    // <<< DEAL
 
     const precoAtual = (original != null) ? fmtMoeda(original) : '—';
     const precoFinal = (deal     != null) ? fmtMoeda(deal)     : '—';
     const novoPreco  = (novo     != null) ? fmtMoeda(novo)     : '—';
-    const status     = it.status || '—';
+    const status     = normalizeStatus(it.status) || '—';
 
     const meliPct =
       (it.meli_percentage != null ? Number(it.meli_percentage)
@@ -544,7 +678,7 @@ function renderTabela(items){
 
   $body.innerHTML = rows;
 
-  // >>> FASE 2: sincroniza contexto (filtros atuais) com PromoBulk para o job em background
+  // sincroniza contexto com PromoBulk (se existir)
   if (window.PromoBulk && state.selectedCard) {
     window.PromoBulk.setContext({
       promotion_id: state.selectedCard.id,
@@ -554,7 +688,6 @@ function renderTabela(items){
       mlbFilter: state.mlbFilter
     });
   }
-
 }
 
 function updateSelectedCampaignName(){
@@ -603,16 +736,13 @@ function renderPaginacao(){
   $pag.innerHTML = html;
 }
 
-/* =========== Busca por MLB: linha única com fallback =========== */
+/* ======================== Busca por MLB: item único ======================== */
 
-// 1) método rápido — usa /items/:ITEM_ID/promotions e tenta um brief (se existir); falhando, segue normalmente
 async function montarItemRapido(mlb){
-  // promo do item
   const resp = await getJSONAny([
     `/api/promocoes/items/${encodeURIComponent(mlb)}/promotions`,
     `/api/promocao/items/${encodeURIComponent(mlb)}/promotions`,
     `/api/promotions/items/${encodeURIComponent(mlb)}/promotions`,
-    // fallback sem "/promotions"
     `/api/promocoes/items/${encodeURIComponent(mlb)}`,
     `/api/promocao/items/${encodeURIComponent(mlb)}`,
     `/api/promotions/items/${encodeURIComponent(mlb)}`
@@ -622,10 +752,9 @@ async function montarItemRapido(mlb){
   const match = promos.find(p => p && p.id === sel.id) || null;
   if (!match) return null;
 
-  // tenta detalhes rápidos do item (se rota não existir/der erro, ignora)
+  // tenta detalhes rápidos
   let b = null;
   try {
-    // ajuste aqui para a sua rota de detalhes/brief, se diferente:
     b = await getJSONAny([
       `/api/items/brief?ids=${encodeURIComponent(mlb)}`,
       `/api/items/basic?ids=${encodeURIComponent(mlb)}`
@@ -634,7 +763,7 @@ async function montarItemRapido(mlb){
       const hit = b.find(x => (x.id === mlb || x?.body?.id === mlb));
       b = hit?.body || hit || null;
     }
-  } catch (_) { /* sem brief, segue */ }
+  } catch (_) {}
 
   const offer = Array.isArray(match.offers) && match.offers[0] ? match.offers[0] : {};
   const rb = pickRebate(match) || pickRebate(offer);
@@ -649,7 +778,6 @@ async function montarItemRapido(mlb){
     if (descPct == null && (rb.meli != null || rb.seller != null)) descPct = tot;
     if (deal   == null && descPct != null) deal = original * (1 - (descPct/100));
   }
-  // fallback de desconto pelo par original/deal
   if (descPct == null && original != null && deal != null && original > 0) {
     descPct = (1 - (deal / original)) * 100;
   }
@@ -669,12 +797,10 @@ async function montarItemRapido(mlb){
   };
 }
 
-// 2) fallback — percorre a listagem da própria campanha até achar o MLB
 async function buscarItemNaCampanha(mlb){
   const mlbUp = (mlb || '').toUpperCase();
   let token = null;
-  // limite de segurança para evitar loop infinito em campanhas enormes
-  for (let i = 0; i < 200; i++) { // 200 * 50 = 10.000 itens
+  for (let i = 0; i < 200; i++) {
     const qs = qsBuild({ limit: 50, status: filtroToStatusParam(), ...(token ? { search_after: token } : {}) });
     const data = await getJSONAny(itemsPaths(state.selectedCard.id, state.selectedCard.type, qs));
     if (data?.promotion_benefits) state.promotionBenefits = data.promotion_benefits;
@@ -696,14 +822,8 @@ async function carregarSomenteMLBSelecionado(){
   renderPaginacao();
 
   try {
-    // primeiro tenta o caminho rápido
     let item = await montarItemRapido(state.mlbFilter.toUpperCase());
-
-    // se não veio nada OU veio sem campos essenciais, faz fallback pela listagem da campanha
-    const semDados =
-      !item ||
-      ((item.original_price == null) && (item.deal_price == null) && (item.discount_percentage == null));
-
+    const semDados = !item || ((item.original_price == null) && (item.deal_price == null) && (item.discount_percentage == null));
     if (semDados) {
       const viaCampanha = await buscarItemNaCampanha(state.mlbFilter.toUpperCase());
       if (viaCampanha) item = viaCampanha;
@@ -731,11 +851,8 @@ async function carregarSomenteMLBSelecionado(){
   }
 }
 
-/* ================= Ações (stubs) ================= */
+/* ======================== Ações ======================== */
 
-/* ================= Ações ================= */
-
-// util: calcula o preço de negócio (deal) para enviar em SELLER_CAMPAIGN/DEAL
 function calcDealPriceFromItem(it) {
   const orig = Number(it.original_price ?? it.price ?? NaN);
   const deal = Number(it.deal_price ?? it.price ?? NaN);
@@ -748,96 +865,203 @@ function calcDealPriceFromItem(it) {
   return null;
 }
 
-// util: encontra um offer_id de CANDIDATE para SMART/PRICE_MATCHING caso não venha no item atual
+/* --- Helpers p/ candidatos (SMART/PRICE_MATCHING) --- */
+
+const isCandidateId = (id) => /^CANDIDATE-[A-Z0-9-]+$/i.test(String(id || ''));
+
+function getAllOfferLikeIds(it) {
+  const set = new Set();
+  const add = (v) => { if (v) set.add(String(v)); };
+
+  add(it?.offer_id);
+  add(it?.candidate_id);
+  add(it?.offer_candidate_id);
+  add(it?.candidate?.id);
+
+  if (Array.isArray(it?.offers)) {
+    for (const o of it.offers) {
+      add(o?.id);
+      add(o?.candidate_id);
+    }
+  }
+  return [...set];
+}
+
+function extractCandidateIdFromItem(it) {
+  if (isCandidateId(it?.candidate_id)) return String(it.candidate_id);
+  if (Array.isArray(it?.offers)) {
+    const cand = it.offers.find(o => isCandidateId(o?.id) || isCandidateId(o?.candidate_id));
+    if (cand) return String(cand.candidate_id || cand.id);
+  }
+  if (isCandidateId(it?.offer_candidate_id)) return String(it.offer_candidate_id);
+  if (isCandidateId(it?.candidate?.id))       return String(it.candidate.id);
+  return null;
+}
+
 async function buscarOfferIdCandidate(mlb) {
-  // varre a campanha só com status=candidate até achar o item e pegar offer_id
   let token = null;
+  const wanted = String(mlb || '').toUpperCase();
   for (let i = 0; i < 200; i++) {
     const qs = qsBuild({ limit: 50, status: 'candidate', ...(token ? { search_after: token } : {}) });
     const data = await getJSONAny(itemsPaths(state.selectedCard.id, state.selectedCard.type, qs));
-    const items = Array.isArray(data.results) ? data.results : [];
-    const found = items.find(x => (x.id || '').toUpperCase() === mlb.toUpperCase());
-    if (found && (found.offer_id || (found.offers && found.offers[0]?.id))) {
-      return found.offer_id || found.offers[0].id;
+    const items = Array.isArray(data?.results) ? data.results : [];
+    const found = items.find(x => (String(x?.id || '').toUpperCase() === wanted));
+    if (found) {
+      const ids = getAllOfferLikeIds(found);
+      const cid = ids.find(isCandidateId) || null;
+      const off = ids.find(id => !isCandidateId(id)) || null;
+      return { candidateId: cid, offerId: off };
     }
     token = data?.paging?.searchAfter || null;
     if (!token) break;
   }
-  return null;
+  return { candidateId: null, offerId: null };
 }
 
-async function aplicarUnico(mlb) {
-  if (!state.selectedCard) return alert('Selecione uma campanha.');
+/* --- aplicarUnico com validação e fallback candidate_id -> offer_id --- */
+async function aplicarUnico(mlb, opts = {}) {
+  const silent = !!opts.silent;
+  if (!state.selectedCard) { if (!silent) alert('Selecione uma campanha.'); return false; }
 
   const it = state.items.find(x => (x.id || '').toUpperCase() === (mlb || '').toUpperCase());
-  if (!it) return alert('Item não encontrado na lista atual.');
+  if (!it) { if (!silent) alert('Item não encontrado na lista atual.'); return false; }
 
   const t = (state.selectedCard.type || '').toUpperCase();
-  const payload = {
-    promotion_id: state.selectedCard.id,
-    promotion_type: t
-  };
+  const payloadBase = { promotion_id: state.selectedCard.id, promotion_type: t };
+
+  // inicia HUD se ainda não estiver visível
+  if (!state.applySession.started) HUD.open(/* totalHint */ null);
 
   try {
+    let payload = { ...payloadBase };
+
     if (t === 'SELLER_CAMPAIGN' || t === 'DEAL') {
-      // precisa de deal_price
       let dealPrice = calcDealPriceFromItem(it);
-      if (dealPrice == null) {
-        const entrada = prompt('Informe o NOVO preço do item para a campanha (ex: 99.90):');
-        if (!entrada) return;
+      if (dealPrice == null && !silent) {
+        const entrada = prompt('Informe o NOVO preço (ex: 99.90):');
+        if (!entrada) return false;
         const num = Number(String(entrada).replace(',', '.'));
-        if (Number.isNaN(num) || num <= 0) return alert('Preço inválido.');
+        if (Number.isNaN(num) || num <= 0) return alert('Preço inválido.'), false;
         dealPrice = round2(num);
+      } else if (dealPrice == null) {
+        HUD.tickProcessed();
+        return false; // silencioso
       }
       payload.deal_price = dealPrice;
-      // se você quiser usar top_deal_price, pode pedir aqui (opcional)
-      // payload.top_deal_price = ...
+
     } else if (t === 'SMART' || t.startsWith('PRICE_MATCHING')) {
-      // precisa de offer_id (candidate)
-      let offerId = it.offer_id || (it.offers && it.offers[0]?.id) || null;
-      if (!offerId) offerId = await buscarOfferIdCandidate(mlb);
-      if (!offerId) return alert('Não foi possível obter o offer_id da oferta candidata para este item.');
-      payload.offer_id = offerId;
-    } else if (t === 'MARKETPLACE_CAMPAIGN') {
-      // sem campos adicionais
-    }
+      const status = normalizeStatus(it.status);
+      if (status !== 'candidate') {
+        if (!silent) alert(`Este item não está candidato nesta campanha (status: ${status || '—'}).`);
+        HUD.bump('errors'); HUD.tickProcessed();
+        return false;
+      }
 
-    const r = await fetch(`/api/promocoes/items/${encodeURIComponent(mlb)}/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+      // tenta obter ids
+      let candidateId = extractCandidateIdFromItem(it);
+      let offerId     = getAllOfferLikeIds(it).find(id => !isCandidateId(id)) || null;
 
-    const resp = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      console.error('Falha ao aplicar promoção', r.status, resp);
-      return alert(`Erro ao aplicar: ${r.status} ${resp?.error || ''}`);
-    }
+      if (!candidateId || !offerId) {
+        const { candidateId: c2, offerId: o2 } = await buscarOfferIdCandidate(mlb);
+        candidateId = candidateId || c2;
+        offerId     = offerId     || o2;
+      }
 
-    alert('Aplicado com sucesso!');
-    // recarrega a grade atual
-    if (state.mlbFilter) {
-      await carregarSomenteMLBSelecionado();
+      if (!candidateId && !offerId) {
+        if (!silent) alert('Candidato não encontrado para este item.');
+        HUD.bump('errors'); HUD.tickProcessed();
+        return false;
+      }
+
+      // primeiro tentamos candidate_id
+      // Backend exige offer_id para SMART/PRICE_MATCHING.
+    // Envie sempre offer_id quando existir e, opcionalmente, candidate_id.
+    if (offerId) payload.offer_id = offerId;
+    if (candidateId) payload.candidate_id = candidateId;
     } else {
-      await carregarItensPagina(state.paging.currentPage, true);
+      // tipos sem extra (MARKETPLACE_CAMPAIGN etc)
     }
+
+    console.debug('➡️ Enviando payload aplicarUnico:', JSON.parse(JSON.stringify(payload)));
+
+    // função auxiliar para enviar
+    const doPost = async (pl) => {
+      const r = await fetch(`/api/promocoes/items/${encodeURIComponent(mlb)}/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pl)
+      });
+      let respBody = null;
+      try { respBody = await r.clone().json(); } catch { respBody = {}; }
+      return { ok: r.ok, status: r.status, body: respBody };
+    };
+
+    // 1ª tentativa (candidate_id se houver; senão offer_id)
+    let res = await doPost(payload);
+
+    // fallback: se 400 e mensagem sugerir problema com candidate -> tenta offer_id
+    const bodyMsg = String(res?.body?.message || res?.body?.error || '').toLowerCase();
+    const shouldRetryWithOffer =
+      !res.ok && res.status === 400 &&
+      !('offer_id' in payload) && ('candidate_id' in payload) &&
+      (bodyMsg.includes('offer') || bodyMsg.includes('candidate') || bodyMsg.includes('invalid') || bodyMsg.includes('not found'));
+
+
+    if (shouldRetryWithOffer) {
+      // escolhe um offer_id possível
+      let offerId = getAllOfferLikeIds(it).find(id => !isCandidateId(id)) || null;
+      if (!offerId) {
+        const found = await buscarOfferIdCandidate(mlb);
+        offerId = found.offerId || found.candidateId; // último recurso: usar o mesmo valor
+      }
+      if (offerId) {
+        const retryPayload = { ...payloadBase, offer_id: offerId };
+        console.warn('[aplicarUnico] retry com offer_id:', retryPayload);
+        res = await doPost(retryPayload);
+      }
+    }
+
+    if (!res.ok) {
+      const causes = Array.isArray(res?.body?.cause) ? res.body.cause.map(c => c?.message || c?.code).filter(Boolean).join(' | ') : '';
+      console.error('Falha ao aplicar promoção', res.status, res.body);
+      if (!silent) {
+        alert(`Erro ao aplicar (${res.status}): ${res?.body?.message || res?.body?.error || 'bad_request'}${causes ? '\nCausa: ' + causes : ''}`);
+      }
+      state.applySession.errors++;
+      HUD.tickProcessed();
+      return false;
+    }
+
+    // sucesso -> estatística
+    const prevStatus = normalizeStatus(it.status);
+    if (prevStatus === 'candidate') state.applySession.added++;
+    else state.applySession.changed++;
+    // marca localmente como started
+    it.status = 'started';
+
+    if (!silent) {
+      alert('Aplicado com sucesso!');
+      if (state.mlbFilter) await carregarSomenteMLBSelecionado();
+      else await carregarItensPagina(state.paging.currentPage, true);
+    }
+    HUD.tickProcessed();
+    return true;
   } catch (e) {
     console.error('Erro aplicarUnico:', e);
-    alert('Falha ao aplicar (ver console).');
+    state.applySession.errors++;
+    if (!silent) alert('Falha ao aplicar (ver console).');
+    HUD.tickProcessed();
+    return false;
   }
 }
+window.aplicarUnico = aplicarUnico;
 
-// <<< NOVO: coleta TODOS os MLBs que atendem aos filtros atuais (todas as páginas)
+/* --- Coletar todos os ids filtrados (suporta bulk silencioso) --- */
 async function coletarTodosIdsFiltrados() {
   if (!state.selectedCard) return [];
   const status = filtroToStatusParam();
   const ids = [];
 
-  // Se estiver filtrando por um MLB específico, devolve só ele
   if (state.mlbFilter) {
     const mlb = state.mlbFilter.toUpperCase();
-    // valida se ele passa pelo filtro de % (quando houver)
-    // pega a página única do item (rápido)
     const item = await montarItemRapido(mlb).catch(()=>null);
     if (!item) return [];
     if (state.maxDesc != null) {
@@ -853,7 +1077,7 @@ async function coletarTodosIdsFiltrados() {
   }
 
   let token = null;
-  for (let guard=0; guard<500; guard++) { // ~25k máx
+  for (let guard=0; guard<500; guard++) {
     const qs = qsBuild({ limit: 50, ...(status ? { status } : {}), ...(token ? { search_after: token } : {}) });
     const data = await getJSONAny(itemsPaths(state.selectedCard.id, state.selectedCard.type, qs));
     const items = Array.isArray(data.results) ? data.results : [];
@@ -877,31 +1101,23 @@ async function coletarTodosIdsFiltrados() {
     if (!token || items.length === 0) break;
   }
 
-  // remove duplicados
   return [...new Set(ids)];
 }
-// >>>
 
-// <<< NOVO: remover em massa (selecionados da página OU todos filtrados)
+/* --- Remoção em massa (abre HUD e atualiza contadores) --- */
 async function removerEmMassaSelecionados() {
-  if (!state.selectedCard) {
-    alert('Selecione uma campanha.');
-    return;
-  }
+  if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
 
-  // prioriza itens marcados nesta página
   let itens = getSelecionados();
-
   if (!itens.length) {
-    const ok = confirm('Nenhum item marcado nesta página. Deseja remover da promoção TODOS os itens filtrados da campanha (todas as páginas)?');
+    const ok = confirm('Nenhum item marcado. Deseja remover TODOS os itens filtrados da campanha?');
     if (!ok) return;
     itens = await coletarTodosIdsFiltrados();
   }
+  if (!itens.length) { alert('Nenhum item para remover.'); return; }
 
-  if (!itens.length) {
-    alert('Nenhum item para remover (verifique os filtros).');
-    return;
-  }
+  // abre HUD
+  HUD.open(itens.length, 'Remoção em massa');
 
   try {
     const r = await fetch('/api/promocoes/jobs/remove', {
@@ -910,42 +1126,39 @@ async function removerEmMassaSelecionados() {
       body: JSON.stringify({ items: itens, delay_ms: 250 })
     });
     const resp = await r.json().catch(() => ({}));
-
     if (!r.ok || !resp.ok) {
       console.error('Falha ao iniciar remoção em massa', r.status, resp);
+      state.applySession.errors++;
+      HUD.render();
       alert('Falha ao iniciar remoção em massa.');
       return;
     }
-
-    console.log('Job de remoção iniciado:', resp.job_id || resp.job?.id, resp);
-    if (window.PromoBulk?.onJobStarted) {
-      window.PromoBulk.onJobStarted({ id: resp.job_id || resp.job?.id, kind: 'remove', total: itens.length });
-    }
-
+    // não sabemos a evolução do job aqui; apenas marcamos a intenção
+    state.applySession.removed += itens.length;
+    state.applySession.processed += itens.length;
+    HUD.render();
     alert(`Remoção em massa iniciada para ${itens.length} item(ns).`);
   } catch (e) {
     console.error('Erro removerEmMassaSelecionados:', e);
-    alert('Erro ao iniciar remoção em massa (ver console).');
+    state.applySession.errors++;
+    HUD.render();
+    alert('Erro ao iniciar remoção em massa.');
   }
 }
-// >>>
 
+/* --- Navegação e helpers --- */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){
   $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked);
-  // >>> BULK: quando marcar o checkbox do header, prepara seleção global
-  if (window.PromoBulk) {
-    window.PromoBulk.onHeaderToggle(!!master.checked);
-  }
+  if (window.PromoBulk) { window.PromoBulk.onHeaderToggle(!!master.checked); }
 }
 function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
 async function aplicarLoteSelecionados(){
   const sel = getSelecionados();
   if (!sel.length) return alert('Selecione ao menos 1 item');
-  // aplica em série para simplificar (poucas unidades)
-  for (const mlb of sel) {
-    await aplicarUnico(mlb);
-  }
+  // abre HUD com uma estimativa de total
+  HUD.open(sel.length, 'Aplicação (selecionados)');
+  for (const mlb of sel) { await aplicarUnico(mlb, { silent:true }); }
 }
 function removerUnicoDaCampanha(mlb){ alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ''}`); }
 
@@ -956,10 +1169,11 @@ window.removerUnicoDaCampanha = removerUnicoDaCampanha;
 window.aplicarUnico = aplicarUnico;
 window.removerEmMassaSelecionados = removerEmMassaSelecionados;
 
-/* ================= Boot ================= */
+/* ======================== Boot ======================== */
 
 document.addEventListener('DOMContentLoaded', async () => {
   hideLeadingRebateColumnIfPresent();
   updateSelectedCampaignName();
+  HUD.reset(); // inicializa HUD da sessão
   await carregarCards();
 });

@@ -17,19 +17,32 @@
       margin-top:2px; background:#f7f9ff; border:1px dashed #dbe4ff; border-radius:10px; padding:10px 12px;
     }
     .selection-bar.hidden{ display:none; }
-    /* EMPILHA os botões: Aplicar em cima, Remover embaixo */
     .selection-bar .actions{
       display:flex; gap:8px; align-items:flex-start; flex-direction:column;
     }
 
     .jobs-panel{
-      position: fixed; right: 16px; top: 90px;
-      width: 320px; max-height: 70vh; overflow:auto;
-      background: #fff; color:#333; border-radius: 10px;
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      width: 360px;
+      max-height: 60vh;
+      overflow: auto;
+      background: #fff;
+      color:#333;
+      border-radius: 10px;
       box-shadow: 0 10px 30px rgba(0,0,0,.2);
-      padding: 12px; z-index: 9999;
+      padding: 12px;
+      z-index: 9999;
     }
     .jobs-panel.hidden{ display:none; }
+    .jobs-panel .job-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .jobs-panel .job-list{ display:flex; flex-direction:column; gap:10px; }
+    .jobs-panel .job-row{ border:1px solid #eee; border-radius:8px; padding:8px; background:#fafafa; }
+    .jobs-panel .job-title{ font-weight:600; margin-bottom:4px; }
+    .jobs-panel .job-state{ font-size:12px; color:#666; margin-bottom:6px; }
+    .jobs-panel .job-bar{ width:100%; height:8px; border-radius:6px; background:#e9e9e9; overflow:hidden; }
+    .jobs-panel .job-bar-fill{ height:100%; background:#4f46e5; }
 
     /* Topo */
     .account-bar{position:sticky;top:0;z-index:10;background:#111827;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
@@ -41,7 +54,6 @@
     .btn.primary{background:#0ea5e9;color:#fff}
     .btn.warn{background:#f59e0b;color:#111}
     .btn.ghost{background:#eef2f7}
-    /* NOVAS cores para ações principais */
     .btn.success{ background:#10b981; color:#fff; }
     .btn.success:hover{ filter:brightness(0.95); }
     .btn.danger{ background:#ef4444; color:#fff; }
@@ -59,7 +71,7 @@
     .card--active{outline:2px solid #2dd4bf}
     .card--disabled{opacity:.55}
 
-    /* Top bar (nome em cima, controles embaixo) */
+    /* Top bar */
     .mostrar-bar{
       display:flex; flex-direction:column; gap:10px;
       background:#fff;border:1px solid #eee;border-radius:12px;
@@ -75,7 +87,7 @@
 
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
-    /* Tabela / paginação */
+    /* Tabela */
     .table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
     .table th,.table td{padding:10px;border-bottom:1px solid #efefef;text-align:left;vertical-align:middle}
     .table th{background:#f8fafc;font-weight:600}
@@ -105,7 +117,7 @@
   <div class="wrap">
     <h2>Central de Promoções</h2>
 
-    <!-- Barra de busca (somente MLB) -->
+    <!-- Barra de busca -->
     <section id="promo-toolbar" class="promo-toolbar">
       <label for="mlbFilter" class="block-label">Buscar item (MLB)</label>
       <div class="inline">
@@ -123,21 +135,18 @@
         <div class="muted">Aguarde</div>
       </div>
     </div>
-
-    <!-- Cabeçalho da campanha (2 linhas) -->
+    <!-- Cabeçalho da campanha -->
     <div class="mostrar-bar">
-      <!-- Linha 1: título + filtros -->
       <div class="camp-header">
         <div id="campName" class="camp-name" title="— selecione um card —">— selecione um card —</div>
       </div>
 
       <div class="controls-line">
         <div class="lado-esquerdo">
-          <!-- mantém por compatibilidade; será controlado via JS -->
           <div id="bulkControls" class="bulk-controls hidden">
             <button id="bulkSelectAllBtn" class="btn ghost"></button>
             <button id="bulkApplyAllBtn"  class="btn success" disabled>Aplicar a todos</button>
-            <button id="bulkRemoveAllBtn" class="btn danger"   disabled>Remover todos</button>
+            <button id="bulkRemoveAllBtn" class="btn danger" disabled>Remover todos</button>
           </div>
         </div>
 
@@ -156,15 +165,13 @@
         </div>
       </div>
 
-      <!-- Linha 2: aparece apenas quando há seleção -->
+      <!-- Linha 2: barra de seleção -->
       <div id="selectionBar" class="selection-bar hidden">
         <div id="selMsg">0 anúncios selecionados nesta página.</div>
         <div class="actions">
-          <button id="selAllCampaignBtn" class="btn ghost" type="button">
-            Selecionar toda a campanha (filtrados)
-          </button>
-          <button id="selApplyBtn"  class="btn success" type="button" disabled>Aplicar a todos</button>
-          <button id="selRemoveBtn" class="btn danger"   type="button" disabled>Remover todos</button>
+          <button id="selAllCampaignBtn" class="btn ghost" type="button">Selecionar toda a campanha (filtrados)</button>
+          <button id="selApplyBtn" class="btn success" type="button" disabled>Aplicar a todos</button>
+          <button id="selRemoveBtn" class="btn danger" type="button" disabled>Remover todos</button>
         </div>
       </div>
     </div>
@@ -174,7 +181,7 @@
       <table class="table" id="tabela">
         <thead>
           <tr>
-            <th style="width:44px; text-align:center">
+            <th style="width:44px;text-align:center">
               <input
                 type="checkbox"
                 id="checkAll"
@@ -199,7 +206,6 @@
           <tr><td colspan="12" class="muted">Sem itens. Clique em um card de promoção.</td></tr>
         </tbody>
       </table>
-
       <div id="paginacao" class="pagination" aria-label="Paginação"></div>
     </div>
 
@@ -213,11 +219,12 @@
     </div>
   </div>
 
+  <!-- Painel de Jobs -->
   <div id="bulkJobsPanel" class="jobs-panel hidden"></div>
 
+  <!-- Scripts -->
   <script src="/js/account-bar.js" defer></script>
   <script src="/js/criar-promocao.js" defer></script>
-  <script src="/js/promo-bulk-actions.js" defer></script>
   <script src="/js/promo-bulk.js" defer></script>
 </body>
 </html>
