@@ -197,7 +197,7 @@ try {
 
 // Promoção (API já existente no seu projeto)
 try {
-  const promocaoRoutes = require('./routes/promocaoRoutes');
+  const promocaoRoutes = require('./routes/removerPromocaoRoutes');
   app.use(promocaoRoutes);
   console.log('✅ PromocaoRoutes carregado');
 } catch (error) {

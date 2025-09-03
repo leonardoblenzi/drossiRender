@@ -1,4 +1,4 @@
-const PromocaoService = require('../services/promocaoService');
+const PromocaoService = require('../services/removerPromocaoService');
 
 // Variável global para processamentos
 let processamentosRemocao = {};
