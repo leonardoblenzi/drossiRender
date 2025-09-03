@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -5,114 +6,164 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <link rel="stylesheet" href="/css/dashboard.css">
   <title>API Mercado Livre - Dashboard</title>
-  <!-- Certifique-se de que seu HTML já referencia seu CSS global,
-       ex.: <link rel="stylesheet" href="/css/app.css"> -->
-
 </head>
 <body>
-
-  <!-- TOPO: Conta atual + Trocar Conta -->
+  <!-- TOPO: Conta atual + Status + Trocar Conta -->
   <header class="account-bar">
     <div class="account-bar__left">
-      <span class="logo">🔎</span>
+      <span class="logo">🟡</span>
       <span class="app-name">API Mercado Livre</span>
     </div>
     <div class="account-bar__right">
       <div class="account-bar__current">
-        <span class="lbl">Conta atual:</span>
+        <span class="lbl">Conta:</span>
         <span id="account-current" class="val">Carregando...</span>
       </div>
-      <button id="account-switch" class="account-bar__switch" title="Trocar de conta">
-        Trocar Conta
-      </button>
+      <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+      <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
     </div>
   </header>
 
-  <div class="container">
-    <h1>🛒 API Mercado Livre</h1>
-    <div class="account-context">
-      Conta atual: <strong id="account-name-inline">Carregando...</strong>
+  <!-- Navegação principal com abas -->
+  <nav class="main-nav">
+    <div class="tabs">
+      <button class="nav-tab active" data-tab="dashboard">Dashboard</button>
+      <button class="nav-tab" data-tab="produtos">Produtos</button>
+      <button class="nav-tab" data-tab="ia">IA & Analytics</button>
+      <button class="nav-tab" data-tab="benchmarking">Benchmarking</button>
+      <button class="nav-tab" data-tab="alertas">Alertas</button>
+      <button class="nav-tab" data-tab="ml">ML</button>
     </div>
-    <p>Servidor Node.js rodando com sucesso!</p>
+  </nav>
 
-    <div class="endpoints">
-      <div class="endpoint">
-        <h3>🔑 Gerenciar Token <span class="status warning">IMPORTANTE</span></h3>
-        <p>Verificar e renovar ACCESS_TOKEN para manter a API funcionando</p>
-        <div class="token-actions">
-          <button onclick="verificarToken()">🔍 Verificar Token</button>
-          <button onclick="renovarToken()">🔄 Renovar Token</button>
+  <!-- CONTEÚDOS DAS ABAS -->
+  <main class="page-wrap">
+    <!-- DASHBOARD -->
+    <section id="tab-dashboard" class="tab-page active">
+      <div class="container">
+        <h1>📊 Visão Geral</h1>
+        <div class="account-context">
+          Conta atual: <strong id="account-name-inline">Carregando...</strong>
+        </div>
+        <p class="subtitle">Seu servidor Node.js está operacional.</p>
+
+        <div class="endpoints">
+          <div class="endpoint token">
+            <h3>🔑 Gerenciar Token <span class="status warning">Atenção</span></h3>
+            <p>Verifique e renove o ACCESS_TOKEN para manter integrações ativas.</p>
+            <div class="token-actions">
+              <button onclick="verificarToken()">🔍 Verificar Token</button>
+              <button onclick="renovarToken()">🔄 Renovar Token</button>
+            </div>
+          </div>
+
+          <div class="endpoint processos">
+            <h3>
+              ⚙️ Processos em Execução 
+              <span class="status active">Ativo</span>
+              <span id="process-counter" class="process-counter" style="display:none;">
+                <span id="counter-number">0</span> ativos
+              </span>
+            </h3>
+            <p>Monitore e gerencie todos os processos em massa em tempo real.</p>
+            <div class="token-actions">
+              <button onclick="abrirModalProcessos()">📊 Ver Processos</button>
+              <button onclick="iniciarNovoProcesso()">➕ Novo Processo</button>
+            </div>
+          </div>
+
+          <div class="endpoint info full">
+            <h3>📋 Funcionalidades Disponíveis</h3>
+            <ul class="features">
+              <li><strong>🎯 Promoções:</strong> Criar e remover promoções</li>
+              <li><strong>🔍 Pesquisa:</strong> Buscar texto em títulos/descrições/atributos</li>
+              <li><strong>⚙️ Filas:</strong> Processamento em background</li>
+              <li><strong>📈 Keywords:</strong> Tendências e relacionadas</li>
+              <li><strong>📊 Monitoramento:</strong> Status em tempo real</li>
+            </ul>
+          </div>
         </div>
       </div>
+    </section>
 
-      <div class="endpoint promotion">
-        <h3>🎯 Criar Promoções <span class="status active">ATIVO</span></h3>
-        <p>Crie promoções unitárias ou em massa com diferentes tipos de campanhas</p>
-        <a href="/criar-promocao">🚀 Acessar Interface</a>
-      </div>
-
-      <div class="endpoint">
-        <h3>🗑️ Remover Promoções <span class="status active">ATIVO</span></h3>
-        <p>Interface para remover promoções de anúncios individuais ou em lote</p>
-        <a href="/remover-promocao">🔧 Acessar Interface</a>
-      </div>
-
-      <!-- NOVO: Card Análise de Anúncios -->
-      <div class="endpoint analysis">
-        <h3>📈 Análise de Anúncios <span class="status active">ATIVO</span></h3>
-        <p>Consulte MLB único ou lista, veja o tipo (Clássico/Premium), “date_created” e “tempo desde a última venda”. Exporte em XLSX.</p>
-        <a href="/analise-anuncios">📈 Acessar Análise</a>
-      </div>
-
-      <div class="endpoint search">
-        <h3>
-          🔍 Pesquisa em Descrições 
-          <span class="status active">ATIVO</span>
-        </h3>
-        <p>Pesquise texto específico nas descrições de múltiplos MLBs.</p>
-        <a href="/pesquisa-descricao">🔎 Iniciar Pesquisa</a>
-      </div>
-
-      <div class="endpoint processos">
-        <h3>
-          ⚙️ Processos em Execução 
-          <span class="status active">ATIVO</span>
-          <span id="process-counter" class="process-counter" style="display: none;">
-            <span id="counter-number">0</span> ativos
-          </span>
-        </h3>
-        <p>Monitore e gerencie todos os processos de pesquisa em massa em tempo real.</p>
-        <div class="token-actions">
-          <button onclick="abrirModalProcessos()">📊 Ver Processos</button>
-          <button onclick="iniciarNovoProcesso()">➕ Novo Processo</button>
+    <!-- PRODUTOS -->
+    <section id="tab-produtos" class="tab-page">
+      <div class="container">
+        <h1>🛍️ Produtos</h1>
+        <p class="subtitle">Ações de promoção para anúncios (MLB).</p>
+        <div class="endpoints">
+          <div class="endpoint promotion">
+            <h3>🎯 Criar Promoções <span class="status active">Ativo</span></h3>
+            <p>Crie promoções unitárias ou em massa com diferentes tipos de campanhas.</p>
+            <a href="/criar-promocao">🚀 Acessar Interface</a>
+          </div>
+          <div class="endpoint">
+            <h3>🗑️ Remover Promoções <span class="status active">Ativo</span></h3>
+            <p>Remova promoções de anúncios individualmente ou em lote.</p>
+            <a href="/remover-promocao">🔧 Acessar Interface</a>
+          </div>
         </div>
       </div>
+    </section>
 
-      <div class="endpoint keyword-analytics">
-        <h3>
-          📈 Análise de Palavra-chave e Tendências 
-          <span class="status active">ATIVO</span>
-        </h3>
-        <p>Descubra palavras relacionadas e tendências (simulado).</p>
-        <a href="/keyword-analytics">📊 Acessar Análise</a>
+    <!-- IA & ANALYTICS -->
+    <section id="tab-ia" class="tab-page">
+      <div class="container">
+        <h1>🤖 IA & Analytics</h1>
+        <p class="subtitle">Ferramentas de análise de anúncios e pesquisa.</p>
+        <div class="endpoints">
+          <div class="endpoint analysis">
+            <h3>📈 Análise de Anúncios <span class="status active">Ativo</span></h3>
+            <p>Consulte MLB(s), veja tipo (Clássico/Premium), data de criação e tempo desde a última venda. Exporte XLSX.</p>
+            <a href="/analise-anuncios">📈 Acessar Análise</a>
+          </div>
+          <div class="endpoint search">
+            <h3>🔎 Pesquisa em Descrições <span class="status active">Ativo</span></h3>
+            <p>Busque texto específico nas descrições de múltiplos MLBs.</p>
+            <a href="/pesquisa-descricao">🔍 Iniciar Pesquisa</a>
+          </div>
+          <div class="endpoint keyword-analytics">
+            <h3>🧠 Palavras‑chave & Tendências <span class="status active">Ativo</span></h3>
+            <p>Descubra palavras relacionadas e tendências (simulado).</p>
+            <a href="/keyword-analytics">📊 Acessar Análise</a>
+          </div>
+        </div>
       </div>
+    </section>
 
-      <div class="endpoint">
-        <h3>🔧 Debug & Monitoramento <span class="status active">ATIVO</span></h3>
-        <p>Verificar endpoints disponíveis e status do sistema</p>
-        <a href="/debug/routes">📊 Ver Rotas</a>
+    <!-- BENCHMARKING -->
+    <section id="tab-benchmarking" class="tab-page">
+      <div class="container">
+        <h1>📊 Benchmarking</h1>
+        <p class="subtitle">Em breve: compare desempenho com concorrentes.</p>
+        <div class="placeholder">Sem conteúdo por enquanto.</div>
       </div>
+    </section>
 
-      <div class="endpoint" style="grid-column: 1 / -1; border-left-color: #6f42c1; background: linear-gradient(135deg, #f8f7ff 0%, #e7e3ff 100%);">
-        <h3>📋 Funcionalidades Disponíveis</h3>
-        <p><strong>🎯 Promoções:</strong> Criar e remover promoções</p>
-        <p><strong>🔍 Pesquisa:</strong> Buscar texto em títulos/descrições/atributos</p>
-        <p><strong>⚙️ Filas:</strong> Processamento em background</p>
-        <p><strong>📈 Keywords:</strong> Tendências e relacionadas</p>
-        <p><strong>📊 Monitoramento:</strong> Status em tempo real</p>
+    <!-- ALERTAS -->
+    <section id="tab-alertas" class="tab-page">
+      <div class="container">
+        <h1>🚨 Alertas</h1>
+        <p class="subtitle">Em breve: notificações de estoque, preço e performance.</p>
+        <div class="placeholder">Sem conteúdo por enquanto.</div>
       </div>
-    </div>
-  </div>
+    </section>
+
+    <!-- ML -->
+    <section id="tab-ml" class="tab-page">
+      <div class="container">
+        <h1>🟡 Mercado Livre</h1>
+        <p class="subtitle">Informações da conta e utilitários ML.</p>
+        <div class="endpoints">
+          <div class="endpoint">
+            <h3>🧭 Rotas & Debug <span class="status active">Ativo</span></h3>
+            <p>Listagem de endpoints e verificações rápidas.</p>
+            <a href="/debug/routes">📊 Ver Rotas</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <!-- Modal de Processos -->
   <div id="modal-processos" class="modal">
@@ -128,25 +179,55 @@
           <div class="stat-mini"><h4 id="total-concluidos">0</h4><p>Concluídos</p></div>
           <div class="stat-mini"><h4 id="total-erros">0</h4><p>Com Erros</p></div>
         </div>
-
-        <div style="text-align: center; margin: 20px 0;">
+        <div style="text-align:center; margin:20px 0;">
           <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Novo Processo</button>
           <button class="btn-small btn-warning" onclick="atualizarProcessos()">🔄 Atualizar</button>
         </div>
-
         <div id="lista-processos">
-          <div style="text-align: center; padding: 20px;">
-            <p>🔄 Carregando processos...</p>
-          </div>
+          <div style="text-align:center; padding:20px;"><p>🔄 Carregando processos...</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Status (token) -->
+  <div id="modal-status" class="modal">
+    <div class="modal-content">
+      <div class="modal-header alt">
+        <h3>🟢 Status da Integração</h3>
+        <span class="close" onclick="fecharModalStatus()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="status-grid">
+          <div class="stat-mini"><h4 id="status-usuario">—</h4><p>Usuário</p></div>
+          <div class="stat-mini"><h4 id="status-token">—</h4><p>Token (preview)</p></div>
+          <div class="stat-mini"><h4 id="status-msg">—</h4><p>Mensagem</p></div>
+        </div>
+        <div class="modal-controls">
+          <button class="btn-small btn-primary" onclick="verificarToken(true)">🔍 Verificar</button>
+          <button class="btn-small btn-success" onclick="renovarToken(true)">🔄 Renovar</button>
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    /* ===== Conta atual / Trocar conta ===== */
-    const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
+    /* ===== Abas ===== */
+    const tabs = document.querySelectorAll('.nav-tab');
+    const pages = document.querySelectorAll('.tab-page');
+    tabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabs.forEach(b => b.classList.remove('active'));
+        pages.forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const id = 'tab-' + btn.dataset.tab;
+        document.getElementById(id).classList.add('active');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
 
+    /* ===== Conta / Trocar conta ===== */
+    const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
     async function carregarContaAtual() {
       const currentEl = document.getElementById('account-current');
       const inlineEl  = document.getElementById('account-name-inline');
@@ -164,7 +245,6 @@
         inlineEl.textContent  = 'Indisponível';
       }
     }
-
     async function trocarConta() {
       try {
         await fetch('/api/account/clear', { method: 'POST' });
@@ -173,34 +253,78 @@
         window.location.href = '/select-conta';
       }
     }
+    document.getElementById('account-switch').addEventListener('click', trocarConta);
 
-    /* ===== Token ===== */
-    async function verificarToken() {
+    /* ===== Token / Status ===== */
+    function abrirModalStatus() {
+      document.getElementById('modal-status').style.display = 'block';
+    }
+    function fecharModalStatus() {
+      document.getElementById('modal-status').style.display = 'none';
+    }
+    document.getElementById('btn-status').addEventListener('click', async () => {
+      abrirModalStatus();
+      await verificarToken(true);
+    });
+
+    async function verificarToken(updateModal=false) {
       try {
         const response = await fetch('/verificar-token');
         const data = await response.json();
         if (data.success) {
-          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+          if (updateModal) {
+            document.getElementById('status-usuario').textContent = data.nickname || '—';
+            document.getElementById('status-token').textContent = data.token_preview || '—';
+            document.getElementById('status-msg').textContent = data.message || 'OK';
+          } else {
+            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+          }
         } else {
-          alert('❌ ' + (data.error || 'Falha ao verificar'));
+          if (updateModal) {
+            document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
+          } else {
+            alert('❌ ' + (data.error || 'Falha ao verificar'));
+          }
         }
-      } catch (error) { alert('❌ Erro: ' + error.message); }
+      } catch (error) { 
+        if (updateModal) {
+          document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+        } else {
+          alert('❌ Erro: ' + error.message); 
+        }
+      }
     }
-    async function renovarToken() {
+
+    async function renovarToken(updateModal=false) {
       try {
         const response = await fetch('/renovar-token-automatico', { method: 'POST' });
         const data = await response.json();
         if (data.success) {
-          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+          if (updateModal) {
+            document.getElementById('status-usuario').textContent = data.nickname || '—';
+            document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
+            document.getElementById('status-msg').textContent = data.message || 'Token renovado';
+          } else {
+            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+          }
         } else {
-          alert('❌ ' + (data.error || 'Falha ao renovar'));
+          if (updateModal) {
+            document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
+          } else {
+            alert('❌ ' + (data.error || 'Falha ao renovar'));
+          }
         }
-      } catch (error) { alert('❌ Erro: ' + error.message); }
+      } catch (error) { 
+        if (updateModal) {
+          document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+        } else {
+          alert('❌ Erro: ' + error.message); 
+        }
+      }
     }
 
     /* ===== Modal Processos ===== */
     let intervalAtualizacao;
-
     async function abrirModalProcessos() {
       document.getElementById('modal-processos').style.display = 'block';
       await atualizarProcessos();
@@ -210,7 +334,6 @@
       document.getElementById('modal-processos').style.display = 'none';
       if (intervalAtualizacao) clearInterval(intervalAtualizacao);
     }
-
     async function atualizarProcessos() {
       try {
         const response = await fetch('/api/pesquisa-descricao/jobs?limite=20', { cache:'no-store' });
@@ -233,7 +356,7 @@
       const container = document.getElementById('lista-processos');
       if (!jobs || jobs.length === 0) {
         container.innerHTML = `
-          <div style="text-align: center; padding: 40px;">
+          <div style="text-align:center; padding:40px;">
             <p>📭 Nenhum processo encontrado</p>
             <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Iniciar Primeiro Processo</button>
           </div>`;
@@ -245,11 +368,11 @@
             <div class="process-title">📋 ${job.job_id || job.id}</div>
             <div class="process-status ${job.status}">${job.status}</div>
           </div>
-          <div style="font-size: 14px; color: #666; margin: 5px 0;">
+          <div style="font-size:14px; color:#666; margin:5px 0;">
             📊 ${((job.concluidos || 0) + (job.falharam || 0))}/${job.total_mlbs || 0} MLBs processados
             ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ''}
           </div>
-          <div class="progress-bar"><div class="progress-fill" style="width: ${(job.progresso_percentual || 0)}%"></div></div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${(job.progresso_percentual || 0)}%"></div></div>
           <div class="process-actions">
             <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id || job.id}')">📊 Detalhes</button>
             ${job.status === 'concluido' ? `<a href="/api/pesquisa-descricao/download/${job.job_id || job.id}" class="btn-small btn-success">📥 Download</a>` : ''}
@@ -278,7 +401,7 @@
         if (data && (data.success || data.ok)) {
           const job = data.status || {};
           alert(`📊 Detalhes do Processo: ${jobId}
-          
+
 Status: ${job.status}
 Progresso: ${job.progresso_percentual || 0}%
 Total MLBs: ${job.total_mlbs || 0}
@@ -307,23 +430,18 @@ ${job.tempo_estimado_restante ? `Tempo restante: ${job.tempo_estimado_restante}`
     }
     function iniciarNovoProcesso() { window.location.href = '/pesquisa-descricao?novo_processo=true'; }
 
-    // Fechar modal ao clicar fora
+    // fechar modais ao clicar fora
     window.addEventListener('click', (event) => {
-      const modal = document.getElementById('modal-processos');
-      if (event.target === modal) fecharModalProcessos();
+      const m1 = document.getElementById('modal-processos');
+      const m2 = document.getElementById('modal-status');
+      if (event.target === m1) fecharModalProcessos();
+      if (event.target === m2) fecharModalStatus();
     });
 
-    // Boot
+    // boot
     document.addEventListener('DOMContentLoaded', () => {
       carregarContaAtual();
-      document.getElementById('account-switch').addEventListener('click', trocarConta);
-      atualizarProcessos();
     });
-
-    // animação pulse
-    const style = document.createElement('style');
-    style.textContent = `@keyframes pulse { 0%{transform:scale(1)} 50%{transform:scale(1.02)} 100%{transform:scale(1)} }`;
-    document.head.appendChild(style);
   </script>
 </body>
 </html>

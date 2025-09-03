@@ -1,158 +1,86 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Remover Promoções - ML</title>
-    <style>
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            max-width: 900px; 
-            margin: 50px auto; 
-            padding: 20px; 
-            background: #f8f9fa;
-        }
-        .container { 
-            background: white; 
-            padding: 40px; 
-            border-radius: 15px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-        h1 { 
-            color: #dc3545; 
-            text-align: center; 
-            margin-bottom: 30px;
-            font-size: 2.5em;
-        }
-        .form-group { 
-            margin-bottom: 25px; 
-        }
-        label { 
-            display: block; 
-            margin-bottom: 8px; 
-            font-weight: 600; 
-            color: #333;
-        }
-        input, textarea { 
-            width: 100%; 
-            padding: 12px; 
-            border: 2px solid #e9ecef; 
-            border-radius: 8px; 
-            font-size: 16px;
-            transition: border-color 0.3s ease;
-            box-sizing: border-box;
-        }
-        input:focus, textarea:focus {
-            outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
-        }
-        button { 
-            background: #dc3545; 
-            color: white; 
-            padding: 15px 30px; 
-            border: none; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            margin-right: 15px; 
-            margin-bottom: 15px;
-            font-size: 16px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-        button:hover { 
-            background: #c82333; 
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(220,53,69,0.3);
-        }
-        .btn-secondary { 
-            background: #6c757d; 
-        }
-        .btn-secondary:hover { 
-            background: #545b62; 
-        }
-        .btn-warning {
-            background: #ffc107;
-            color: #212529;
-        }
-        .btn-warning:hover {
-            background: #e0a800;
-        }
-        .result { 
-            margin-top: 30px; 
-            padding: 20px; 
-            border-radius: 10px; 
-            font-family: 'Courier New', monospace;
-            white-space: pre-wrap;
-        }
-        .success { 
-            background: #d4edda; 
-            border: 2px solid #c3e6cb; 
-            color: #155724; 
-        }
-        .error { 
-            background: #f8d7da; 
-            border: 2px solid #f5c6cb; 
-            color: #721c24; 
-        }
-        .info { 
-            background: #d1ecf1; 
-            border: 2px solid #bee5eb; 
-            color: #0c5460; 
-        }
-        small {
-            color: #6c757d;
-            font-size: 14px;
-            margin-top: 5px;
-            display: block;
-        }
-        .progress-bar {
-            width: 100%;
-            height: 25px;
-            background: #e9ecef;
-            border-radius: 12px;
-            overflow: hidden;
-            margin: 15px 0;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #28a745, #20c997);
-            width: 0%;
-            transition: width 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-            font-size: 14px;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Remover Promoções - ML</title>
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/remover-promocao.css">
 </head>
 <body>
-    <div class="container">
-        <h1>🎯 Remover Promoções</h1>
-        
-        <div class="form-group">
-            <label for="mlbId">MLB ID do Anúncio:</label>
-            <input type="text" id="mlbId" placeholder="Ex: MLB1234567890" />
-            <small>Digite o código MLB do anúncio (encontrado na URL)</small>
-        </div>
-        
-        <div class="form-group">
-            <label for="mlbIds">Múltiplos MLB IDs (um por linha):</label>
-            <textarea id="mlbIds" rows="6" placeholder="MLB1234567890&#10;MLB0987654321&#10;MLB1122334455"></textarea>
-            <small>Para remover promoções de vários anúncios de uma vez</small>
-        </div>
-        
-        <button onclick="removerUnico()">🎯 Remover Único</button>
-        <button class="btn-warning" onclick="removerLote()">🚀 Remover em Lote</button>
-        <button class="btn-secondary" onclick="verificarStatus()">📊 Status</button>
-        <button class="btn-secondary" onclick="limpar()">🧹 Limpar</button>
-        
-        <div id="resultado"></div>
-    </div>
 
-    <script>
+<header class="account-bar">
+  <div class="account-bar__left">
+    <span class="logo">🟡</span>
+    <span class="app-name">API Mercado Livre</span>
+  </div>
+  <div class="account-bar__right">
+    <div class="account-bar__current">
+      <span class="lbl">Conta:</span>
+      <span id="account-current" class="val">Carregando...</span>
+    </div>
+    <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+    <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+  </div>
+</header>
+
+<nav class="main-nav">
+  <div class="tabs">
+    <a class="nav-tab" data-tab="dashboard" href="/dashboard">Dashboard</a>
+    <a class="nav-tab" data-tab="produtos" href="/criar-promocao">Produtos</a>
+    <a class="nav-tab" data-tab="ia" href="/analise-anuncios">IA &amp; Analytics</a>
+    <a class="nav-tab" data-tab="benchmarking" href="/benchmarking">Benchmarking</a>
+    <a class="nav-tab" data-tab="alertas" href="/alertas">Alertas</a>
+    <a class="nav-tab" data-tab="ml" href="/debug/routes">ML</a>
+  </div>
+</nav>
+
+
+<div id="modal-status" class="modal">
+  <div class="modal-content">
+    <div class="modal-header alt">
+      <h3>🟢 Status da Integração</h3>
+      <span class="close" onclick="fecharModalStatus()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div class="status-grid">
+        <div class="stat-mini"><h4 id="status-usuario">—</h4><p>Usuário</p></div>
+        <div class="stat-mini"><h4 id="status-token">—</h4><p>Token (preview)</p></div>
+        <div class="stat-mini"><h4 id="status-msg">—</h4><p>Mensagem</p></div>
+      </div>
+      <div class="modal-controls">
+        <button class="btn-small btn-primary" onclick="verificarToken(true)">🔍 Verificar</button>
+        <button class="btn-small btn-success" onclick="renovarToken(true)">🔄 Renovar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<main class="page-wrap">
+  <section class="tab-page active">
+    
+<div class="container">
+<h1>🎯 Remover Promoções</h1>
+<div class="form-group">
+<label for="mlbId">MLB ID do Anúncio:</label>
+<input id="mlbId" placeholder="Ex: MLB1234567890" type="text"/>
+<small>Digite o código MLB do anúncio (encontrado na URL)</small>
+</div>
+<div class="form-group">
+<label for="mlbIds">Múltiplos MLB IDs (um por linha):</label>
+<textarea id="mlbIds" placeholder="MLB1234567890
+MLB0987654321
+MLB1122334455" rows="6"></textarea>
+<small>Para remover promoções de vários anúncios de uma vez</small>
+</div>
+<button onclick="removerUnico()">🎯 Remover Único</button>
+<button class="btn-warning" onclick="removerLote()">🚀 Remover em Lote</button>
+<button class="btn-secondary" onclick="verificarStatus()">📊 Status</button>
+<button class="btn-secondary" onclick="limpar()">🧹 Limpar</button>
+<div id="resultado"></div>
+</div>
+<script>
         let currentProcessId = null;
         let monitorInterval = null;
 
@@ -337,5 +265,110 @@
             if (monitorInterval) clearInterval(monitorInterval);
         });
     </script>
+
+  </section>
+</main>
+
+
+<script>
+  // Ativar aba "produtos"
+  (function(){
+    var tabs = document.querySelectorAll('.nav-tab');
+    tabs.forEach(function(t){
+      if (t.getAttribute('data-tab') === 'produtos') t.classList.add('active');
+    });
+  })();
+
+  // Conta atual + Trocar conta
+  const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
+  async function carregarContaAtual() {
+    const currentEl = document.getElementById('account-current');
+    try {
+      const r = await fetch('/api/account/current', { cache: 'no-store' });
+      const data = await r.json();
+      let shown = 'Não selecionada';
+      if (data && (data.ok || data.success)) {
+        shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
+      } else if (data) {
+        shown = data.label || data.accountKey || 'Desconhecida';
+      }
+      currentEl.textContent = shown;
+    } catch(e) {
+      currentEl.textContent = 'Indisponível';
+    }
+  }
+  async function trocarConta() {
+    try {
+      await fetch('/api/account/clear', { method: 'POST' });
+      window.location.href = '/select-conta';
+    } catch(e) {
+      window.location.href = '/select-conta';
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    carregarContaAtual();
+    var switchBtn = document.getElementById('account-switch');
+    if (switchBtn) switchBtn.addEventListener('click', trocarConta);
+  });
+
+  // Status (token)
+  function abrirModalStatus(){ document.getElementById('modal-status').style.display = 'block'; }
+  function fecharModalStatus(){ document.getElementById('modal-status').style.display = 'none'; }
+  document.getElementById('btn-status').addEventListener('click', async () => {
+    abrirModalStatus();
+    await verificarToken(true);
+  });
+
+  async function verificarToken(updateModal=false) {
+    try {
+      const response = await fetch('/verificar-token');
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          document.getElementById('status-usuario').textContent = data.nickname || '—';
+          document.getElementById('status-token').textContent = data.token_preview || '—';
+          document.getElementById('status-msg').textContent = data.message || 'OK';
+        } else {
+          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+        }
+      } else {
+        if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
+        else alert('❌ ' + (data.error || 'Falha ao verificar'));
+      }
+    } catch (error) {
+      if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+      else alert('❌ Erro: ' + error.message);
+    }
+  }
+
+  async function renovarToken(updateModal=false) {
+    try {
+      const response = await fetch('/renovar-token-automatico', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          document.getElementById('status-usuario').textContent = data.nickname || '—';
+          document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
+          document.getElementById('status-msg').textContent = data.message || 'Token renovado';
+        } else {
+          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+        }
+      } else {
+        if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
+        else alert('❌ ' + (data.error || 'Falha ao renovar'));
+      }
+    } catch (error) {
+      if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+      else alert('❌ Erro: ' + error.message);
+    }
+  }
+
+  // Fechar modal clicando fora
+  window.addEventListener('click', function(event){
+    const m2 = document.getElementById('modal-status');
+    if (event.target === m2) fecharModalStatus();
+  });
+</script>
+
 </body>
 </html>

@@ -77,33 +77,48 @@
     renderJobsPanel([]); // re-render rápido usando apenas locais
   }
 
-  function renderJobsPanel(apiJobs){
-    // descarta placeholders muito antigos (exceto os que estamos atualizando)
-    const now = Date.now();
-    const placeholders = jobsLocal.filter(j => j._local || (now - j._ts < 20000));
+ function renderJobsPanel(apiJobs){
+  // descarta placeholders com mais de 20s (mantém seu comportamento atual)
+  const now = Date.now();
+  const placeholders = jobsLocal.filter(j => now - j._ts < 20000);
+  const jobs = [...placeholders, ...(apiJobs || [])];
 
-    const jobs = [...placeholders, ...(apiJobs || [])];
-    const rows = jobs.map(j => {
-      const pct = j.progress || 0;
-      const state = j.state || '';
-      const title = j.title || 'Job';
-      return `<div class="job-row">
-        <div class="job-title">${esc(title)}</div>
-        <div class="job-state">${esc(state)} – ${pct}%</div>
-        <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
-      </div>`;
-    }).join('');
+  const rows = jobs.map(j => {
+    const pct = j.progress || 0;
+    const state = j.state || '';
+    const title = j.title || 'Job';
+    return `<div class="job-row">
+      <div class="job-title">${esc(title)}</div>
+      <div class="job-state">${esc(state)} – ${pct}%</div>
+      <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
 
-    if (ui.jobsPanel) {
-      ui.jobsPanel.innerHTML = `
-        <div class="job-head">
-          <strong>Processos</strong>
-          <button class="btn ghost" id="bulkJobsClose">×</button>
-        </div>
-        <div class="job-list">${rows || '<div class="muted">Sem processos.</div>'}</div>`;
-      ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
-    }
-  }
+  if (!ui.jobsPanel) return;
+
+  const isCollapsed = ui.jobsPanel.classList.contains('collapsed');
+  ui.jobsPanel.innerHTML = `
+    <div class="job-head">
+      <strong>Processos</strong>
+      <div class="head-actions">
+        <button class="btn ghost icon" id="bulkJobsToggle" title="${isCollapsed?'Maximizar':'Minimizar'}">
+          ${isCollapsed ? '▢' : '–'}
+        </button>
+        <button class="btn ghost icon" id="bulkJobsClose" title="Fechar">×</button>
+      </div>
+    </div>
+    <div class="job-list"${isCollapsed?' style="display:none"':''}>
+      ${rows || '<div class="muted">Sem processos.</div>'}
+    </div>`;
+
+  ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
+  ui.jobsPanel.querySelector('#bulkJobsToggle')?.addEventListener('click', () => {
+    ui.jobsPanel.classList.toggle('collapsed');
+    // re-render para atualizar símbolo/estado imediatamente
+    renderJobsPanel(apiJobs);
+  });
+}
+
 
   function getCampanhaNome(){
     return (document.getElementById('campName')?.textContent || 'Campanha').trim();
