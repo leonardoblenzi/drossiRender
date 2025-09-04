@@ -43,6 +43,13 @@ const itemsPaths = (promotionId, type, qs) => {
   ];
 };
 
+// rotas para resolver offer_id via backend
+const offerIdsPaths = (mlb) => ([
+  `/api/promocoes/items/${encodeURIComponent(mlb)}/offer-ids`,
+  `/api/promocao/items/${encodeURIComponent(mlb)}/offer-ids`,
+  `/api/promotions/items/${encodeURIComponent(mlb)}/offer-ids`,
+]);
+
 /* ======================== DOM / Format Helpers ======================== */
 
 const PAGE_SIZE = 50;
@@ -332,7 +339,7 @@ const itemPromosPaths = (mlb) => [
 async function buscarCardsDoItem(mlb) {
   for (const p of itemPromosPaths(mlb)) {
     try {
-      const r = await fetch(p);
+      const r = await fetch(p, { credentials: 'same-origin' });
       if (!r.ok) continue;
       const arr = await r.json();
 
@@ -353,7 +360,6 @@ async function buscarCardsDoItem(mlb) {
   }
   return [];
 }
-
 /* ======================== Cards ======================== */
 
 async function carregarCards(){
@@ -476,7 +482,10 @@ async function selecionarCard(card){
   if (window.PromoBulk) {
     window.PromoBulk.setContext({
       promotion_id: state.selectedCard.id,
-      promotion_type: state.selectedCard.type
+      promotion_type: state.selectedCard.type,
+      filtroParticipacao: state.filtroParticipacao,
+      maxDesc: state.maxDesc,
+      mlbFilter: state.mlbFilter
     });
   }
 
@@ -588,7 +597,6 @@ async function carregarItensPagina(pageNumber, reset=false){
     renderPaginacao();
   }
 }
-
 function renderTabela(items){
   const $body = elTbody();
   if (!items?.length) {
@@ -850,7 +858,6 @@ async function carregarSomenteMLBSelecionado(){
     renderPaginacao();
   }
 }
-
 /* ======================== Ações ======================== */
 
 function calcDealPriceFromItem(it) {
@@ -973,16 +980,12 @@ async function aplicarUnico(mlb, opts = {}) {
         return false;
       }
 
-      // primeiro tentamos candidate_id
-      // Backend exige offer_id para SMART/PRICE_MATCHING.
-    // Envie sempre offer_id quando existir e, opcionalmente, candidate_id.
-    if (offerId) payload.offer_id = offerId;
-    if (candidateId) payload.candidate_id = candidateId;
+      // Envie sempre offer_id quando existir e, opcionalmente, candidate_id.
+      if (offerId) payload.offer_id = offerId;
+      if (candidateId) payload.candidate_id = candidateId;
     } else {
       // tipos sem extra (MARKETPLACE_CAMPAIGN etc)
     }
-
-    console.debug('➡️ Enviando payload aplicarUnico:', JSON.parse(JSON.stringify(payload)));
 
     // função auxiliar para enviar
     const doPost = async (pl) => {
@@ -994,34 +997,30 @@ async function aplicarUnico(mlb, opts = {}) {
       return { ok: r.ok, status: r.status, body: respBody };
     };
 
-    // 1ª tentativa (candidate_id se houver; senão offer_id)
+    // 1ª tentativa
     let res = await doPost(payload);
 
-    // fallback: se 400 e mensagem sugerir problema com candidate -> tenta offer_id
+    // fallback: se 400 e mensagem sugerir problema com id -> tenta offer_id explícito
     const bodyMsg = String(res?.body?.message || res?.body?.error || '').toLowerCase();
     const shouldRetryWithOffer =
       !res.ok && res.status === 400 &&
       !('offer_id' in payload) && ('candidate_id' in payload) &&
       (bodyMsg.includes('offer') || bodyMsg.includes('candidate') || bodyMsg.includes('invalid') || bodyMsg.includes('not found'));
 
-
     if (shouldRetryWithOffer) {
-      // escolhe um offer_id possível
       let offerId = getAllOfferLikeIds(it).find(id => !isCandidateId(id)) || null;
       if (!offerId) {
         const found = await buscarOfferIdCandidate(mlb);
-        offerId = found.offerId || found.candidateId; // último recurso: usar o mesmo valor
+        offerId = found.offerId || found.candidateId;
       }
       if (offerId) {
         const retryPayload = { ...payloadBase, offer_id: offerId };
-        console.warn('[aplicarUnico] retry com offer_id:', retryPayload);
         res = await doPost(retryPayload);
       }
     }
 
     if (!res.ok) {
       const causes = Array.isArray(res?.body?.cause) ? res.body.cause.map(c => c?.message || c?.code).filter(Boolean).join(' | ') : '';
-      console.error('Falha ao aplicar promoção', res.status, res.body);
       if (!silent) {
         alert(`Erro ao aplicar (${res.status}): ${res?.body?.message || res?.body?.error || 'bad_request'}${causes ? '\nCausa: ' + causes : ''}`);
       }

@@ -1,9 +1,22 @@
 // public/js/promo-bulk.js
 (function () {
+  /* =========================================================================
+   * Bulk de promoções – seleção, ações em massa e painel de processos
+   * -------------------------------------------------------------------------
+   * - Seleção por página ou campanha inteira (token do backend)
+   * - Aplicar/remover em massa, com fallback local (1 a 1)
+   * - Painel de processos persistente (24h) em localStorage:
+   *     • mescla jobs do servidor (GET /api/promocoes/jobs) com cache local
+   *     • não some ao concluir (TTL 24h) e tem botão × por job
+   *     • scroll e colapsar
+   * ========================================================================= */
+
+  /* ============================== Utils básicos ============================== */
   const $  = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
   const esc = (s)=> (s==null?'':String(s));
 
+  /* ============================== UI elements =============================== */
   const ui = {
     wrap:   null,
     btnSel: null,
@@ -18,9 +31,11 @@
     selApplyBtn: null,
     selRemoveBtn: null,
 
+    // Painel de jobs
     jobsPanel: null
   };
 
+  /* ================================ Contexto ================================ */
   const ctx = {
     promotion_id: null,
     promotion_type: null,
@@ -47,10 +62,84 @@
     _lastKey: ''
   };
 
-  /* ------------------------------ UI / Jobs Panel helpers ------------------------------ */
+  /* ============================ Jobs: histórico ============================= *
+   * Histórico local de jobs (24h) com mescla de dados vindos do servidor.
+   * Mantém jobs concluídos; somem apenas por TTL (24h) ou clique no ×.
+   * ========================================================================== */
 
-  // Placeholders e jobs locais (sem backend)
-  const jobsLocal = [];
+  const JOBS_KEY = '__promo_jobs_v1__';
+  const JOB_TTL = 24 * 60 * 60 * 1000; // 24h
+  let jobsCache = loadJobs();
+
+  function loadJobs(){
+    try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '{}'); }
+    catch { return {}; }
+  }
+  function saveJobs(){ localStorage.setItem(JOBS_KEY, JSON.stringify(jobsCache)); }
+  function gcJobs(){
+    const now = Date.now();
+    for (const id in jobsCache) {
+      const j = jobsCache[id];
+      if (j.dismissed || (now - (j.updated || 0)) > JOB_TTL) delete jobsCache[id];
+    }
+  }
+  function normalizeJob(j){
+    // Usa id estável do back; se não vier, deriva de título+created_at
+    const id = String(j.id || j.key || `${j.title || 'Processo'}|${j.created_at || ''}`);
+    const progress = Number(j.progress || 0);
+    const state = j.state || '';
+    const title = j.title || 'Processo';
+    const completed = progress >= 100 || /conclu/i.test(state);
+    const now = Date.now();
+    const prev = jobsCache[id] || {};
+    jobsCache[id] = {
+      id, title, progress, state,
+      completed,
+      started: prev.started || now,
+      updated: now,
+      dismissed: !!prev.dismissed
+    };
+  }
+  function recordJobFromApi(list){
+    (list || []).forEach(normalizeJob);
+    gcJobs();
+    saveJobs();
+  }
+  function recordPlaceholder(title){
+    const id = `ph|${Date.now()}|${Math.random().toString(36).slice(2)}`;
+    jobsCache[id] = {
+      id, title, progress: 0, state: 'iniciando…',
+      completed: false, started: Date.now(), updated: Date.now(),
+      dismissed: false
+    };
+    saveJobs();
+    return id;
+  }
+  function updateLocalJobProgress(id, progress, state){
+    const j = jobsCache[id];
+    if (!j) return;
+    const pct = Math.max(0, Math.min(100, Number(progress || 0)));
+    j.progress  = pct;
+    if (state) j.state = state;
+    j.completed = pct >= 100 || /conclu/i.test(j.state || '');
+    j.updated   = Date.now();
+    saveJobs();
+    renderJobsPanel();
+  }
+  function dismissJob(id){
+    if (jobsCache[id]) {
+      jobsCache[id].dismissed = true;
+      saveJobs();
+      renderJobsPanel();
+    }
+  }
+  function jobsForRender(){
+    return Object.values(jobsCache)
+      .filter(j => !j.dismissed)
+      .sort((a,b) => b.updated - a.updated);
+  }
+
+  /* =========================== Painel de processos ========================== */
 
   function showJobsPanel(){
     if (!ui.jobsPanel) return;
@@ -61,70 +150,71 @@
     ui.jobsPanel.classList.add('hidden');
   }
 
-  // cria um job local e retorna a referência para atualizar progresso
+  /**
+   * Cria um placeholder otimista e força o primeiro poll
+   * Retorna o id local para atualizações de progresso (fila 1-a-1)
+   */
   function noteLocalJobStart(title){
-    const job = { title, progress: 0, state: 'iniciando…', _ts: Date.now(), _local: true };
-    jobsLocal.push(job);
+    const id = recordPlaceholder(title);  // grava no histórico local
     showJobsPanel();
-    renderJobsPanel([]);          // mostra placeholder imediatamente
-    setTimeout(pollJobs, 1000);   // força 1º refresh logo em seguida
-    return job;
-  }
-  function updateLocalJob(job, progress, state){
-    if (!job) return;
-    job.progress = Math.max(0, Math.min(100, Number(progress||0)));
-    if (state) job.state = state;
-    renderJobsPanel([]); // re-render rápido usando apenas locais
+    renderJobsPanel();                    // mostra a versão do cache
+    setTimeout(pollJobs, 1000);           // 1º refresh logo depois
+    return id;
   }
 
- function renderJobsPanel(apiJobs){
-  // descarta placeholders com mais de 20s (mantém seu comportamento atual)
-  const now = Date.now();
-  const placeholders = jobsLocal.filter(j => now - j._ts < 20000);
-  const jobs = [...placeholders, ...(apiJobs || [])];
+  /**
+   * Renderiza o painel a partir do cache (servidor + local mesclados)
+   * Adiciona botão × por linha e suporte a colapsar
+   */
+  function renderJobsPanel(){
+    if (!ui.jobsPanel) return;
 
-  const rows = jobs.map(j => {
-    const pct = j.progress || 0;
-    const state = j.state || '';
-    const title = j.title || 'Job';
-    return `<div class="job-row">
-      <div class="job-title">${esc(title)}</div>
-      <div class="job-state">${esc(state)} – ${pct}%</div>
-      <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
-    </div>`;
-  }).join('');
+    const list = jobsForRender();
+    const rows = list.map(j => {
+      const pct   = Math.max(0, Math.min(100, Number(j.progress || 0)));
+      const state = j.state || '';
+      const title = j.title || 'Processo';
+      const done  = !!j.completed;
 
-  if (!ui.jobsPanel) return;
+      return `<div class="job-row ${done ? 'done' : ''}">
+        <button class="btn ghost icon job-dismiss" data-id="${esc(j.id)}" title="Remover">×</button>
+        <div class="job-title">${esc(title)}</div>
+        <div class="job-state">${esc(state)} – ${pct}%</div>
+        <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
 
-  const isCollapsed = ui.jobsPanel.classList.contains('collapsed');
-  ui.jobsPanel.innerHTML = `
-    <div class="job-head">
-      <strong>Processos</strong>
-      <div class="head-actions">
-        <button class="btn ghost icon" id="bulkJobsToggle" title="${isCollapsed?'Maximizar':'Minimizar'}">
-          ${isCollapsed ? '▢' : '–'}
-        </button>
-        <button class="btn ghost icon" id="bulkJobsClose" title="Fechar">×</button>
+    const isCollapsed = ui.jobsPanel.classList.contains('collapsed');
+    ui.jobsPanel.innerHTML = `
+      <div class="job-head">
+        <strong>Processos</strong>
+        <div class="head-actions">
+          <button class="btn ghost icon" id="bulkJobsToggle" title="${isCollapsed ? 'Maximizar' : 'Minimizar'}">
+            ${isCollapsed ? '▢' : '–'}
+          </button>
+          <button class="btn ghost icon" id="bulkJobsClose" title="Fechar">×</button>
+        </div>
       </div>
-    </div>
-    <div class="job-list"${isCollapsed?' style="display:none"':''}>
-      ${rows || '<div class="muted">Sem processos.</div>'}
-    </div>`;
+      <div class="job-list"${isCollapsed ? ' style="display:none"' : ''}>
+        ${rows || '<div class="muted">Sem processos.</div>'}
+      </div>`;
 
-  ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
-  ui.jobsPanel.querySelector('#bulkJobsToggle')?.addEventListener('click', () => {
-    ui.jobsPanel.classList.toggle('collapsed');
-    // re-render para atualizar símbolo/estado imediatamente
-    renderJobsPanel(apiJobs);
-  });
-}
+    // Ações do painel
+    ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
+    ui.jobsPanel.querySelector('#bulkJobsToggle')?.addEventListener('click', () => {
+      ui.jobsPanel.classList.toggle('collapsed');
+      renderJobsPanel();
+    });
+    ui.jobsPanel.querySelectorAll('.job-dismiss').forEach(btn => {
+      btn.addEventListener('click', (e) => dismissJob(e.currentTarget.dataset.id));
+    });
+  }
 
+  /* ========================== Helpers de UI da página ======================= */
 
   function getCampanhaNome(){
     return (document.getElementById('campName')?.textContent || 'Campanha').trim();
   }
-
-  /* ------------------------------ UI básica ------------------------------ */
 
   function ensureUI(){
     if (!ui.wrap) {
@@ -234,7 +324,7 @@
     render();
   }
 
-  /* ------------------------- Seleção de campanha ------------------------- */
+  /* ========================== Seleção de campanha =========================== */
 
   function mapStatusForPrepare(v){
     if (v === 'started' || v === 'candidate') return v;
@@ -326,10 +416,9 @@
     ctx._autoTimer = setTimeout(() => autoPrepare().catch(()=>{}), 800);
   }
 
-  /* ---------------------- Fila local (apply 1 a 1) ---------------------- */
+  /* =========================== Fila local (1 a 1) =========================== */
 
   const DEFAULT_DELAY_MS = 900; // pausa entre itens
-
   const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
   async function applyQueue(ids, delayMs = DEFAULT_DELAY_MS){
@@ -343,14 +432,14 @@
     }
 
     const camp = getCampanhaNome();
-    const job  = noteLocalJobStart(`Aplicação (fila) – ${camp} (${ids.length} itens)`);
+    const jobId  = noteLocalJobStart(`Aplicação (fila) – ${camp} (${ids.length} itens)`);
 
     let done = 0, ok = 0, err = 0;
     showJobsPanel();
 
     if (typeof window.aplicarUnico !== 'function') {
       alert('Função aplicarUnico não encontrada.');
-      updateLocalJob(job, 0, 'erro ao iniciar');
+      updateLocalJobProgress(jobId, 0, 'erro ao iniciar');
       return;
     }
 
@@ -364,14 +453,14 @@
       }
       done++;
       const pct = Math.round((done / ids.length) * 100);
-      updateLocalJob(job, pct, `processando ${done}/${ids.length}…`);
+      updateLocalJobProgress(jobId, pct, `processando ${done}/${ids.length}…`);
       if (delayMs > 0 && done < ids.length) await sleep(delayMs);
     }
 
-    updateLocalJob(job, 100, `concluído: ${ok} ok, ${err} erros`);
+    updateLocalJobProgress(jobId, 100, `concluído: ${ok} ok, ${err} erros`);
   }
 
-  /* ------------------- Ações (aplicar / remover todos) ------------------- */
+  /* ====================== Ações (aplicar / remover todos) =================== */
 
   async function onApplyClick(){
     // 1) Modo campanha: tentar o endpoint novo com token
@@ -568,24 +657,27 @@
     }
   }
 
-  /* -------------------------------- Jobs Poll -------------------------------- */
+  /* ============================== Jobs: polling ============================= */
 
   async function pollJobs(){
     try {
       const r = await fetch('/api/promocoes/jobs', { credentials: 'same-origin' });
-      if (!r.ok) { 
-        renderJobsPanel([]); 
-        return; 
+      if (!r.ok) {
+        renderJobsPanel();
+        return;
       }
       const data = await r.json().catch(()=>({}));
-      renderJobsPanel(data?.jobs || []);
+      const apiJobs = (data?.jobs || []);
+      // Mescla ao cache local (sem descartar os concluídos)
+      recordJobFromApi(apiJobs);
+      renderJobsPanel();
     } catch {
-      renderJobsPanel([]);
+      renderJobsPanel();
     }
   }
   setInterval(pollJobs, 5000);
 
-  /* --------------------------- API pública (hooks) ------------------------ */
+  /* ============================= API pública (UI) =========================== */
 
   window.PromoBulk = {
     setContext({ promotion_id, promotion_type, filtroParticipacao, maxDesc, mlbFilter }){
@@ -610,6 +702,8 @@
     }
   };
 
+  /* ============================== Observadores ============================== */
+
   // Re-render quando checkboxes mudam / quando a tabela troca
   document.addEventListener('change', (ev) => {
     if (ev.target?.matches?.('#tbody input[type="checkbox"][data-mlb]')) render();
@@ -621,9 +715,12 @@
     obs.observe(tbody, { childList: true, subtree: false });
   }
 
-  document.addEventListener('DOMContentLoaded', () => { 
-    ensureUI(); 
-    render(); 
-    pollJobs(); 
+  /* ============================== Boot da página ============================ */
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureUI();
+    render();
+    pollJobs();
   });
+
 })();

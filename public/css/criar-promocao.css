@@ -54,6 +54,13 @@ h2{ margin: 12px 0 10px; color: var(--ml-dark); }
 .btn.success{ background:#2e7d32; color:#fff; }
 .btn.danger{ background:#d32f2f; color:#fff; }
 
+/* ícone compacto usado no painel de jobs */
+.btn.icon{
+  width:28px; height:28px; padding:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:8px;
+}
+
 .muted{ color: var(--ml-muted); }
 
 /* ===== Toolbar de busca MLB ===== */
@@ -141,9 +148,13 @@ h2{ margin: 12px 0 10px; color: var(--ml-dark); }
   background:#fff; color:#333; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2);
   padding:12px; z-index:9999; border:1px solid var(--border);
 }
+.jobs-panel.hidden{ display:none; }               /* permite esconder via JS */
+.jobs-panel.collapsed .job-list{ display:none; }  /* modo minimizado */
 .jobs-panel .job-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.jobs-panel .head-actions{ display:flex; gap:6px; }
 .jobs-panel .job-list{ display:flex; flex-direction:column; gap:10px; }
 .jobs-panel .job-row{ border:1px solid var(--border); border-radius:8px; padding:8px; background:#fafafa; }
+.jobs-panel .job-row.done{ background:#ecfeff; }  /* linhas concluídas ganham leve destaque */
 .jobs-panel .job-title{ font-weight:700; margin-bottom:4px; color:var(--ml-dark); }
 .jobs-panel .job-state{ font-size:12px; color:#666; margin-bottom:6px; }
 .jobs-panel .job-bar{ width:100%; height:8px; border-radius:6px; background:#e9e9e9; overflow:hidden; }
@@ -161,8 +172,14 @@ h2{ margin: 12px 0 10px; color: var(--ml-dark); }
   .controls-line{ flex-direction:column; align-items:flex-start; }
   .selection-bar{ flex-direction:column; align-items:flex-start; }
 }
+
 /* chip (se já não existir) */
-.badge-rebate{ background:#dcfce7; color:#166534; border:1px solid #86efac; }
-
-/* realce verde no card que tiver o chip REBATE dentro dele */
-
+.badge-rebate{
+  background:#dcfce7;
+  color:#166534;
+  border:1px solid #86efac;
+  padding:2px 6px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+}

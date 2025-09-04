@@ -97,6 +97,44 @@ core.get('/api/promocoes/items/:itemId', async (req, res) => {
 });
 
 /**
+ * RESOLVE OFFER IDS PARA UM ITEM (MLB)
+ * GET /api/promocoes/items/:itemId/offer-ids
+ * -> { ok:true, offer_ids:["OFFER-..."] } | { ok:false, error:"offer_id_not_found" }
+ */
+core.get('/api/promocoes/items/:itemId/offer-ids', async (req, res) => {
+  try {
+    const creds = res.locals.mlCreds || {};
+    const { itemId } = req.params;
+
+    const url = `https://api.mercadolibre.com/seller-promotions/items/${encodeURIComponent(itemId)}?app_version=v2`;
+    const r = await authFetch(req, url, {}, creds);
+    const text = await r.text().catch(() => '');
+    let arr; try { arr = JSON.parse(text); } catch { arr = []; }
+
+    const promos = Array.isArray(arr) ? arr : (Array.isArray(arr?.results) ? arr.results : []);
+    const set = new Set();
+
+    for (const p of promos) {
+      if (Array.isArray(p?.offers)) {
+        for (const o of p.offers) {
+          const oid = o?.offer_id || o?.id;
+          if (oid) set.add(String(oid));
+        }
+      }
+      if (p?.offer_id) set.add(String(p.offer_id));
+    }
+
+    const out = [...set];
+    if (!out.length) return res.status(404).json({ ok: false, error: 'offer_id_not_found' });
+
+    return res.json({ ok: true, offer_ids: out });
+  } catch (e) {
+    console.error('[/api/promocoes/items/:itemId/offer-ids] erro:', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+/**
  * Itens de uma promoção (com enriquecimento de título/sku/price)
  * GET /api/promocoes/promotions/:promotionId/items
  *
@@ -514,10 +552,21 @@ core.post('/api/promocoes/jobs/apply-mass', async (req, res) => {
   }
 });
 
-// ---- Montagem do router com aliases
+// ---- Montagem do router com aliases funcionais (shim)
 const router = express.Router();
-router.use(core);                    // /api/promocoes/*
-router.use('/api/promocao', core);   // alias
-router.use('/api/promotions', core); // alias
+
+// Mantém as rotas com prefixo já definido dentro do "core"
+router.use(core);
+
+// Aliases: reescrevem a URL antes de cair no "core" para apontar para /api/promocoes/*
+router.use('/api/promocao', (req, _res, next) => {
+  req.url = '/api/promocoes' + req.url; // ex.: "/users" -> "/api/promocoes/users"
+  next();
+}, core);
+
+router.use('/api/promotions', (req, _res, next) => {
+  req.url = '/api/promocoes' + req.url;
+  next();
+}, core);
 
 module.exports = router;

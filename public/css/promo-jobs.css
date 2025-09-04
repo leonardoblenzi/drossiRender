@@ -9,60 +9,147 @@
   --border:#e5e7eb;
 }
 
-.jobs-sidebar,
-
-
-.jobs-sidebar .job,
-
-.jobs-sidebar .job-title,
-
-.jobs-sidebar .job-sub,
-
-.jobs-sidebar .bar,
-
-.jobs-sidebar .bar .prog,
-
-/* Botões ESCOPADOS (não afetam o restante da página) */
-.jobs-sidebar .btn,
-
-.jobs-sidebar .btn:hover,
-.jobs-sidebar .btn-primary,
-.jobs-sidebar .btn-secondary,
-.jobs-sidebar .btn-xs,
-/* Barra de processos fixa no CANTO INFERIOR DIREITO */
+/* Painel fixo no canto inferior direito */
+#bulkJobsPanel,
+.jobs-panel#bulkJobsPanel,
 .jobs-panel{
   position: fixed;
-  right: 16px;        /* canto direito */
-  bottom: 16px;       /* canto inferior */
+  right: 16px;
+  bottom: 16px;
   left: auto;
   top: auto;
 
-  width: 320px;
-  max-height: 50vh;   /* metade da altura da viewport */
+  width: 360px;
+  max-height: 60vh;   /* altura máxima com rolagem */
   overflow: auto;
 
-  background: #fff; color:#333;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.2);
-  padding: 12px;
+  background: var(--ml-card);
+  color: var(--ml-text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.18);
   z-index: 9999;
+
+  /* tipografia padrão do painel */
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
+
+#bulkJobsPanel.hidden,
 .jobs-panel.hidden{ display:none; }
 
-/* Cabeçalho + botões (–/▢ e ×) */
+/* Cabeçalho do painel */
+#bulkJobsPanel .job-head,
 .jobs-panel .job-head{
-  display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;
+  position: sticky;
+  top: 0;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding: 10px 12px;
+  background: var(--ml-card);
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
 }
+
+#bulkJobsPanel .head-actions,
 .jobs-panel .head-actions{ display:flex; gap:6px; }
+
+/* Área com a lista de jobs */
+#bulkJobsPanel .job-list,
+.jobs-panel .job-list{
+  padding: 10px 12px;
+}
+
+/* Cada linha de job (alinha com o HTML do promo-bulk.js) */
+#bulkJobsPanel .job-row,
+.jobs-panel .job-row{
+  position: relative;
+  padding: 10px 28px 10px 10px;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+#bulkJobsPanel .job-row.done,
+.jobs-panel .job-row.done{
+  background: #ecfeff; /* destaque leve para concluídos */
+}
+
+/* Título e estado */
+#bulkJobsPanel .job-title,
+.jobs-panel .job-title{
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+#bulkJobsPanel .job-state,
+.jobs-panel .job-state{
+  color: var(--ml-muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+/* Barra de progresso (nomes usados no JS: job-bar / job-bar-fill) */
+#bulkJobsPanel .job-bar,
+.jobs-panel .job-bar{
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+#bulkJobsPanel .job-bar-fill,
+.jobs-panel .job-bar-fill{
+  height: 100%;
+  width: 0;
+  background: var(--ml-blue); /* cor do progresso */
+  transition: width .25s ease;
+}
+
+/* Botões escopados ao painel */
+#bulkJobsPanel .btn,
+.jobs-panel .btn{
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: #475569;
+  font: inherit;
+}
+
+#bulkJobsPanel .btn.icon,
 .jobs-panel .btn.icon{
   width:28px; height:28px; padding:0; border-radius:8px;
   display:inline-flex; align-items:center; justify-content:center;
 }
 
-/* Estado minimizado */
+#bulkJobsPanel .btn.ghost:hover,
+.jobs-panel .btn.ghost:hover{
+  background:#f1f5f9;
+}
+
+/* Botão × (remover job) */
+#bulkJobsPanel .job-dismiss,
+.jobs-panel .job-dismiss{
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+#bulkJobsPanel .job-dismiss:hover,
+.jobs-panel .job-dismiss:hover{
+  background:#f1f5f9;
+}
+
+/* Estado minimizado (toggle) */
+#bulkJobsPanel.collapsed .job-list,
 .jobs-panel.collapsed .job-list{ display:none; }
 
-/* Opcional: em telas muito baixas, deixa mais alto para caber mais linhas */
+/* Responsivo: telas muito baixas */
 @media (max-height: 700px){
+  #bulkJobsPanel,
   .jobs-panel{ max-height: 65vh; }
 }
