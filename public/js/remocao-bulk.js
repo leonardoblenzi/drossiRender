@@ -36,25 +36,36 @@
 
   async function startJob(entry){
     const badge = await getAccountBadge();
+
+    // cria job no painel (id temporário)
     const tempId = JobsPanel.addLocalJob({
       title: entry.title || `Remoção – ${entry.items.length} itens`,
       badge
     });
 
+    // manter referência do id atual do job (inicia como tempId)
+    let jobId = tempId;
+
     try {
+      // dispara o processamento no backend LEGADO
       const resp = await fetch('/anuncios/remover-promocoes-lote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mlb_ids: entry.items, delay_entre_remocoes: entry.delayMs ?? 250 })
+        body: JSON.stringify({
+          mlb_ids: entry.items,
+          delay_entre_remocoes: entry.delayMs ?? 250
+        })
       });
       const data = await resp.json().catch(()=> ({}));
       if (!resp.ok || !data.success || !data.process_id) {
-        JobsPanel.updateLocalJob(tempId, { progress: 100, state: 'erro ao iniciar', completed: true });
+        JobsPanel.updateLocalJob(jobId, { progress: 100, state: 'erro ao iniciar', completed: true });
         return;
       }
 
-      const jobId = JobsPanel.replaceId(tempId, String(data.process_id));
+      // troca o id temporário pelo process_id (evita duplicados)
+      jobId = JobsPanel.replaceId(tempId, String(data.process_id));
 
+      // loop de status
       let done = false;
       while (!done) {
         await wait(2500);
@@ -79,7 +90,8 @@
         done = (st.status === 'concluido' || st.status === 'erro');
       }
     } catch (e) {
-      JobsPanel.updateLocalJob(tempId, { progress: 100, state: 'falha inesperada', completed: true });
+      // agora garante que atualiza o job correto (já pode ter sido replaceId)
+      JobsPanel.updateLocalJob(jobId, { progress: 100, state: 'falha inesperada', completed: true });
     }
   }
 

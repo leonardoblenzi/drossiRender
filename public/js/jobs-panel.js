@@ -1,10 +1,25 @@
 /* Painel de processos – sempre visível; lembra estado (minimizado) via localStorage
-   Suporta "badges" (pills) por conta: j.badges = [{ text, cls }] */
+   Suporta "badges" (pills) por conta:
+     - badge/badges: { text, cls }
+     - OU accountKey/accountLabel (mapeado para badge automaticamente)
+*/
 (function () {
   const PANEL_SEL = '#bulkJobsPanel';
   const JOBS_KEY = '__jobs_panel_v2__';
   const UI_KEY   = '__jobs_panel_ui__';  // guarda { collapsed: bool }
   const JOB_TTL = 24 * 60 * 60 * 1000; // 24h
+
+  // map de contas -> classes/labels (pills)
+  const ACCOUNT_BADGE_CLS = {
+    drossi:     'badge-drossi',
+    diplany:    'badge-diplany',
+    rossidecor: 'badge-rossidecor',
+  };
+  const ACCOUNT_LABELS = {
+    drossi:     'DRossi Interiores',
+    diplany:    'Diplany',
+    rossidecor: 'Rossi Decor',
+  };
 
   const $ = (s) => document.querySelector(s);
   const esc = (s) =>
@@ -45,28 +60,43 @@
   }
 
   // ---------- helpers ----------
-  function normalizeBadges(badges, badge){
+  function buildAccountBadge(accountKey, accountLabel){
+    if (!accountKey && !accountLabel) return null;
+    const text = accountLabel || ACCOUNT_LABELS[accountKey] || String(accountKey || '');
+    const cls  = ACCOUNT_BADGE_CLS[accountKey] || 'badge-generic';
+    return { text, cls };
+  }
+
+  function normalizeBadges(badges, badge, accountKey, accountLabel){
     const arr = [];
+    // 1) badge único explícito
     if (badge && (badge.text || badge.cls)) arr.push({ text:String(badge.text||''), cls:String(badge.cls||'') });
+    // 2) lista explícita
     (Array.isArray(badges) ? badges : []).forEach(b=>{
       if (!b) return;
       arr.push({ text:String(b.text||''), cls:String(b.cls||'') });
     });
+    // 3) se nada veio e houver contexto de conta, cria uma pill por conta
+    if (!arr.length) {
+      const acc = buildAccountBadge(accountKey, accountLabel);
+      if (acc) arr.push(acc);
+    }
     return arr;
   }
+
   function renderBadges(arr){
     if (!arr || !arr.length) return '';
     return ' ' + arr.map(b=>`<span class="job-badge ${esc(b.cls||'')}">${esc(b.text||'')}</span>`).join(' ');
   }
 
   // ---------- CRUD ----------
-  function addLocalJob({ id, title, badge, badges }) {
+  function addLocalJob({ id, title, badge, badges, accountKey, accountLabel }) {
     loadIfNeeded();
     const jobId = id || `local|${Date.now()}|${Math.random().toString(36).slice(2,8)}`;
     cache[jobId] = {
       id: jobId,
       title: title || 'Processo',
-      badges: normalizeBadges(badges, badge),
+      badges: normalizeBadges(badges, badge, accountKey, accountLabel),
       progress: 0,
       state: 'iniciando…',
       completed: false,
@@ -78,14 +108,14 @@
     return jobId;
   }
 
-  function updateLocalJob(id, { progress, state, completed, badges, badge }) {
+  function updateLocalJob(id, { progress, state, completed, badges, badge, accountKey, accountLabel }) {
     loadIfNeeded();
     const j = cache[id]; if (!j) return;
     if (typeof progress === 'number') j.progress = Math.max(0, Math.min(100, progress));
     if (state != null) j.state = String(state);
     if (typeof completed === 'boolean') j.completed = completed;
     if (completed == null) j.completed = (j.progress >= 100) || /conclu/i.test(j.state || '');
-    const nb = normalizeBadges(badges, badge);
+    const nb = normalizeBadges(badges, badge, accountKey, accountLabel);
     if (nb.length) j.badges = nb;
     j.updated = Date.now();
     save(); render();
@@ -127,14 +157,22 @@
     const root = ensurePanel(); if (!root) return;
     root.classList.toggle('collapsed', !!ui.collapsed);
 
-    const rows = jobsForRender().map(j => (
+    const rows = jobsForRender().map(j => {
+      const pct = Math.round(j.progress || 0);
+      const state = String(j.state || '');
+      // Evita duplicar porcentagem: se state já contém "%", não acrescenta " – 12%"
+      const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
+      const stateHtml = hasPctInState ? esc(state) : (state ? `${esc(state)} – ${pct}%` : `${pct}%`);
+
+      return (
 `<div class="job-row${j.completed ? ' done' : ''}">
   <div class="job-title">${esc(j.title)}${renderBadges(j.badges)}</div>
-  <div class="job-state">${esc(j.state || '')} – ${Math.round(j.progress)}%</div>
-  <div class="job-bar"><div class="job-bar-fill" style="width:${Math.round(j.progress)}%"></div></div>
+  <div class="job-state">${stateHtml}</div>
+  <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
   <button class="btn ghost icon job-dismiss" data-id="${esc(j.id)}" title="Fechar">×</button>
 </div>`
-    )).join('');
+      );
+    }).join('');
 
     root.innerHTML =
 `<div class="job-head">

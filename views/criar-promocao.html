@@ -9,9 +9,16 @@
   <link rel="stylesheet" href="/css/promo-jobs.css">
   <link rel="stylesheet" href="/css/criar-promocao.css?v=2">
 
+  <!-- (opcional) cores das pills por conta, caso ainda não estejam no promo-jobs.css -->
+  <style>
+    .jobs-panel .pill{display:inline-block;padding:.18rem .55rem;border-radius:999px;font-weight:700;font-size:.78rem}
+    .jobs-panel .pill.drossi{background:#e8f0ff;color:#1d4ed8}
+    .jobs-panel .pill.diplany{background:#e6fffb;color:#0e7490}
+    .jobs-panel .pill.rossidecor{background:#ffe9e7;color:#a11a1a}
+  </style>
 </head>
 <body>
-  <!-- TOPO (mesma barra do dashboard, preservando data-attrs usados pelo seu JS) -->
+  <!-- TOPO -->
   <header class="account-bar">
     <div class="account-bar__left">
       <span class="logo">🎯</span>
@@ -134,12 +141,53 @@
     </div>
   </div>
 
-  <!-- Painel de Jobs -->
-  <div id="bulkJobsPanel" class="jobs-panel hidden"></div>
+  <!-- Painel de Jobs: visível SEMPRE -->
+  <div id="bulkJobsPanel" class="jobs-panel"></div>
 
-  <!-- Scripts (inalterados) -->
+  <!-- Scripts -->
+  <script src="/js/jobs-panel.js" defer></script>  <!-- precisa estar antes para o wrapper -->
   <script src="/js/account-bar.js" defer></script>
   <script src="/js/criar-promocao.js" defer></script>
   <script src="/js/promo-bulk.js" defer></script>
+
+  <!-- Wrapper p/ injetar conta nos jobs e manter o painel sempre visível -->
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        // força painel aberto
+        window.JobsPanel && window.JobsPanel.show?.();
+
+        // pega a conta atual (usa o helper da account-bar)
+        const acc = await (window.AccountBar?.ensure?.() ?? Promise.resolve(window.__ACCOUNT__));
+        const ctx = {
+          key: (acc?.key || '').toLowerCase(),      // ex.: drossi, diplany, rossidecor
+          label: acc?.label || acc?.key || ''       // ex.: "DRossi Interiores"
+        };
+
+        // se o PromoBulk oferecer API de contexto, usa direto
+        if (window.PromoBulk?.setAccountContext) {
+          window.PromoBulk.setAccountContext(ctx);
+        } else {
+          // senão, envolvemos os métodos mais comuns para injetar as props
+          const inject = (name) => {
+            if (!window.PromoBulk || !window.PromoBulk[name] || window.PromoBulk[name].__wrapped) return;
+            const orig = window.PromoBulk[name];
+            window.PromoBulk[name] = function(args = {}) {
+              // passa as infos de conta para que o jobs-panel mostre a pill
+              if (args && typeof args === 'object') {
+                args.accountKey = args.accountKey || ctx.key;
+                args.accountLabel = args.accountLabel || ctx.label;
+              }
+              return orig.apply(this, [args]);
+            };
+            window.PromoBulk[name].__wrapped = true;
+          };
+          ['enqueue', 'enqueueApply', 'enqueueRemove'].forEach(inject);
+        }
+      } catch (e) {
+        // silencioso
+      }
+    });
+  </script>
 </body>
 </html>
