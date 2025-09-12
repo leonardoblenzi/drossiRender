@@ -94,93 +94,20 @@ const state = {
 };
 
 /* ======================== HUD / Aba de Progresso ======================== */
-/*  Abre um resumo no #bulkJobsPanel:
+/*  Renderiza um resumo dentro do #bulkJobsPanel, em um subpainel (#hudPanel):
     - Mostra contadores de aplicados/alterados/removidos/erros
-    - Abre mesmo quando só há erros (400 etc.)
+    - Não sobrescreve a lista de jobs (usa prepend)
     - Atualiza em tempo real (aplicarUnico e operações silenciosas)
 */
 
-const HUD = (() => {
-  const SEL = '#bulkJobsPanel';
-  let root = null;
+/* ======================== HUD DESLIGADO ======================== */
+/* Mantido como no-op para não quebrar quem ainda chama HUD.* */
+const HUD = {
+  open(){}, bump(){}, tickProcessed(){}, reset(){}, render(){}
+};
 
-  function ensure() {
-    if (!root) root = document.querySelector(SEL);
-    return root;
-  }
 
-  function icon(ok){ return ok ? '✅' : '❗'; }
 
-  function render() {
-    const el = ensure();
-    if (!el) return;
-
-    const s = state.applySession;
-    const titulo = (s.errors > 0) ? 'Alguns anúncios com erros' : 'Aplicação de campanha';
-    const camp = document.getElementById('campName')?.textContent?.replace(/^Campanha:\s*/,'') || 'Campanha';
-    const prog = s.totalHint ? Math.min(100, Math.round((s.processed / s.totalHint) * 100)) : null;
-
-    el.classList.remove('hidden');
-    el.innerHTML = `
-      <div class="job-head">
-        <strong>${esc(titulo)}</strong>
-        <button class="btn ghost" id="hudClose">×</button>
-      </div>
-      <div class="job-list">
-        <div class="job-row">
-          <div class="job-title">${esc(camp)}</div>
-          <div class="job-state">${s.processed}${s.totalHint?`/${s.totalHint}`:''} itens processados.</div>
-          <div class="job-bar"><div class="job-bar-fill" style="width:${prog!=null?prog:0}%"></div></div>
-        </div>
-        <div class="job-row">
-          <div class="job-state">${icon(true)} ${s.added} anúncios novos participando</div>
-        </div>
-        <div class="job-row">
-          <div class="job-state">${icon(true)} ${s.changed} anúncios alterados</div>
-        </div>
-        <div class="job-row">
-          <div class="job-state">${icon(true)} ${s.removed} anúncios deixaram de participar</div>
-        </div>
-        <div class="job-row">
-          <div class="job-state">${icon(false)} ${s.errors} anúncios com erros</div>
-          <div style="margin-top:6px">
-            <a href="#" id="hudFixLink" class="btn warn">Ver e corrigir</a>
-          </div>
-        </div>
-      </div>
-    `;
-    el.querySelector('#hudClose')?.addEventListener('click', () => el.classList.add('hidden'));
-    el.querySelector('#hudFixLink')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.querySelector('input[name="filtro"][value="non"]')?.click();
-    });
-  }
-
-  function open(totalHint, title) {
-    state.applySession.started = true;
-    state.applySession.totalHint = totalHint ?? state.applySession.totalHint;
-    state.applySession.lastTitle = title || state.applySession.lastTitle || '';
-    render();
-  }
-
-  function bump(kind) {
-    if (kind && kind in state.applySession) state.applySession[kind]++;
-    render();
-  }
-
-  function tickProcessed() {
-    state.applySession.processed++;
-    render();
-  }
-
-  function reset() {
-    state.applySession = {
-      started: false, totalHint: null, processed:0, added:0, changed:0, removed:0, errors:0, lastTitle:''
-    };
-  }
-
-  return { open, bump, tickProcessed, reset, render };
-})();
 
 /* ======================== Helpers de dados ======================== */
 
@@ -302,6 +229,13 @@ document.addEventListener('click', (ev) => {
   if (t.closest?.('#btnRemoverTodos')) {
     ev.preventDefault();
     removerEmMassaSelecionados().catch(err => console.error(err));
+    return;
+  }
+
+  // 🔥 NOVO: Aplicar em massa todos os filtrados (todas as páginas)
+  if (t.closest?.('#btnAplicarTodos')) {
+    ev.preventDefault();
+    aplicarTodosFiltrados().catch(err => console.error(err));
     return;
   }
 });
@@ -705,7 +639,8 @@ function updateSelectedCampaignName(){
     const name = state.selectedCard.name || state.selectedCard.id;
     el.textContent = `Campanha: “${name}”`;
     el.title = name;
-  } else {
+  }
+  else {
     el.textContent = 'Campanha: — selecione um card —';
     el.title = '— selecione um card —';
   }
@@ -934,6 +869,12 @@ async function aplicarUnico(mlb, opts = {}) {
   if (!it) { if (!silent) alert('Item não encontrado na lista atual.'); return false; }
 
   const t = (state.selectedCard.type || '').toUpperCase();
+  if (t === 'PRICE_MATCHING_MELI_ALL') {
+    if (!silent) alert('Esta campanha (PRICE_MATCHING_MELI_ALL) é 100% gerida pelo ML. Aplicação manual indisponível.');
+    HUD.bump('errors'); HUD.tickProcessed();
+    return false;
+  }
+
   const payloadBase = { promotion_id: state.selectedCard.id, promotion_type: t };
 
   // inicia HUD se ainda não estiver visível
@@ -990,7 +931,10 @@ async function aplicarUnico(mlb, opts = {}) {
     // função auxiliar para enviar
     const doPost = async (pl) => {
       const r = await fetch(`/api/promocoes/items/${encodeURIComponent(mlb)}/apply`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pl)
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept':'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(pl)
       });
       let respBody = null;
       try { respBody = await r.clone().json(); } catch { respBody = {}; }
@@ -1051,6 +995,7 @@ async function aplicarUnico(mlb, opts = {}) {
     return false;
   }
 }
+
 window.aplicarUnico = aplicarUnico;
 
 /* --- Coletar todos os ids filtrados (suporta bulk silencioso) --- */
@@ -1103,6 +1048,7 @@ async function coletarTodosIdsFiltrados() {
   return [...new Set(ids)];
 }
 
+
 /* --- Remoção em massa (abre HUD e atualiza contadores) --- */
 async function removerEmMassaSelecionados() {
   if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
@@ -1122,6 +1068,7 @@ async function removerEmMassaSelecionados() {
     const r = await fetch('/api/promocoes/jobs/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({ items: itens, delay_ms: 250 })
     });
     const resp = await r.json().catch(() => ({}));
@@ -1145,6 +1092,106 @@ async function removerEmMassaSelecionados() {
   }
 }
 
+
+async function aplicarTodosFiltrados() {
+  if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
+
+  // Snapshot de filtros atuais (o backend aceita estes nomes)
+  const filters = {
+    query_mlb: state.mlbFilter || null,
+    status: (function () {
+      const s = filtroToStatusParam(); // '' | 'started' | 'candidate'
+      return s || 'all';
+    })(),
+    discount_max: (state.maxDesc != null ? Number(state.maxDesc) : null)
+  };
+
+  // 1) Tenta estimar total para o progresso "x/y"
+  let expected_total = null;
+  try {
+    const prepBody = {
+      promotion_id: state.selectedCard.id,
+      promotion_type: state.selectedCard.type,
+      status: filtroToStatusParam() || null,
+      mlb: state.mlbFilter || null,
+      percent_max: (state.maxDesc != null ? Number(state.maxDesc) : null)
+    };
+    const prepRes = await fetch('/api/promocoes/selection/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(prepBody)
+    });
+    const prepJson = await prepRes.json().catch(() => ({}));
+    if (prepRes.ok && prepJson && typeof prepJson.total === 'number') {
+      expected_total = prepJson.total;
+    }
+  } catch { /* segue sem total */ }
+
+  // 2) Abre HUD com total (se conhecido)
+  HUD.open(expected_total ?? null, 'Aplicação em massa');
+
+  // 3) Cria placeholder no painel (JobsPanel é sempre visível)
+  let localJobId = null;
+  try {
+    const acc = (window.__ACCOUNT__ || {});
+    const campName = document.getElementById('campName')?.textContent?.replace(/^Campanha:\s*/,'') || state.selectedCard.id;
+    localJobId = window.JobsPanel?.addLocalJob?.({
+      title: `Aplicando ${state.selectedCard.type} ${campName}`,
+      accountKey: acc.key || null,
+      accountLabel: acc.label || null
+    }) || null;
+    if (expected_total != null) {
+      window.JobsPanel?.updateLocalJob?.(localJobId, { state: `queued 0/${expected_total}`, progress: 0 });
+    }
+  } catch { /* painel é opcional */ }
+
+  // 4) Dispara o job no backend (passa expected_total quando conhecido)
+  try {
+    const options = { dryRun: false };
+    if (typeof expected_total === 'number') options.expected_total = expected_total;
+
+    const res = await fetch(`/api/promocoes/promotions/${encodeURIComponent(state.selectedCard.id)}/apply-bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        promotion_type: state.selectedCard.type,
+        filters,
+        options
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) {
+      console.error('Falha ao iniciar aplicação em massa', res.status, data);
+      state.applySession.errors++;
+      HUD.render();
+      alert(`Falha ao iniciar aplicação em massa (HTTP ${res.status}).`);
+      return;
+    }
+
+    // 5) Vincula placeholder ao job real (para a barra acompanhar o progresso do worker)
+    if (localJobId && data?.job_id) {
+      window.JobsPanel?.replaceId?.(localJobId, String(data.job_id));
+      if (expected_total != null) {
+        window.JobsPanel?.updateLocalJob?.(String(data.job_id), {
+          state: `active 0/${expected_total}`, progress: 0
+        });
+      }
+    }
+
+    alert('Aplicação em massa iniciada. Acompanhe o progresso no painel de processos.');
+  } catch (e) {
+    console.error('Erro aplicarTodosFiltrados:', e);
+    state.applySession.errors++;
+    HUD.render();
+    alert('Erro ao iniciar aplicação em massa.');
+  }
+}
+
+
+
 /* --- Navegação e helpers --- */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){
@@ -1167,6 +1214,7 @@ window.aplicarLoteSelecionados = aplicarLoteSelecionados;
 window.removerUnicoDaCampanha = removerUnicoDaCampanha;
 window.aplicarUnico = aplicarUnico;
 window.removerEmMassaSelecionados = removerEmMassaSelecionados;
+window.aplicarTodosFiltrados = aplicarTodosFiltrados;
 
 /* ======================== Boot ======================== */
 

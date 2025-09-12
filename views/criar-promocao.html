@@ -15,6 +15,11 @@
     .jobs-panel .pill.drossi{background:#e8f0ff;color:#1d4ed8}
     .jobs-panel .pill.diplany{background:#e6fffb;color:#0e7490}
     .jobs-panel .pill.rossidecor{background:#ffe9e7;color:#a11a1a}
+
+    /* pequenos ajustes visuais para as opções extras na seleção */
+    .selection-bar .inline-options{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .selection-bar .inline-options label{display:flex;align-items:center;gap:6px;font-size:.9rem;color:#444}
+    .selection-bar .inline-options input[type="number"]{width:90px}
   </style>
 </head>
 <body>
@@ -90,10 +95,21 @@
       <!-- Linha 2: barra de seleção -->
       <div id="selectionBar" class="selection-bar hidden">
         <div id="selMsg">0 anúncios selecionados nesta página.</div>
-        <div class="actions">
+        <div class="actions" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
           <button id="selAllCampaignBtn" class="btn ghost" type="button">Selecionar toda a campanha (filtrados)</button>
           <button id="selApplyBtn" class="btn success" type="button" disabled>Aplicar a todos</button>
           <button id="selRemoveBtn" class="btn danger" type="button" disabled>Remover todos</button>
+
+          <!-- Opções de processamento (usadas por promo-bulk.js) -->
+          <div class="inline-options">
+            <label title="Simula a aplicação sem enviar ao ML">
+              <input id="dryRunToggle" type="checkbox"> Simular (dry-run)
+            </label>
+            <label>
+              Delay (ms)
+              <input id="bulkDelayMs" type="number" min="0" step="50" value="900">
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -131,7 +147,7 @@
       <div id="paginacao" class="pagination" aria-label="Paginação"></div>
     </div>
 
-    <!-- Progresso -->
+    <!-- Progresso (legacy; pode ser usado por outras telas) -->
     <div class="progress-wrap">
       <div id="progressText" class="muted" aria-live="polite">Aguardando…</div>
       <div class="progress" aria-hidden="true">
@@ -140,6 +156,9 @@
       <a id="downloadLink" href="#" style="display:none;margin-top:8px">Baixar CSV do processamento</a>
     </div>
   </div>
+
+  <!-- Painel HUD dedicado (evita conflito com o jobs panel) -->
+  <div id="hudPanel" class="jobs-panel hidden"></div>
 
   <!-- Painel de Jobs: visível SEMPRE -->
   <div id="bulkJobsPanel" class="jobs-panel"></div>
@@ -173,7 +192,6 @@
             if (!window.PromoBulk || !window.PromoBulk[name] || window.PromoBulk[name].__wrapped) return;
             const orig = window.PromoBulk[name];
             window.PromoBulk[name] = function(args = {}) {
-              // passa as infos de conta para que o jobs-panel mostre a pill
               if (args && typeof args === 'object') {
                 args.accountKey = args.accountKey || ctx.key;
                 args.accountLabel = args.accountLabel || ctx.label;

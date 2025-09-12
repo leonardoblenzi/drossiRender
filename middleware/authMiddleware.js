@@ -1,40 +1,58 @@
 // middleware/authMiddleware.js
-const TokenService = require('../services/tokenService'); // << caminho corrigido
+const TokenService = require('../services/tokenService'); // caminho ok
 
-const SKIP = [
-  /^\/api\/pesquisa-descricao\/jobs/i,
-  /^\/api\/pesquisa-descricao\/status/i,
+// Rotas/métodos que não precisam de token ML (evita refresh desnecessário)
+const SKIP_PATHS = [
+  /^\/api\/account\/current(?:\/|$)/i,      // info da conta atual
+  /^\/api\/health(?:\/|$)/i,                // health checks
+  /^\/health(?:\/|$)/i,
+  /^\/api\/pesquisa-descricao\/jobs/i,      // já existia
+  /^\/api\/pesquisa-descricao\/status/i,    // já existia
 ];
+const SKIP_METHODS = new Set(['OPTIONS', 'HEAD']);
 
-function isSkipped(pathname = '') {
-  return SKIP.some((rx) => rx.test(pathname));
+function isSkipped(req) {
+  if (SKIP_METHODS.has(req.method)) return true;
+  const p = req.path || req.originalUrl || '';
+  return SKIP_PATHS.some((rx) => rx.test(p));
+}
+
+function ensureCredsBag(res) {
+  if (!res.locals) res.locals = {};
+  if (!res.locals.mlCreds) res.locals.mlCreds = {};
+  return res.locals.mlCreds;
 }
 
 function getAccountMeta(res) {
   return { key: res?.locals?.accountKey || null, label: res?.locals?.accountLabel || null };
 }
 
-function getCreds(res) {
-  return res?.locals?.mlCreds || {};
-}
-
 function attachAuthContext(req, res, accessToken) {
+  // Garante estrutura mínima em res.locals
+  const creds = ensureCredsBag(res);
+
   res.locals.accessToken = accessToken || null;
+  creds.access_token = accessToken || creds.access_token || null;
+
+  // Compat com código legado
   req.access_token = accessToken || null;
+
+  // Atalho útil em handlers
   req.ml = {
     accessToken: accessToken || null,
-    creds: getCreds(res),
+    creds,
     accountKey: res?.locals?.accountKey || null,
     accountLabel: res?.locals?.accountLabel || null,
   };
 }
 
 const authMiddleware = async (req, res, next) => {
-  if (isSkipped(req.path)) return next();
+  if (isSkipped(req)) return next();
 
   const account = getAccountMeta(res);
   try {
-    const token = await TokenService.renovarTokenSeNecessario(getCreds(res));
+    const creds = ensureCredsBag(res);
+    const token = await TokenService.renovarTokenSeNecessario(creds);
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -45,12 +63,9 @@ const authMiddleware = async (req, res, next) => {
 
     attachAuthContext(req, res, token);
 
-    // mantém o token fresco em mlCreds
-    res.locals.mlCreds = res.locals.mlCreds || {};
-    res.locals.mlCreds.access_token = token;
-
+    // (opcional) preenche dados do user para logs/ui
     try {
-      const teste = await TokenService.testarToken(getCreds(res));
+      const teste = await TokenService.testarToken(res.locals.mlCreds);
       if (teste?.success) {
         req.user_data = { user_id: teste.user_id, nickname: teste.nickname };
       }
@@ -70,13 +85,15 @@ const authMiddleware = async (req, res, next) => {
 };
 
 const authMiddlewareOptional = async (req, res, next) => {
-  if (isSkipped(req.path)) return next();
+  if (isSkipped(req)) return next();
 
   const account = getAccountMeta(res);
   try {
+    const creds = ensureCredsBag(res);
+
     let token = null;
     try {
-      token = await TokenService.renovarTokenSeNecessario(getCreds(res));
+      token = await TokenService.renovarTokenSeNecessario(creds);
     } catch (e) {
       console.warn('⚠️ authMiddlewareOptional: não foi possível obter/renovar token:', e?.message || e);
     }
@@ -84,13 +101,8 @@ const authMiddlewareOptional = async (req, res, next) => {
     attachAuthContext(req, res, token);
 
     if (token) {
-      res.locals.mlCreds = res.locals.mlCreds || {};
-      res.locals.mlCreds.access_token = token;
-    }
-
-    if (token) {
       try {
-        const teste = await TokenService.testarToken(getCreds(res));
+        const teste = await TokenService.testarToken(res.locals.mlCreds);
         if (teste?.success) {
           req.user_data = { user_id: teste.user_id, nickname: teste.nickname };
         }

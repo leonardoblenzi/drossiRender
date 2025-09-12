@@ -2,12 +2,18 @@
    Suporta "badges" (pills) por conta:
      - badge/badges: { text, cls }
      - OU accountKey/accountLabel (mapeado para badge automaticamente)
+   Agora também expõe:
+     - JobsPanel.mergeApiJobs(list)  -> mescla jobs vindos do backend
+     - PromoJobs shim:
+         .noteLocalJobStart(title, {accountKey, accountLabel, badges})
+         .linkLocalToServer(localId, serverId)
+         .tick(id, progress?, state?)
 */
 (function () {
   const PANEL_SEL = '#bulkJobsPanel';
-  const JOBS_KEY = '__jobs_panel_v2__';
-  const UI_KEY   = '__jobs_panel_ui__';  // guarda { collapsed: bool }
-  const JOB_TTL = 24 * 60 * 60 * 1000; // 24h
+  const JOBS_KEY  = '__jobs_panel_v2__';
+  const UI_KEY    = '__jobs_panel_ui__';  // guarda { collapsed: bool }
+  const JOB_TTL   = 24 * 60 * 60 * 1000;  // 24h
 
   // map de contas -> classes/labels (pills)
   const ACCOUNT_BADGE_CLS = {
@@ -30,7 +36,7 @@
   let panel = null;
   function ensurePanel() { if (!panel) panel = $(PANEL_SEL); return panel; }
 
-  // ---------- UI state (minimizado) ----------
+  /* ============================ UI state (minimizado) ============================ */
   let ui = { collapsed: false };
   function loadUI(){
     try { ui = JSON.parse(localStorage.getItem(UI_KEY) || '{"collapsed":false}'); }
@@ -41,7 +47,7 @@
     try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch {}
   }
 
-  // ---------- jobs store ----------
+  /* ================================ jobs store ================================== */
   let cache = null;
   function load() {
     try { cache = JSON.parse(localStorage.getItem(JOBS_KEY) || '{}'); }
@@ -59,11 +65,18 @@
     }
   }
 
-  // ---------- helpers ----------
+  /* ================================= helpers ==================================== */
+  function clampPct(n){
+    const v = Number(n || 0);
+    if (!Number.isFinite(v)) return 0;
+    return Math.max(0, Math.min(100, Math.round(v)));
+  }
+
   function buildAccountBadge(accountKey, accountLabel){
     if (!accountKey && !accountLabel) return null;
-    const text = accountLabel || ACCOUNT_LABELS[accountKey] || String(accountKey || '');
-    const cls  = ACCOUNT_BADGE_CLS[accountKey] || 'badge-generic';
+    const key = (accountKey || '').toLowerCase();
+    const text = accountLabel || ACCOUNT_LABELS[key] || String(accountKey || '');
+    const cls  = ACCOUNT_BADGE_CLS[key] || 'badge-generic';
     return { text, cls };
   }
 
@@ -89,7 +102,13 @@
     return ' ' + arr.map(b=>`<span class="job-badge ${esc(b.cls||'')}">${esc(b.text||'')}</span>`).join(' ');
   }
 
-  // ---------- CRUD ----------
+  function guessCompleted(progress, state){
+    const pct = clampPct(progress);
+    const st  = String(state || '');
+    return pct >= 100 || /conclu/i.test(st) || /complete/i.test(st) || /finished/i.test(st);
+  }
+
+  /* ================================== CRUD ====================================== */
   function addLocalJob({ id, title, badge, badges, accountKey, accountLabel }) {
     loadIfNeeded();
     const jobId = id || `local|${Date.now()}|${Math.random().toString(36).slice(2,8)}`;
@@ -111,10 +130,10 @@
   function updateLocalJob(id, { progress, state, completed, badges, badge, accountKey, accountLabel }) {
     loadIfNeeded();
     const j = cache[id]; if (!j) return;
-    if (typeof progress === 'number') j.progress = Math.max(0, Math.min(100, progress));
+    if (typeof progress === 'number') j.progress = clampPct(progress);
     if (state != null) j.state = String(state);
     if (typeof completed === 'boolean') j.completed = completed;
-    if (completed == null) j.completed = (j.progress >= 100) || /conclu/i.test(j.state || '');
+    if (completed == null) j.completed = guessCompleted(j.progress, j.state);
     const nb = normalizeBadges(badges, badge, accountKey, accountLabel);
     if (nb.length) j.badges = nb;
     j.updated = Date.now();
@@ -152,13 +171,49 @@
       .sort((a,b) => b.updated - a.updated);
   }
 
-  // ---------- UI ----------
+  /* ========================= API: merge jobs do backend ========================= */
+  function normalizeIncomingJob(j){
+    // aceita formatos vindos do backend (routes/promocoesRoutes listRecent/jobDetail)
+    const id    = String(j.id || j.job_id || '');
+    const title = j.title || 'Processo';
+    const progress = clampPct(j.progress ?? j.pct ?? 0);
+    const state = j.state || j.status || '';
+    const accountKey   = j.account?.key   || j.accountKey   || null;
+    const accountLabel = j.account?.label || j.accountLabel || null;
+    const badges = normalizeBadges(j.badges, j.badge, accountKey, accountLabel);
+    const completed = ('completed' in j) ? !!j.completed : guessCompleted(progress, state);
+    return { id, title, progress, state, badges, completed };
+  }
+
+  function mergeApiJobs(list){
+    loadIfNeeded();
+    const now = Date.now();
+    (Array.isArray(list) ? list : []).forEach(raw => {
+      const j = normalizeIncomingJob(raw);
+      if (!j.id) return;
+      const prev = cache[j.id] || {};
+      cache[j.id] = {
+        id: j.id,
+        title: j.title || prev.title || 'Processo',
+        badges: (j.badges && j.badges.length) ? j.badges : (prev.badges || []),
+        progress: clampPct(j.progress != null ? j.progress : prev.progress || 0),
+        state: j.state != null ? String(j.state) : (prev.state || ''),
+        completed: ('completed' in j) ? !!j.completed : guessCompleted(j.progress ?? prev.progress, j.state ?? prev.state),
+        dismissed: !!prev.dismissed,
+        started: prev.started || now,
+        updated: now
+      };
+    });
+    cleanup(); save(); render();
+  }
+
+  /* =================================== UI ====================================== */
   function render() {
     const root = ensurePanel(); if (!root) return;
     root.classList.toggle('collapsed', !!ui.collapsed);
 
     const rows = jobsForRender().map(j => {
-      const pct = Math.round(j.progress || 0);
+      const pct = clampPct(j.progress);
       const state = String(j.state || '');
       // Evita duplicar porcentagem: se state já contém "%", não acrescenta " – 12%"
       const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
@@ -209,13 +264,30 @@
     render();
   });
 
-  // expose
+  /* =============================== Exports ===================================== */
   window.JobsPanel = {
     addLocalJob,
     updateLocalJob,
     replaceId,
     dismiss,
     listActiveIds,
+    mergeApiJobs, // << novo: mescla jobs vindos do backend (ex.: /api/promocoes/jobs)
     show, hide
   };
+
+  // Shim para código que usa "PromoJobs" (ex.: criar-promocao.js)
+  if (!window.PromoJobs) {
+    window.PromoJobs = {
+      noteLocalJobStart(title, ctx = {}) {
+        return addLocalJob({ title, accountKey: ctx.accountKey, accountLabel: ctx.accountLabel, badges: ctx.badges, badge: ctx.badge });
+      },
+      linkLocalToServer(localId, serverId) {
+        return replaceId(localId, serverId);
+      },
+      tick(id, progress, state) {
+        updateLocalJob(id, { progress, state });
+      },
+      dismiss
+    };
+  }
 })();

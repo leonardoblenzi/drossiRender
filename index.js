@@ -9,6 +9,8 @@ const ensureAccount = require('./middleware/ensureAccount');         // exige co
 const { authMiddleware } = require('./middleware/authMiddleware');   // ✅ garante token válido
 
 const app = express();
+app.set('etag', false);
+
 const PORT = process.env.PORT || 3000;
 
 // ========================

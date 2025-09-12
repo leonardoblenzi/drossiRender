@@ -9,8 +9,15 @@
 
   // ----- Conta atual (cache) -----
   const AccountCtx = (function(){
-    let cached = null, pending = null;
+    let cached = null, pending = null, override = null;
+
+    function set(acc){
+      if (!acc) { override = null; return; }
+      override = { key: (acc.key||null), label: acc.label || acc.key || '' };
+    }
+
     async function get(){
+      if (override) return override;
       if (cached) return cached;
       if (pending) return pending;
       pending = (async () => {
@@ -27,7 +34,7 @@
       })();
       return pending;
     }
-    return { get };
+    return { get, set };
   })();
 
   const ui = {
@@ -77,7 +84,8 @@
     const progress = Number(j.progress || 0);
     const state = j.state || '';
     const title = j.title || 'Processo';
-    const completed = progress >= 100 || /conclu/i.test(state);
+    const isDoneState = /conclu|complete|failed/i.test(state);
+    const completed = progress >= 100 || isDoneState;
     const now = Date.now();
     const prev = jobsCache[id] || {};
     jobsCache[id] = {
@@ -94,18 +102,32 @@
     gcJobs(); saveJobs();
   }
 
-  // placeholder com conta
+  // placeholder com conta (local, id aleatório)
   async function recordPlaceholder(title){
     const id = `ph|${Date.now()}|${Math.random().toString(36).slice(2)}`;
     const acc = await AccountCtx.get();
     jobsCache[id] = {
       id, title, progress: 0, state: 'iniciando…',
-      account: { key: acc.key, label: acc.label }, // << guarda conta
+      account: { key: acc.key, label: acc.label },
       completed: false, started: Date.now(), updated: Date.now(),
       dismissed: false
     };
     saveJobs();
     return id;
+  }
+
+  // placeholder vinculado ao job_id do servidor
+  async function recordServerPlaceholder(jobId, title){
+    const acc = await AccountCtx.get();
+    normalizeJob({
+      id: String(jobId),
+      title,
+      progress: 0,
+      state: 'iniciando…',
+      account: { key: acc.key, label: acc.label }
+    });
+    saveJobs(); showJobsPanel(); renderJobsPanel();
+    setTimeout(pollJobs, 800);
   }
 
   function updateLocalJobProgress(id, progress, state){
@@ -114,7 +136,7 @@
     const pct = Math.max(0, Math.min(100, Number(progress || 0)));
     j.progress  = pct;
     if (state) j.state = state;
-    j.completed = pct >= 100 || /conclu/i.test(j.state || '');
+    j.completed = pct >= 100 || /conclu|complete|failed/i.test(j.state || '');
     j.updated   = Date.now();
     saveJobs();
     renderJobsPanel();
@@ -306,6 +328,23 @@
     return null; // 'all'
   }
 
+  function buildBulkFilters(){
+    const status = mapStatusForPrepare(ctx.filtros.status);
+    const maxDesc = (ctx.filtros.maxDesc == null || ctx.filtros.maxDesc === '') ? null : Number(ctx.filtros.maxDesc);
+    const mlb = (ctx.filtros.mlb || null);
+
+    const f = {};
+    if (status) f.status = status; // 'started' | 'candidate'
+    if (maxDesc != null) f.discount_max = maxDesc; // o backend aceita discount_max ou maxDesc
+    if (mlb) f.query_mlb = mlb; // o backend aceita query_mlb ou mlb
+    return f;
+  }
+
+  function getDryRun(){
+    const el = document.getElementById('dryRunToggle');
+    return !!(el && el.checked);
+  }
+
   async function prepareWholeCampaign(){
     if (!ctx.promotion_id || !ctx.promotion_type) {
       alert('Selecione uma campanha.');
@@ -382,15 +421,11 @@
   const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
   async function noteLocalJobStart(title){
-    const id = await recordPlaceholder(title);   // (guarda conta no placeholder)
+    const id = await recordPlaceholder(title);
     showJobsPanel();
     renderJobsPanel();
     setTimeout(pollJobs, 1000);
     return id;
-
-    // Se quiser migrar esta tela para o JobsPanel global, bastaria:
-    // const acc = await AccountCtx.get();
-    // JobsPanel.addLocalJob({ title, accountKey: acc.key, accountLabel: acc.label });
   }
 
   async function applyQueue(ids, delayMs = DEFAULT_DELAY_MS){
@@ -433,61 +468,85 @@
   /* ====================== Ações (aplicar / remover todos) =================== */
 
   async function onApplyClick(){
-    if (ctx.global.selectedAll && ctx.global.token) {
+    // Bloqueio explícito para PRICE_MATCHING_MELI_ALL (manual indisponível)
+    if (String(ctx.promotion_type || '').toUpperCase() === 'PRICE_MATCHING_MELI_ALL') {
+      alert('Esta campanha (PRICE_MATCHING_MELI_ALL) é 100% gerida pelo ML. Aplicação manual indisponível.');
+      return;
+    }
+
+    // Prioriza APPLY-BULK (backend varre todas as páginas com os filtros)
+    if (ctx.global.selectedAll && ctx.promotion_id && ctx.promotion_type) {
       try {
-        let r = await fetch('/api/promocoes/jobs/apply-mass', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: ctx.global.token, action: 'apply', values: {} }),
-          credentials: 'same-origin'
+        const body = {
+          promotion_type: ctx.promotion_type,
+          filters: buildBulkFilters(),
+          options: { dryRun: getDryRun() }
+        };
+        const url = `/api/promocoes/promotions/${encodeURIComponent(ctx.promotion_id)}/apply-bulk`;
+        let r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body)
         });
 
-        if (r.status === 404 || r.status >= 500 || !r.ok) {
-          let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
-          if (!ids || !ids.length) {
-            const getAll = window.coletarTodosIdsFiltrados;
-            if (typeof getAll === 'function') ids = await getAll();
-          }
-          if (!ids || !ids.length) {
-            alert('Não foi possível obter a lista de itens para aplicar.');
-            return;
-          }
-          await applyQueue(ids, DEFAULT_DELAY_MS);
-          return;
-        }
+        // Se o endpoint novo não existir / falhar, cai para os caminhos antigos
+        if (r.status === 404 || r.status === 405) throw new Error('apply-bulk-not-found');
 
         const js = await r.json().catch(()=> ({}));
-        if (!r.ok || js?.ok === false) {
-          let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
-          if (!ids || !ids.length) {
-            const getAll = window.coletarTodosIdsFiltrados;
-            if (typeof getAll === 'function') ids = await getAll();
+        if (r.ok && (js?.success || js?.ok)) {
+          const camp = getCampanhaNome();
+          const qtd  = Number(ctx.global.total || 0);
+          // cria placeholder com o job_id real do servidor (melhor UX)
+          if (js.job_id) {
+            await recordServerPlaceholder(js.job_id, `Aplicação – ${camp} (${qtd} itens)`);
+          } else {
+            await noteLocalJobStart(`Aplicação – ${camp} (${qtd} itens)`);
           }
-          if (!ids || !ids.length) {
-            alert('Falha ao iniciar aplicação em massa.');
-            return;
-          }
-          await applyQueue(ids, DEFAULT_DELAY_MS);
+          showJobsPanel();
+          pollJobs();
           return;
         }
 
-        const camp = getCampanhaNome();
-        const qtd  = Number(ctx.global.total || 0);
-        await noteLocalJobStart(`Aplicação – ${camp} (${qtd} itens)`);
-        showJobsPanel();
-        pollJobs();
-        return;
+        // 400 típico etc -> cai para fallback
+        throw new Error(js?.error || 'apply-bulk-failed');
       } catch {
+        // Fallback #1: seleção por token (rota fase 2)
+        try {
+          if (ctx.global.token) {
+            const r2 = await fetch('/api/promocoes/jobs/apply-mass', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: ctx.global.token, action: 'apply', values: {} }),
+              credentials: 'same-origin'
+            });
+            const js2 = await r2.json().catch(()=> ({}));
+            if (r2.ok && js2?.ok !== false) {
+              const camp = getCampanhaNome();
+              const qtd  = Number(ctx.global.total || 0);
+              await noteLocalJobStart(`Aplicação – ${camp} (${qtd} itens)`);
+              showJobsPanel();
+              pollJobs();
+              return;
+            }
+          }
+        } catch {}
+
+        // Fallback #2: aplicar localmente 1 a 1
         let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
         if (!ids || !ids.length) {
           const getAll = window.coletarTodosIdsFiltrados;
           if (typeof getAll === 'function') ids = await getAll();
         }
-        if (!ids || !ids.length) { alert('Erro ao iniciar aplicação em massa.'); return; }
+        if (!ids || !ids.length) {
+          alert('Não foi possível iniciar a aplicação em massa.');
+          return;
+        }
         await applyQueue(ids, DEFAULT_DELAY_MS);
         return;
       }
     }
 
+    // Caso não esteja em "toda campanha": usa os selecionados da página
     if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
       await applyQueue(ctx.global.ids, DEFAULT_DELAY_MS);
       return;
@@ -598,17 +657,30 @@
 
   /* ============================== Jobs: polling ============================= */
 
-  async function pollJobs(){
-    try {
-      const r = await fetch('/api/promocoes/jobs', { credentials: 'same-origin' });
-      if (!r.ok) { renderJobsPanel(); return; }
-      const data = await r.json().catch(()=>({}));
-      const apiJobs = (data?.jobs || []);
-      recordJobFromApi(apiJobs);
-      renderJobsPanel();
-    } catch { renderJobsPanel(); }
+// SUBSTITUA a pollJobs() atual por esta:
+async function pollJobs(){
+  try {
+    const r = await fetch(`/api/promocoes/jobs?_=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+      credentials: 'same-origin'
+    });
+
+    // Se o servidor ainda devolver 304, apenas re-renderiza o que já temos
+    if (r.status === 304) { renderJobsPanel(); return; }
+    if (!r.ok) { renderJobsPanel(); return; }
+
+    const data = await r.json().catch(()=>({}));
+    const apiJobs = (data?.jobs || []);
+    recordJobFromApi(apiJobs);
+    renderJobsPanel();
+  } catch {
+    renderJobsPanel();
   }
-  setInterval(pollJobs, 5000);
+}
+
+// (o setInterval pode permanecer igual; se quiser mais fluido, use 2000ms)
+setInterval(pollJobs, 5000);
 
   /* ============================= API pública (UI) =========================== */
 
@@ -630,6 +702,10 @@
     },
     onHeaderToggle(checked){
       ctx.headerChecked = !!checked; render();
+    },
+    // permite ao wrapper do HTML injetar a conta atual para os jobs
+    setAccountContext(acc){
+      AccountCtx.set(acc);
     }
   };
 

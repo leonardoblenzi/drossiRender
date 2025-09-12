@@ -364,7 +364,69 @@ core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
   }
 });
 
-// === PREPARAR JOB EM MASSA (todas as páginas/filtrados) ===
+/* ===========================================================
+ * NOVO ENDPOINT: aplicar em massa TODOS OS FILTRADOS (backend job)
+ * compatível com o front: POST /api/promocoes/promotions/:promotionId/apply-bulk
+ * Body:
+ * {
+ *   "promotion_type": "DEAL|SELLER_CAMPAIGN|SMART|PRICE_MATCHING|PRICE_MATCHING_MELI_ALL|MARKETPLACE_CAMPAIGN|PRICE_DISCOUNT|DOD",
+ *   "filters": { "query_mlb": "...", "status": "candidate|started|all", "discount_max": 15 },
+ *   "price_policy": "min"|"suggested"|"max",
+ *   "options": { "dryRun": false }
+ * }
+ * =========================================================== */
+// POST /api/promocoes/promotions/:promotionId/apply-bulk
+core.post('/api/promocoes/promotions/:promotionId/apply-bulk', async (req, res) => {
+  try {
+    if (!PromoJobsService || typeof PromoJobsService.enqueueBulkApply !== 'function') {
+      return res.status(503).json({ success: false, error: 'PromoJobsService indisponível' });
+    }
+    PromoJobsService.init?.();
+
+    const creds = res.locals.mlCreds || {};
+    const accountKey = res.locals.accountKey || 'default';
+
+    // pega :promotionId da URL e usa como promotion_id internamente
+    const { promotionId: promotion_id } = req.params || {};
+    const { promotion_type, filters: fIn = {}, options = {} } = req.body || {};
+
+    if (!promotion_id || !promotion_type) {
+      return res.status(400).json({ success: false, error: 'promotionId e promotion_type são obrigatórios' });
+    }
+
+    const t = String(promotion_type).toUpperCase();
+    const allowed = new Set(['DEAL','SELLER_CAMPAIGN','SMART','PRICE_MATCHING','PRICE_MATCHING_MELI_ALL','MARKETPLACE_CAMPAIGN']);
+    if (!allowed.has(t)) {
+      return res.status(400).json({ success: false, error: `promotion_type inválido: ${t}` });
+    }
+
+    // normaliza filtros do front
+    const filters = {
+      status: (fIn.status && String(fIn.status).toLowerCase() !== 'all') ? String(fIn.status) : null,
+      maxDesc: (fIn.discount_max != null ? Number(fIn.discount_max)
+               : (fIn.maxDesc != null ? Number(fIn.maxDesc) : null)),
+      mlb: fIn.query_mlb ?? fIn.mlb ?? null
+    };
+
+    const jobId = await PromoJobsService.enqueueBulkApply({
+      mlCreds: creds,
+      accountKey,
+      action: 'apply',
+      promotion: { id: String(promotion_id), type: t },
+      filters,
+      price_policy: 'min',
+      options: { dryRun: !!options.dryRun, expected_total: options.expected_total ?? null }
+    });
+
+    return res.json({ success: true, job_id: jobId });
+  } catch (e) {
+    console.error('[/api/promocoes/promotions/:promotionId/apply-bulk] erro:', e);
+    return res.status(500).json({ success: false, error: e.message || String(e) });
+  }
+});
+
+
+// === PREPARAR JOB EM MASSA (todas as páginas/filtrados) – caminho legado ===
 core.post('/api/promocoes/bulk/prepare', async (req, res) => {
   try {
     if (!PromoJobsService || typeof PromoJobsService.enqueueBulkApply !== 'function') {
@@ -411,12 +473,20 @@ core.get('/api/promocoes/jobs', async (_req, res) => {
     if (PromoJobsService?.listRecent) {
       try { bull = await PromoJobsService.listRecent(15); } catch {}
     }
+
+    // evita 304/ETag e força atualização no fetch
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+
     return res.json({ jobs: [...ours, ...bull] });
   } catch (e) {
     console.error('[/api/promocoes/jobs] erro:', e);
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 
 core.get('/api/promocoes/jobs/:job_id', async (req, res) => {
   try {
