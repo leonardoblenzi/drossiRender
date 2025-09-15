@@ -9,6 +9,8 @@ const ensureAccount = require('./middleware/ensureAccount');         // exige co
 const { authMiddleware } = require('./middleware/authMiddleware');   // ✅ garante token válido
 
 const app = express();
+
+app.set('trust proxy', 1);
 app.set('etag', false);
 
 const PORT = process.env.PORT || 3000;
@@ -366,7 +368,7 @@ app.use((req, res) => {
 // ==========================================
 // INICIALIZAÇÃO
 // ==========================================
-const server = app.listen(PORT, () => {
+const server = app.listen(process.env.PORT || 3000, '0.0.0.0') => {
   console.log('🚀 ================================');
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log('🚀 ================================');

@@ -10,3 +10,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+  - type: worker
+    name: drossiapi-worker
+    env: node
+    plan: free
+    buildCommand: "npm ci"
+    startCommand: "node worker.js"
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production

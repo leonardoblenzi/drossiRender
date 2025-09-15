@@ -9,6 +9,7 @@
  */
 
 const Queue = require('bull');
+const { makeRedis } = require('../lib/redisClient');
 const fetch = require('node-fetch');
 const TokenService = require('./tokenService');
 

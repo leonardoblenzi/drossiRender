@@ -1,9 +1,10 @@
+const path = require('path');
 module.exports = {
-  diretorio_saida: 'C:\Users\USER\Documents\Projetos\ml',
+  diretorio_saida: process.env.OUTPUT_DIR || path.join(__dirname, '..', 'results'),
   arquivo_csv: 'anuncios_ativos_promocao.csv',
   encoding: 'utf8',
   port: process.env.PORT || 3000,
-  delay_padrao_remocao: 3000,
+  delay_padrao_remocao: Number(process.env.DEFAULT_REMOVE_DELAY || 3000),
   
   // URLs da API do Mercado Livre
   urls: {

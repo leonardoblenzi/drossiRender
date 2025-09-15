@@ -1,19 +1,12 @@
 const Bull = require('bull');
+const { makeRedis } = require('../lib/redisClient');
 const fs = require('fs').promises;
 const path = require('path');
 
 class QueueService {
     constructor() {
         // Configurar Redis (você precisa ter Redis instalado)
-        this.mlbQueue = new Bull('MLB Processing Queue', {
-            redis: {
-                port: 6379,
-                host: '127.0.0.1',
-                // Se usar Redis na nuvem:
-                // host: 'seu-redis-host.com',
-                // password: 'sua-senha'
-            }
-        });
+        this.mlbQueue = new Bull(\1, { createClient: () => makeRedis() });
 
         this.setupProcessors();
         this.setupEventListeners();
