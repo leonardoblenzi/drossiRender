@@ -9,6 +9,11 @@ module.exports = {
   urls: {
     oauth_token: 'https://api.mercadolibre.com/oauth/token',
     users_me: 'https://api.mercadolibre.com/users/me',
-    seller_promotions: 'https://api.mercadolibre.com/seller-promotions'
+    seller_promotions: 'https://api.mercadolibre.com/seller-promotions',
+    ads: {
+  // Ajuste para o endpoint que você já usa de Mercado Ads / Sponsored Products
+  listing_report: 'https://api.mercadolibre.com/advertising/product_ads/listings/report',
+},
+
   }
 };

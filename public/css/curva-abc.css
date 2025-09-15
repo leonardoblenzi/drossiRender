@@ -1,0 +1,270 @@
+/* ===============================
+   Curva ABC — estilo base
+   =============================== */
+:root{
+  --bg-page: #f5f6f8;
+  --card-bg: #ffffff;
+  --card-border: #e8e9ee;
+  --text-1: #0f172a;
+  --text-2: #475569;
+  --line: #e5e7eb;
+  --chip-bg: #f1f5f9;
+  --chip-border: #e2e8f0;
+  --chip-hover: #eef2ff;
+  --brand: #ffea00;
+  --accent: #2563eb;
+  --success: #16a34a;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 6px 16px rgba(0,0,0,.08);
+
+  /* Paleta das curvas */
+  --curve-a: #14b8a6;   /* teal */
+  --curve-b: #ef476f;   /* pink/red */
+  --curve-c: #6d28d9;   /* purple */
+
+  /* Cards KPI (versão mais recente) */
+  --kpi-card-width: 280px;
+  --kpi-gap: 12px;
+}
+
+body.curva-abc { background: var(--bg-page); color: var(--text-1); }
+
+/* Cabeçalho da página */
+.page-header { max-width: 1200px; margin: 24px auto 8px; padding: 0 24px; }
+.page-header h1 { font-size: 28px; font-weight: 700; letter-spacing: .2px; margin: 0 0 4px; }
+.page-header .sub { color: var(--text-2); font-size: 14px; }
+
+/* Container */
+.wrap { max-width: 1200px; margin: 12px auto 32px; padding: 0 24px; }
+
+/* Cartões */
+.card{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+  position: relative; /* para a faixa colorida */
+}
+.card.clickable{ cursor: pointer; transition: transform .06s ease, box-shadow .12s; }
+.card.clickable:hover{ transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+/* Filtros */
+.filters{
+  display: grid; grid-template-columns: repeat(6, minmax(0,1fr));
+  gap: 12px; align-items: end;
+}
+.filters label{ display:block; font-size: 12px; color: var(--text-2); margin: 0 0 6px; }
+.input, .filters select, .filters input[type="date"], .filters input[type="text"]{
+  width: 100%; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--card-border); background: #fff; color: var(--text-1);
+  outline: none;
+}
+.input:focus, .filters select:focus, .filters input:focus{
+  border-color: #c7d2fe; box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding: 10px 14px; border-radius: 10px; border: 1px solid var(--card-border);
+  background:#fff; color: var(--text-1); cursor:pointer;
+}
+.btn:hover{ background:#f8fafc; }
+.btn.primary{ background: var(--accent); color:#fff; border-color: var(--accent); }
+.btn.primary:hover{ filter: brightness(.96); }
+
+/* Toolbar on/off */
+.filter-toolbar{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:10px;
+}
+.switch-group{ display:inline-flex; background:#fff; border:1px solid var(--card-border); border-radius:12px; padding:4px; }
+.btn-switch{
+  appearance:none; border:0; background:transparent; padding:8px 12px; border-radius:8px; cursor:pointer;
+  color: var(--text-2); font-weight:600;
+}
+.btn-switch.active{ background:#eef2ff; color:#1d4ed8; box-shadow: inset 0 0 0 1px #c7d2fe; }
+.btn-switch:not(.active):hover{ background:#f8fafc; }
+
+/* Export (canto inferior direito do card de filtros) */
+.export-actions{ margin-left:auto; display:flex; gap:8px; }
+.export-actions .btn{ padding:8px 10px; font-size:13px; }
+
+/* Layout do card de filtros: dicas à esquerda + export à direita */
+.filter-card { position: relative; }
+.filters-footer {
+  display:flex; align-items:flex-end; justify-content:space-between;
+  gap:12px; margin-top:10px;
+}
+.filters-footer .tips { margin:0; padding-left:18px; line-height:1.45; }
+.filters-footer .tips li { margin:4px 0; }
+.filters-footer .export-actions.bottom { margin-left:auto; display:flex; gap:8px; }
+
+/* ===== Cards A/B/C com KPIs (versão compacta mais recente) ===== */
+.cards.kpi-minis{
+  display: grid;
+  grid-template-columns: repeat(4, var(--kpi-card-width));
+  justify-content: space-between;
+  gap: var(--kpi-gap);
+}
+.cards.kpi-minis .card,
+.cards.kpi-minis .total-kpi{
+  width: var(--kpi-card-width);
+  max-width: var(--kpi-card-width);
+  min-height: 126px;
+  padding: 14px 14px 12px;
+}
+
+.cards h3{ margin:0 0 6px; font-size: 16px; }
+.cards .muted{ color: var(--text-2); font-size: 12px; }
+
+/* Mini KPIs (3 colunas → 2 linhas: 3 + 2) */
+.cards.kpi-minis .mini-kpi{
+  display:grid; grid-template-columns: repeat(3, 1fr);
+  gap: 6px 12px; align-items: end;
+}
+.cards.kpi-minis .mini-kpi div small{ display:block; font-size:11px; line-height:1.1; color:#6b7280; }
+.cards.kpi-minis .mini-kpi div b{ display:block; font-size:13.5px; font-weight:700; color:#0f172a; }
+
+/* Card de Total (2 colunas por linha) */
+.total-kpi .mini-kpi{
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px; align-items: end;
+}
+
+/* Faixa colorida no topo dos cards */
+.cards.kpi-minis .card::before,
+.total-kpi::before{
+  content:""; position:absolute; left:-1px; right:-1px; top:-1px; height:6px;
+  border-radius:12px 12px 0 0; background: var(--line);
+}
+.cards.kpi-minis .card[data-curve="A"]::before{ background: var(--curve-a); }
+.cards.kpi-minis .card[data-curve="B"]::before{ background: var(--curve-b); }
+.cards.kpi-minis .card[data-curve="C"]::before{ background: var(--curve-c); }
+.total-kpi::before{ background: linear-gradient(90deg, #16a34a, #22c55e); }
+
+/* Seleção do card */
+.cards .card.selected{
+  transform: translateY(-1px); background: #f9fbff;
+}
+.cards .card.selected[data-curve="A"]{
+  border-color: var(--curve-a);
+  box-shadow: 0 10px 28px rgba(20,184,166,.20);
+}
+.cards .card.selected[data-curve="B"]{
+  border-color: var(--curve-b);
+  box-shadow: 0 10px 28px rgba(239,71,111,.20);
+}
+.cards .card.selected[data-curve="C"]{
+  border-color: var(--curve-c);
+  box-shadow: 0 10px 28px rgba(109,40,217,.20);
+}
+
+/* Acessibilidade */
+.cards .card:focus-visible{
+  outline: 3px solid rgba(37, 99, 235, .35);
+  outline-offset: 2px; border-radius: 12px;
+}
+
+/* Top 5 */
+.top3{ display:grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+.list h4{ margin: 0 0 8px; font-size: 16px; }
+.list ul{ list-style:none; padding:0; margin:0; }
+.list li{
+  display:flex; justify-content:space-between; gap:16px;
+  padding:10px 0; border-bottom: 1px dashed var(--line); font-size: 14px;
+}
+.list li:last-child{ border-bottom: none; }
+.list .muted{ color: var(--text-2); }
+
+/* Tabela */
+table{ width:100%; border-collapse: collapse; margin-top: 12px; background:#fff; }
+thead th{
+  font-size: 12px; color: var(--text-2); font-weight: 600; text-transform: uppercase;
+  letter-spacing: .4px; padding: 10px; background: #f8fafc; border-bottom: 1px solid var(--line);
+}
+tbody td{ padding: 12px 10px; border-bottom: 1px solid var(--line); font-size: 14px; }
+tbody tr:hover{ background: #fcfcff; }
+
+/* Alinhamento das colunas numéricas/percentuais */
+thead th.num, tbody td.num { text-align: right; white-space: nowrap; }
+thead th.percent, tbody td.percent { text-align: right; white-space: nowrap; }
+
+/* Coluna do índice A/B/C */
+.idx-pill{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:24px; height:20px; padding:0 8px;
+  border-radius:999px; font-weight:700; font-size:12px; color:#fff;
+}
+.idx-A{ background:var(--curve-a); }
+.idx-B{ background:var(--curve-b); }
+.idx-C{ background:var(--curve-c); }
+
+/* Paginador */
+.paginator{
+  display:flex; gap:6px; align-items:center; justify-content:center;
+  padding:10px 0; margin-top:8px;
+}
+.paginator .pg-btn{
+  border:1px solid var(--card-border); background:#fff; color:#111; cursor:pointer;
+  padding:6px 10px; border-radius:8px; min-width:34px; line-height:1; font-weight:600;
+}
+.paginator .pg-btn:hover{ background:#f8fafc; }
+.paginator .pg-btn.active{
+  background:#eef2ff; color:#1d4ed8; border-color:#c7d2fe; cursor:default;
+}
+.paginator .pg-btn.disabled{ opacity:.5; cursor:not-allowed; }
+
+/* Grid bonito p/ filtros */
+.form-grid { grid-template-columns: repeat(6, minmax(0,1fr)); }
+.form-group { display:flex; flex-direction:column; gap:6px; }
+
+/* Multicontas ocupa mais espaço e fica alinhado */
+.group-multicontas { grid-column: span 2; }
+.select-multi{
+  height: 104px; min-height: 104px;
+  padding: 6px 8px; border-radius: 10px; border: 1px solid var(--card-border);
+  background:#fff; outline: none;
+}
+.select-multi:focus{ border-color:#c7d2fe; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+
+/* Chips das contas selecionadas */
+.chips.chips--small { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.chips.chips--small .chip{
+  padding:4px 8px; border-radius:999px; background:var(--chip-bg);
+  border:1px solid var(--chip-border); font-size:12px; color:var(--text-2);
+}
+
+/* Badge ADS */
+.ads-badge {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:4px 8px; border-radius:999px; font-size:12px; font-weight:600;
+  border:1px solid var(--card-border); background:#fff; color: var(--text-2);
+}
+.ads-badge .dot { width:8px; height:8px; border-radius:999px; }
+.ads-yes { border-color:#bbf7d0; background:#f0fdf4; color:#166534; }
+.ads-yes .dot { background:#16a34a; }
+.ads-no  { border-color:#fecaca; background:#fff1f2; color:#991b1b; }
+.ads-no  .dot { background:#ef4444; }
+
+/* Pager e loading */
+#pager{ margin-top: 10px; color: var(--text-2); font-size: 13px; }
+#abcLoading{ font-size: 14px; }
+
+/* ===== Responsivo ===== */
+@media (max-width: 1280px){
+  .cards.kpi-minis{ grid-template-columns: repeat(3, var(--kpi-card-width)); }
+}
+@media (max-width: 1024px){
+  .filters{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .top3{ grid-template-columns: 1fr; }
+  .filters-footer{ flex-direction:column; gap:10px; }
+  .filters-footer .export-actions.bottom{ align-self:flex-end; }
+  .group-multicontas{ grid-column: span 3; }
+}
+@media (max-width: 960px){
+  .cards.kpi-minis{ grid-template-columns: repeat(2, var(--kpi-card-width)); }
+}
+@media (max-width: 640px){
+  .cards.kpi-minis{ grid-template-columns: 1fr; justify-content: stretch; }
+  .cards.kpi-minis .card, .cards.kpi-minis .total-kpi{ width:auto; max-width:none; }
+  .group-multicontas{ grid-column: span 6; }
+}

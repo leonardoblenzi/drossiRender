@@ -1,5 +1,6 @@
 // routes/htmlRoutes.js
 const express = require('express');
+const path = require('path');
 
 let HtmlController;
 try {
@@ -33,7 +34,7 @@ function noCache(_req, res, next) {
 // Dashboard
 router.get('/dashboard', noCache, HtmlController.servirDashboard);
 
-// Páginas
+// Páginas existentes
 router.get('/remover-promocao', noCache, HtmlController.servirRemoverPromocao);
 router.get('/analise-anuncios', noCache, HtmlController.servirAnaliseAnuncios);
 router.get('/criar-promocao', noCache, HtmlController.criarPromocao);
@@ -46,6 +47,13 @@ router.get('/debug/routes', HtmlController.debugRoutes);
 // Teste simples
 router.get('/test', (_req, res) => {
   res.send('Servidor Node.js com Express está rodando!');
+});
+
+/* ================================
+ * NOVO: Página Curva ABC (HTML)
+ * ================================ */
+router.get('/ia-analytics/curva-abc', noCache, (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'ia-analytics', 'curva-abc.html'));
 });
 
 module.exports = router;
