@@ -1,0 +1,96 @@
+=== package.json ===
+--- a/package.json
++++ b/package.json
+@@ -3,8 +3,9 @@
+   "version": "1.0.0",
+   "main": "index.js",
+   "scripts": {
+-    "start": "nodemon index.js",
+-    "test": "echo \"Error: no test specified\" && exit 1"
++    "start": "node index.js",
++    "test": "echo \"Error: no test specified\" && exit 1",
++    "dev": "nodemon index.js"
+   },
+   "author": "",
+   "license": "ISC",
+@@ -29,5 +30,8 @@
+     "node-fetch": "^2.7.0",
+     "redis": "^5.8.0",
+     "uuid": "^11.1.0"
++  },
++  "engines": {
++    "node": ">=20"
+   }
+ }
+
+
+=== .gitignore ===
+--- a/.gitignore
++++ b/.gitignore
+@@ -0,0 +1 @@
++.env
+
+
+=== index.js ===
+--- a/index.js
++++ b/index.js
+@@ -8,7 +8,8 @@
+ const ensureAccount = require('./middleware/ensureAccount');         // exige conta selecionada
+ const { authMiddleware } = require('./middleware/authMiddleware');   // ✅ garante token válido
+ 
+-const app = express();
++\1
++app.set('trust proxy', 1); // necessário atrás de proxy (Render)
+ app.set('etag', false);
+ 
+ const PORT = process.env.PORT || 3000;
+@@ -366,7 +367,7 @@
+ // ==========================================
+ // INICIALIZAÇÃO
+ // ==========================================
+-const server = app.listen(PORT, () => {
++const server = app.listen(PORT, '0.0.0.0', ()=> {
+   console.log('🚀 ================================');
+   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
+   console.log('🚀 ================================');
+
+
+=== config/config.js ===
+--- a/config/config.js
++++ b/config/config.js
+@@ -1,9 +1,10 @@
++const path = require('path');
+ module.exports = {
+-  diretorio_saida: 'C:\Users\USER\Documents\Projetos\ml',
++  \1process.env.OUTPUT_DIR || path.join(__dirname, '..', 'results'),
+   arquivo_csv: 'anuncios_ativos_promocao.csv',
+   encoding: 'utf8',
+   port: process.env.PORT || 3000,
+-  delay_padrao_remocao: 3000,
++  \1Number(process.env.DEFAULT_REMOVE_DELAY || \2),
+   
+   // URLs da API do Mercado Livre
+   urls: {
+
+
+=== services/queueService.js ===
+--- a/services/queueService.js
++++ b/services/queueService.js
+@@ -5,15 +5,7 @@
+ class QueueService {
+     constructor() {
+         // Configurar Redis (você precisa ter Redis instalado)
+-        this.mlbQueue = new Bull('MLB Processing Queue', {
+-            redis: {
+-                port: 6379,
+-                host: '127.0.0.1',
+-                // Se usar Redis na nuvem:
+-                // host: 'seu-redis-host.com',
+-                // password: 'sua-senha'
+-            }
+-        });
++        this.mlbQueue = new Bull('MLB Processing Queue', (process.env.REDIS_URL ? process.env.REDIS_URL : { redis: { host: process.env.REDIS_HOST || '127.0.0.1', port: Number(process.env.REDIS_PORT || 6379), password: process.env.REDIS_PASSWORD || undefined } }));
+ 
+         this.setupProcessors();
+         this.setupEventListeners();
+

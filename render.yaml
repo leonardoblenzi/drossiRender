@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: drossiapi-web
+    env: node
+    plan: free
+    buildCommand: "npm ci"
+    startCommand: "node index.js"
+    autoDeploy: true
+    healthCheckPath: "/health"
+    envVars:
+      - key: NODE_ENV
+        value: production
