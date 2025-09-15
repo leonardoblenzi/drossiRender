@@ -368,7 +368,7 @@ app.use((req, res) => {
 // ==========================================
 // INICIALIZAÇÃO
 // ==========================================
-const server = app.listen(process.env.PORT || 3000, '0.0.0.0') => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 ================================');
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log('🚀 ================================');
@@ -379,7 +379,7 @@ const server = app.listen(process.env.PORT || 3000, '0.0.0.0') => {
   console.log(`    • http://localhost:${PORT}/keyword-analytics - Análise de palavras-chave`);
   console.log(`    • http://localhost:${PORT}/criar-promocao - Criar promoções`);
   console.log(`    • http://localhost:${PORT}/remover-promocao - Remover promoções`);
-  console.log(`    • http://localhost:${PORT}/ia-analytics/curva-abc - Curva ABC (Analytics)`); // 👈 novo
+  console.log(`    • http://localhost:${PORT}/ia-analytics/curva-abc - Curva ABC (Analytics)`);
   console.log('🚀 ================================');
   console.log('📊 APIs Principais:');
   console.log(`    • http://localhost:${PORT}/api/account/* - Seleção de conta`);
@@ -387,7 +387,7 @@ const server = app.listen(process.env.PORT || 3000, '0.0.0.0') => {
   console.log(`    • http://localhost:${PORT}/api/keyword-analytics/ - Analytics`);
   console.log(`    • http://localhost:${PORT}/api/promocao/ - Promoções`);
   console.log(`    • http://localhost:${PORT}/api/token/ - Gerenciamento de token`);
-  console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`); // 👈 novo
+  console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`);
   console.log('🚀 ================================');
   console.log('🔧 Sistema de Monitoramento:');
   console.log(`    • http://localhost:${PORT}/api/system/health - Health check`);
@@ -409,6 +409,7 @@ const server = app.listen(process.env.PORT || 3000, '0.0.0.0') => {
   console.log(`    • Redis: ${process.env.REDIS_URL || process.env.REDIS_HOST ? '✅ Configurado' : '❌ Não configurado'}`);
   console.log('🚀 ================================');
 });
+
 
 // ==========================================
 // GRACEFUL SHUTDOWN
