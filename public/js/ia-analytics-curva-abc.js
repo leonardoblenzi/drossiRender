@@ -31,10 +31,10 @@
     metric: 'revenue',
     aCut: 0.75,
     bCut: 0.92,
-    minUnits: 2,
-    limit: 20,            // ✅ 20 por página
+    minUnits: 1,           // ✅ mínimo alterado para 1
+    limit: 20,             // ✅ 20 por página
     page: 1,
-    sort: null,           // null | 'share'
+    sort: null,            // null | 'share'
     lastItems: [],
     totals: null,
     curveCards: null
@@ -110,11 +110,11 @@
       group_by:  state.groupBy,
       a_cut:     state.aCut,
       b_cut:     state.bCut,
-      min_units: state.minUnits,
+      min_units: 1,                // ✅ fixo como 1
       limit:     state.limit,
       page:      state.page
     };
-    if (state.sort) base.sort = state.sort;   // ex.: 'share'
+    if (state.sort) base.sort = state.sort;
     return Object.assign(base, extra);
   }
 
@@ -230,7 +230,7 @@
     }
   }
 
-  // Tabela
+  // ===== Renderização da Tabela
   function renderTable(rows, page, total, limit) {
     state.lastItems = rows || [];
     state.page = page;
@@ -248,7 +248,6 @@
       const unitShare = typeof r.unit_share === 'number' ? r.unit_share : (uTotal > 0 ? (r.units || 0) / uTotal : 0);
       const revShare  = typeof r.revenue_share === 'number' ? r.revenue_share : (rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0);
 
-      // —— ADS (fail-safe em caso de ausência) ——
       const ads = r.ads || {};
       const adsActive = !!ads.active;
       const clicks = Number(ads.clicks || 0);
@@ -283,7 +282,7 @@
     renderPagination(page, total, limit);
   }
 
-  // Paginador 1…N
+  // ===== Paginador
   function renderPagination(page, total, limit) {
     const pager = $('pager');
     const totalPages = Math.max(1, Math.ceil((total || 0) / (limit || 20)));
@@ -315,54 +314,188 @@
     loadItems(curve, p);
   }
 
-  // Summary
-  async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
-    setLoading(true);
+ 
+ // ===== Items Loader
+async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
+  setLoading(true);
+  try {
+    state.curveTab = curve;
+    state.page = page;
+
+    // seleção visual
+    if (curve === 'ALL' && state.sort === 'share') {
+      setSelection('TOTAL');
+    } else if (curve === 'ALL') {
+      qsa('.cards .card').forEach(c => c.classList.remove('selected'));
+    } else {
+      setSelection(curve);
+    }
+
+    const base = getFilters({ curve, page, limit: state.limit, include_ads: '1' });
+    const s = $('fSearch').value?.trim();
+    if (s) base.search = s;
+
+    const params = new URLSearchParams(base).toString();
+    const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(`items HTTP ${r.status}`);
+    const j = await r.json();
+
+    let rows = j.data || [];
+
+    // ===== Ordenação =====
+    if (state.sort === 'share') {
+      // 🔵 Caso especial: Faturamento Total → ordena por participação no faturamento
+      const T = state.totals || {};
+      const rTotal = Number(T.revenue_cents_total || 0);
+      rows = rows
+        .map(it => {
+          const share = (typeof it.revenue_share === 'number')
+            ? it.revenue_share
+            : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
+          return { ...it, __share__: share };
+        })
+        .sort((a, b) => b.__share__ - a.__share__);
+    } else if (state.metric === 'revenue') {
+      // 🔵 Padrão: sempre que métrica for "Valor" → ordena por faturamento
+      rows.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
+    } else {
+      // 🔵 Caso métrica seja "Unidades"
+      rows.sort((a, b) => (b.units || 0) - (a.units || 0));
+    }
+
+    renderTable(rows, j.page || page, j.total || rows.length, j.limit || state.limit);
+  } catch (e) {
+    console.error(e);
+    alert('❌ Falha ao carregar itens da Curva ABC.');
+  } finally {
+    setLoading(false);
+  }
+}
+
+
+async function fetchAllPages() {
+  let page = 1, all = [], totalPages = 1;
+  const limit = 500; // ou o máximo permitido
+
+  do {
+    const base = getFilters({ curve: state.curveTab || 'ALL', page, limit, include_ads: '1' });
+    const params = new URLSearchParams(base).toString();
+    const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+
+    all = all.concat(j.data || []);
+    totalPages = Math.ceil((j.total || 0) / (j.limit || limit));
+    page++;
+  } while (page <= totalPages);
+
+  return all;
+}
+
+
+
+  // ===== Export CSV
+  // Agora com janelas móveis fixas (Vendas 7D/30D/40D/60D/90D) em vez de colunas mensais
+  async function exportCSV() {
     try {
-      state.curveTab = curve;
-      state.page = page;
+      setLoading(true);
 
-      // seleção visual
-      if (curve === 'ALL' && state.sort === 'share') {
-        setSelection('TOTAL');
-      } else if (curve === 'ALL') {
-        qsa('.cards .card').forEach(c => c.classList.remove('selected'));
+      // 1) Buscar TODOS os itens (paginando nos bastidores, com ADS)
+      const allRows = await fetchAllPages(); // usa include_ads='1' internamente
+
+      // 2) Ordenação para o CSV (mesma regra da tela):
+      // - Se state.sort === 'share' → ordenar por participação de faturamento (equivale a faturamento desc)
+      // - Senão, se métrica = 'revenue' (Valor) → faturamento desc
+      // - Senão (métrica = 'units') → unidades desc
+      const rowsForCsv = allRows.slice();
+      if (state.sort === 'share' || state.metric === 'revenue') {
+        rowsForCsv.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
       } else {
-        setSelection(curve);
+        rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
       }
 
-      const base = getFilters({ curve, page, limit: state.limit, include_ads: '1' }); // << inclui ADS
-      const s = $('fSearch').value?.trim();
-      if (s) base.search = s;
+      // 3) Totais para calcular % de participação com base em TODOS os itens
+      const uTotal = rowsForCsv.reduce((s, r) => s + (r.units || 0), 0);
+      const rTotal = rowsForCsv.reduce((s, r) => s + (r.revenue_cents || 0), 0);
 
-      const params = new URLSearchParams(base).toString();
-      const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
-      if (!r.ok) throw new Error(`items HTTP ${r.status}`);
-      const j = await r.json();
+      // 4) Cabeçalho base + colunas FIXAS de janelas móveis (unidades)
+      const head = [
+        'Índice','MLB','SKU','Título','Tipo Logístico',
+        'Unidades','Unid. (%)','Valor','Participação',
+        'ADS','Cliques','Impr.','Invest.','ACOS','Receita Ads',
+        'Vendas 7D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
+      ];
 
-      let rows = j.data || [];
+      // 5) Linhas
+      const rows = rowsForCsv.map(r => {
+        const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
+        const revShare  = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
 
-      // Se sort=share estiver ativo (Total clicado), garanta ordenação por participação (desc)
-      if (state.sort === 'share') {
-        const T = state.totals || {};
-        const rTotal = Number(T.revenue_cents_total || 0);
-        rows = rows
-          .map(it => {
-            const share = (typeof it.revenue_share === 'number')
-              ? it.revenue_share
-              : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
-            return { ...it, __share__: share };
-          })
-          .sort((a, b) => b.__share__ - a.__share__);
-      }
+        const ads = r.ads || {};
+        const adsActive = !!ads.active;
+        const clicks = Number(ads.clicks || 0);
+        const imps   = Number(ads.impressions || 0);
+        const spendC = Number(ads.spend_cents || 0);
+        const aRevC  = Number(ads.revenue_cents || 0);
+        const hasActivity = (clicks + imps + spendC + aRevC) > 0;
+        const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
 
-      renderTable(rows, j.page || page, j.total || rows.length, j.limit || state.limit);
+        // 🔸 Espera-se que o backend passe estes campos inteiros:
+        // units_7d, units_30d, units_40d, units_60d, units_90d
+        const u7   = Number(r.units_7d  ?? 0);
+        const u30  = Number(r.units_30d ?? 0);
+        const u40  = Number(r.units_40d ?? 0);
+        const u60  = Number(r.units_60d ?? 0);
+        const u90  = Number(r.units_90d ?? 0);
+
+        return [
+          r.curve || '-',
+          r.mlb || '',
+          r.sku || '',
+          (r.title || '').replace(/"/g, '""'),
+          r.logistic_type || '',
+          (r.units || 0),
+          (unitShare * 100).toFixed(2).replace('.', ',') + '%',
+          (Number(r.revenue_cents || 0) / 100).toFixed(2).replace('.', ','),
+          (revShare * 100).toFixed(2).replace('.', ',') + '%',
+          adsActive ? 'Sim' : 'Não',
+          clicks,
+          imps,
+          (spendC / 100).toFixed(2).replace('.', ','),
+          hasActivity && acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
+          (aRevC / 100).toFixed(2).replace('.', ','),
+          u7, u30, u40, u60, u90
+        ];
+      });
+
+      // 6) Geração e download do CSV
+      const data = [head, ...rows]
+        .map(cols => cols.map(c => `"${String(c)}"`).join(';'))
+        .join('\r\n');
+
+      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'curva_abc.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+
     } catch (e) {
       console.error(e);
-      alert('❌ Falha ao carregar itens da Curva ABC.');
+      alert('❌ Falha ao exportar CSV: ' + e.message);
     } finally {
       setLoading(false);
     }
+  }
+
+
+
+  // ===== Bind
+  function debounce(fn, ms = 300) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+  function applySwitchDefaults(){
+    qsa('#switch-groupby .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.group === state.groupBy));
+    qsa('#switch-metric  .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.metric === state.metric));
   }
 
   function renderAccountChips() {
@@ -374,94 +507,28 @@
     box.innerHTML = opts.map(o => `<span class="chip">${o.textContent}</span>`).join('');
   }
 
-  // Export CSV
-  function exportCSV() {
-    const T = state.totals || {};
-    const uTotal = Number(T.units_total || 0);
-    const rTotal = Number(T.revenue_cents_total || 0);
-
-    const head = [
-      'Índice','MLB','SKU','Título','Tipo Logístico',
-      'Unidades','Unid. (%)','Valor','Participação',
-      'ADS','Cliques','Impr.','Invest.','ACOS','Receita Ads'
-    ];
-
-    const rows = state.lastItems.map(r => {
-      const unitShare = typeof r.unit_share === 'number' ? r.unit_share : (uTotal > 0 ? (r.units || 0) / uTotal : 0);
-      const revShare  = typeof r.revenue_share === 'number' ? r.revenue_share : (rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0);
-
-      const ads = r.ads || {};
-      const adsActive = !!ads.active;
-      const clicks = Number(ads.clicks || 0);
-      const imps   = Number(ads.impressions || 0);
-      const spendC = Number(ads.spend_cents || 0);
-      const aRevC  = Number(ads.revenue_cents || 0);
-      const hasActivity = (clicks + imps + spendC + aRevC) > 0;
-      const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
-
-      return [
-        r.curve || '-',
-        r.mlb || '',
-        r.sku || '',
-        (r.title || '').replace(/"/g, '""'),
-        r.logistic_type || '',
-        (r.units || 0),
-        (unitShare * 100).toFixed(2).replace('.', ',') + '%',
-        (Number(r.revenue_cents || 0) / 100).toFixed(2).replace('.', ','),
-        (revShare * 100).toFixed(2).replace('.', ',') + '%',
-        adsActive ? 'Sim' : 'Não',
-        clicks,
-        imps,
-        (spendC / 100).toFixed(2).replace('.', ','),
-        hasActivity && acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
-        (aRevC / 100).toFixed(2).replace('.', ',')
-      ];
-    });
-
-    const data = [head, ...rows]
-      .map(cols => cols.map(c => `"${String(c)}"`).join(';'))
-      .join('\r\n');
-    const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'curva_abc.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function debounce(fn, ms = 300) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-  function applySwitchDefaults(){
-    qsa('#switch-groupby .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.group === state.groupBy));
-    qsa('#switch-metric  .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.metric === state.metric));
-  }
-
-  // Bind
   function bind() {
     $('btnPesquisar').addEventListener('click', () => { state.page = 1; loadSummary(); loadItems('ALL', 1); });
 
-    // Click nos cards A/B/C
     qsa('.cards .card[data-curve]').forEach(el => {
       el.addEventListener('click', () => {
         const curve = el.getAttribute('data-curve') || 'ALL';
-        state.sort = null;          // volta ao padrão
+        state.sort = null;
         state.page = 1;
         loadItems(curve, 1);
       });
     });
 
-    // 🔵 Clique no card "Faturamento total": limpar curva, limpar busca e ordenar por participação
     const totalCard = $('cardTotal');
     if (totalCard) {
       totalCard.addEventListener('click', () => {
         $('fSearch').value = '';
-        state.sort = 'share';       // força ordenação por participação
+        state.sort = 'share';
         state.page = 1;
         loadItems('ALL', 1);
       });
     }
 
-    // switches
     qsa('#switch-groupby .btn-switch').forEach(btn => {
       btn.addEventListener('click', () => {
         qsa('#switch-groupby .btn-switch').forEach(b => b.classList.remove('active'));
@@ -479,19 +546,16 @@
       });
     });
 
-    // Busca
     $('fSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.page = 1; loadItems('ALL', 1); } });
     $('fSearch').addEventListener('input', debounce(() => { state.page = 1; loadItems(state.curveTab || 'ALL', 1); }, 500));
 
-    // FULL
     $('fFull').addEventListener('change', () => { state.page = 1; loadSummary(); loadItems(state.curveTab || 'ALL', 1); });
 
-    // Export
     const btnCsv = $('btnExportCsv');
     if (btnCsv) btnCsv.addEventListener('click', exportCSV);
   }
 
-  // Boot
+  // ===== Boot
   window.addEventListener('DOMContentLoaded', async () => {
     await initTopBar();
     setDefaultDates();

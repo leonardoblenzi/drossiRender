@@ -6,7 +6,8 @@ const path = require('path');
 class QueueService {
     constructor() {
         // Configurar Redis (você precisa ter Redis instalado)
-        this.mlbQueue = new Bull(\1, { createClient: () => makeRedis() });
+        this.mlbQueue = new Bull('MLB Processing Queue', { createClient: () => makeRedis() });
+
 
         this.setupProcessors();
         this.setupEventListeners();

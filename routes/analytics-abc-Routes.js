@@ -14,6 +14,18 @@ function parseAccounts(v) { return (v || '').split(',').map(s => s.trim()).filte
 function isoStart(d) { return `${d}T00:00:00.000-00:00`; }
 function isoEnd(d)   { return `${d}T23:59:59.999-00:00`; }
 
+/** Diferença de dias (inteiros) entre o dia-UTC do âncora e o dia-UTC do ISO do pedido.
+ * Ex.: se diff=0 → mesmo dia do âncora; diff=6 → dentro de 7D; diff=29 → dentro de 30D etc.
+ */
+function daysDiffFromAnchorUTC(anchorYMD /* YYYY-MM-DD */, iso) {
+  if (!anchorYMD || !iso) return Infinity;
+  const [ay, am, ad] = anchorYMD.split('-').map(Number);
+  const anchorDayMs = Date.UTC(ay, (am || 1) - 1, ad || 1); // 00:00:00.000Z do dia
+  const d = new Date(iso); // ML retorna ISO com offset; Date normaliza para UTC internamente
+  const orderDayMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return Math.floor((anchorDayMs - orderDayMs) / 86400000);
+}
+
 /** Token provider (usa provider injetado ou services/ml-auth) */
 async function getToken(app, req, accountId) {
   const injected = app.get('getAccessTokenForAccount');
@@ -110,7 +122,6 @@ function parseCommonQuery(q) {
   const hasGroupBy  = typeof q.group_by === 'string';
   const hasACut     = Object.prototype.hasOwnProperty.call(q, 'a_cut');
   const hasBCut     = Object.prototype.hasOwnProperty.call(q, 'b_cut');
-  const hasMinUnits = Object.prototype.hasOwnProperty.call(q, 'min_units');
 
   return {
     date_from: q.date_from,
@@ -126,9 +137,8 @@ function parseCommonQuery(q) {
     b_cut: !hasBCut || isNaN(parseFloat(q.b_cut))
       ? 0.92 : Math.max(0.70, Math.min(0.99, parseFloat(q.b_cut))),
 
-    min_units: hasMinUnits
-      ? Math.max(0, parseInt(q.min_units || '0', 10))
-      : 2,
+    // ✅ padrão = 1
+    min_units: Math.max(1, parseInt(q.min_units || '1', 10)),
 
     full: (q.full || 'all') // all | only | skip
   };
@@ -137,7 +147,7 @@ function parseCommonQuery(q) {
 /** GET /api/analytics/abc-ml/summary */
 router.get('/abc-ml/summary', async (req, res) => {
   const p = parseCommonQuery(req.query);
-  const { date_from, date_to, accounts, full, metric, group_by, a_cut, b_cut, min_units } = p;
+  const { date_from, date_to, accounts, full, metric, group_by, a_cut, b_cut } = p;
 
   if (!date_from || !date_to || accounts.length === 0) {
     return res.status(400).json({ error: 'date_from, date_to, accounts são obrigatórios' });
@@ -188,7 +198,6 @@ router.get('/abc-ml/summary', async (req, res) => {
     }
 
     let rows = Array.from(map.values());
-    if (min_units > 0) rows = rows.filter(r => (r.units || 0) >= min_units);
 
     const labeled = classifyABC(rows, {
       metric: metric === 'revenue' ? 'revenue' : 'units',
@@ -196,11 +205,11 @@ router.get('/abc-ml/summary', async (req, res) => {
       bCut: b_cut
     }).rows;
 
-    // Totais globais (para %)
+    // Totais globais
     const totalUnits = labeled.reduce((s, r) => s + (r.units || 0), 0);
     const totalRevenueCents = labeled.reduce((s, r) => s + (r.revenue_cents || 0), 0);
 
-    // Aggreg por curva (para cards)
+    // Aggreg por curva
     function aggCurve(curve) {
       const arr = labeled.filter(r => r.curve === curve);
       const units = arr.reduce((s, r) => s + (r.units || 0), 0);
@@ -213,25 +222,17 @@ router.get('/abc-ml/summary', async (req, res) => {
 
     const cards = { A: aggCurve('A'), B: aggCurve('B'), C: aggCurve('C') };
 
-    const metricKey = (metric === 'revenue') ? 'revenue' : 'units';
-    const totals = {
-      items_total: labeled.length,
-      units_total: totalUnits,
-      revenue_cents_total: totalRevenueCents
-    };
-
-    // Curves meta (compat)
-    const shareOf = (curve) =>
-      labeled.reduce((s, r) => s + (r.curve === curve ? (r[metricKey] || 0) : 0), 0) /
-      (labeled.reduce((s, r) => s + (r[metricKey] || 0), 0) || 1);
-
     res.json({
-      meta: { date_from, date_to, accounts, full, metric: metricKey, group_by, a_cut, b_cut, min_units },
-      totals,
+      meta: { date_from, date_to, accounts, full, metric, group_by, a_cut, b_cut },
+      totals: {
+        items_total: labeled.length,
+        units_total: totalUnits,
+        revenue_cents_total: totalRevenueCents
+      },
       curves: {
-        A: { count_items: labeled.filter(r => r.curve === 'A').length, share: shareOf('A') },
-        B: { count_items: labeled.filter(r => r.curve === 'B').length, share: shareOf('B') },
-        C: { count_items: labeled.filter(r => r.curve === 'C').length, share: shareOf('C') }
+        A: { count_items: labeled.filter(r => r.curve === 'A').length, share: cards.A.revenue_share },
+        B: { count_items: labeled.filter(r => r.curve === 'B').length, share: cards.B.revenue_share },
+        C: { count_items: labeled.filter(r => r.curve === 'C').length, share: cards.C.revenue_share }
       },
       curve_cards: {
         A: cards.A,
@@ -259,16 +260,15 @@ router.get('/abc-ml/summary', async (req, res) => {
 /** GET /api/analytics/abc-ml/items */
 router.get('/abc-ml/items', async (req, res) => {
   const p = parseCommonQuery(req.query);
-  const { date_from, date_to, accounts, full, metric, group_by, a_cut, b_cut, min_units } = p;
+  const { date_from, date_to, accounts, full, metric, group_by, a_cut, b_cut } = p;
 
-  // novos parâmetros (com defaults)
   const {
     curve = 'ALL',
     search = '',
-    sort = 'units_desc',   // units_desc | revenue_desc | share
+    sort = 'units_desc',
     page = '1',
     limit = '50',
-    include_ads = '1'      // '1' para ativar Ads por padrão
+    include_ads = '1'
   } = req.query;
 
   if (!date_from || !date_to || accounts.length === 0) {
@@ -284,6 +284,7 @@ router.get('/abc-ml/items', async (req, res) => {
 
       for await (const order of iterOrders({ token, sellerId, date_from, date_to })) {
         const fullOrder = isFull(order);
+        const diffDays = daysDiffFromAnchorUTC(date_to, order?.date_created || '');
 
         for (const it of (order.order_items || [])) {
           const mlb = it?.item?.id;
@@ -309,19 +310,37 @@ router.get('/abc-ml/items', async (req, res) => {
             revenue: 0,
             revenue_cents: 0,
             is_full: false,
-            _account: acc, // guarda a conta do primeiro registro daquele key
+            _account: acc,
+
+            // >>> JANELAS MÓVEIS (unidades) — colunas fixas
+            units_7d:  0,
+            units_30d: 0,
+            units_40d: 0,
+            units_60d: 0,
+            units_90d: 0
           };
+
+          // acumulados gerais
           row.units += q;
           row.revenue += revenue;
           row.revenue_cents = Math.round(row.revenue * 100);
           row.is_full = row.is_full || fullOrder;
+
+          // acumulados das janelas móveis (diferença por DIA-UTC; inclusivo)
+          if (Number.isFinite(diffDays) && diffDays >= 0) {
+            if (diffDays <= 6)  row.units_7d  += q; // últimos 7 dias
+            if (diffDays <= 29) row.units_30d += q; // últimos 30 dias
+            if (diffDays <= 39) row.units_40d += q; // últimos 40 dias
+            if (diffDays <= 59) row.units_60d += q; // últimos 60 dias
+            if (diffDays <= 89) row.units_90d += q; // últimos 90 dias
+          }
+
           map.set(key, row);
         }
       }
     }
 
     let rows = Array.from(map.values());
-    if (min_units > 0) rows = rows.filter(r => (r.units || 0) >= min_units);
 
     const labeled = classifyABC(rows, {
       metric: metric === 'revenue' ? 'revenue' : 'units',
@@ -329,16 +348,15 @@ router.get('/abc-ml/items', async (req, res) => {
       bCut: b_cut
     }).rows;
 
-    // Totais para % (fixos: unidades e receita)
-    const totalUnits = labeled.reduce((s, r) => s + (r.units || 0), 0) || 0;
-    const totalRevenueCents = labeled.reduce((s, r) => s + (r.revenue_cents || 0), 0) || 0;
+    const totalUnits = labeled.reduce((s, r) => s + (r.units || 0), 0);
+    const totalRevenueCents = labeled.reduce((s, r) => s + (r.revenue_cents || 0), 0);
 
     labeled.forEach(r => {
       r.unit_share = totalUnits > 0 ? r.units / totalUnits : 0;
       r.revenue_share = totalRevenueCents > 0 ? r.revenue_cents / totalRevenueCents : 0;
     });
 
-    // Filtros (curva + busca)
+    // filtros (curva + busca)
     const filtered = labeled.filter(r =>
       (curve === 'ALL' || r.curve === curve) &&
       (!search ||
@@ -347,34 +365,31 @@ router.get('/abc-ml/items', async (req, res) => {
         (r.title || '').toLowerCase().includes(search.toLowerCase()))
     );
 
-    // Ordenação
+    // ordenação
     if (sort === 'revenue_desc') {
       filtered.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
     } else if (sort === 'share') {
       filtered.sort((a, b) => (b.revenue_share || 0) - (a.revenue_share || 0));
     } else {
-      filtered.sort((a, b) => (b.units || 0) - (a.units || 0)); // padrão
+      filtered.sort((a, b) => (b.units || 0) - (a.units || 0));
     }
 
-    // Paginação
+    // paginação
     const pnum = Math.max(parseInt(page, 10), 1);
     const lim  = Math.min(Math.max(parseInt(limit, 10), 1), 200);
     const start = (pnum - 1) * lim;
     const pageSlice = filtered.slice(start, start + lim);
 
-    // ===== Métricas de Ads (opcional, por conta) =====
+    // métricas de Ads (opcional)
     if (String(include_ads) === '1' && pageSlice.length) {
       try {
         const AdsService = require('../services/adsService');
-
-        // MLBs por conta (usa _account definido na agregação)
         const byAccount = new Map();
         for (const r of pageSlice) {
           const acc = r._account || accounts[0];
           if (!byAccount.has(acc)) byAccount.set(acc, new Set());
           byAccount.get(acc).add(String(r.mlb || '').toUpperCase());
         }
-
         const adsAccum = {};
         for (const acc of byAccount.keys()) {
           const token = await getToken(req.app, req, acc);
@@ -387,15 +402,10 @@ router.get('/abc-ml/items', async (req, res) => {
           });
           Object.assign(adsAccum, m);
         }
-
-        // anexa objeto ads padronizado em cada item da página
         for (const it of pageSlice) {
           const key = String(it.mlb || '').toUpperCase();
           const met = adsAccum[key] || null;
-
-          // >>> PATCH: mapeia active com base em in_campaign OU had_activity
           const active = !!(met && (met.in_campaign || met.had_activity));
-
           it.ads = met ? {
             active,
             clicks: met.clicks || 0,
