@@ -269,7 +269,7 @@ router.get('/abc-ml/summary', async (req, res) => {
   }
 });
 
-/** ------- ADS v2 helpers ------- */
+/** ------- HTTP helper + ADS v2 helpers ------- */
 
 /** GET JSON com retry simples + coleta de debug */
 async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
@@ -283,7 +283,7 @@ async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
         type: 'http',
         url,
         status,
-        body: text.slice(0, 1024) // limita para não estourar resposta
+        body: text.slice(0, 1024)
       });
     }
     if (status === 429 || (status >= 500 && status < 600)) {
@@ -302,15 +302,12 @@ async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
 
 /** Lê mapeamento de advertiser_id por site via env ou query */
 function getAdvertiserIdFromConfig(req, site) {
-  // query tem prioridade
   const qKey = `adv_id_${site}`;
   if (req.query && req.query[qKey]) return String(req.query[qKey]);
 
-  // envs conhecidos (ADS_ADV_ID_MLB, ADS_ADV_ID_MLM, …)
   const envKey = `ADS_ADV_ID_${site}`;
   if (process.env[envKey]) return String(process.env[envKey]);
 
-  // mapeamento JSON opcional: ADS_ADV_ID_MAP='{"MLB":"123","MLM":"456"}'
   if (process.env.ADS_ADV_ID_MAP) {
     try {
       const m = JSON.parse(process.env.ADS_ADV_ID_MAP);
@@ -337,7 +334,7 @@ async function getAdvertisersForToken(token, dbgArr) {
     return map;
   } catch (e) {
     if (dbgArr) dbgArr.push({ type: 'advertisers_error', url, message: e.message });
-    return new Map(); // deixa vazio para fallback single
+    return new Map();
   }
 }
 
@@ -356,14 +353,14 @@ async function fetchItemStatus({ token, site, itemId, dbgArr }) {
   }
 }
 
-/** Busca métricas single por item, com canais configuráveis e sem duplicar se API ignorar o canal */
+/** Métricas single por item (Ads) */
 async function fetchAdsMetricsSingle({ token, site, itemId, date_from, date_to, channels = ['marketplace'], dbgArr }) {
   let clicks = 0, prints = 0, cost = 0, acos = null, total_amount = 0, direct_amount = 0, indirect_amount = 0;
 
   const metrics = 'clicks,prints,cost,acos,total_amount,direct_amount,indirect_amount,units_quantity';
   const base = `https://api.mercadolibre.com/advertising/${site}/product_ads/ads/${itemId}`;
   const headers = { Authorization: `Bearer ${token}`, 'api-version': '2' };
-  const counted = new Set(); // canais já considerados
+  const counted = new Set();
 
   async function tryChannel(requestedChannel) {
     const qs = new URLSearchParams({
@@ -375,25 +372,13 @@ async function fetchAdsMetricsSingle({ token, site, itemId, date_from, date_to, 
     const url = `${base}?${qs}`;
     const j = await httpGetJson(url, headers, 2, dbgArr);
 
-    // Se a API informar o canal retornado, use para evitar duplicar quando ignora o parâmetro
     const respChannel = String(j?.channel || '').toLowerCase();
     if (respChannel) {
-      if (counted.has(respChannel)) {
-        dbgArr && dbgArr.push({ type: 'skip_duplicate_channel', requestedChannel, respChannel, url });
-        return;
-      }
-      // se veio um canal diferente do solicitado, evite somar
-      if (requestedChannel && respChannel !== requestedChannel) {
-        dbgArr && dbgArr.push({ type: 'skip_channel_mismatch', requestedChannel, respChannel, url });
-        return;
-      }
+      if (counted.has(respChannel)) return;
+      if (requestedChannel && respChannel !== requestedChannel) return;
       counted.add(respChannel);
     } else {
-      // API não informou canal → usa o solicitado como chave de dedupe
-      if (counted.has(requestedChannel || 'unknown')) {
-        dbgArr && dbgArr.push({ type: 'skip_duplicate_channel_nullresp', requestedChannel, url });
-        return;
-      }
+      if (counted.has(requestedChannel || 'unknown')) return;
       counted.add(requestedChannel || 'unknown');
     }
 
@@ -420,15 +405,13 @@ async function fetchAdsMetricsSingle({ token, site, itemId, date_from, date_to, 
 }
 
 /**
- * Busca métricas + status para vários itens (da página),
- * tenta advertiser batch por canal; senão single por item.
+ * ADS v2 — tenta batch (advertiser) e completa com single por item
  */
 async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to, channels = ['marketplace'], dbgAcc }) {
   const out = {};
   const ids = Array.from(new Set((itemIds || []).map(x => String(x).toUpperCase()).filter(Boolean)));
   if (!ids.length) return out;
 
-  // group por SITE (MLB, MLM, ...)
   const bySite = new Map();
   for (const id of ids) {
     const site = id.slice(0, 3);
@@ -436,21 +419,16 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
     bySite.get(site).push(id);
   }
 
-  // tentar obter advertisers do token (pode dar 403)
   const advertisersMap = await getAdvertisersForToken(token, dbgAcc.calls);
 
   for (const [site, arr] of bySite.entries()) {
-    // advertiser via query/env tem prioridade
     const forcedAdvertiser = getAdvertiserIdFromConfig(req, site);
     const advertiserId = forcedAdvertiser || advertisersMap.get(site) || null;
 
-    // Se temos advertiserId, tentamos BATCH por canal
     if (advertiserId) {
       const CHUNK = 100;
       for (let i = 0; i < arr.length; i += CHUNK) {
         const slice = arr.slice(i, i + CHUNK);
-
-        // acumuladores por item (somando múltiplos canais)
         const agg = new Map();
 
         for (const channel of channels) {
@@ -487,7 +465,6 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
 
               const raw = String(r.status || '').toLowerCase();
               const st = raw === 'active' ? 'active' : raw === 'paused' ? 'paused' : 'none';
-              // status geral: se qualquer canal ativo => active; senão se algum paused => paused
               prev.status_code = (prev.status_code === 'active' || st === 'active') ? 'active'
                                 : (prev.status_code === 'paused' || st === 'paused') ? 'paused'
                                 : 'none';
@@ -499,7 +476,6 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
           }
         }
 
-        // move para out (converte para cents e calcula acos)
         for (const [itemId, v] of agg.entries()) {
           const spend_cents = Math.round(v.cost * 100);
           const revenue_amount = v.total_amount > 0 ? v.total_amount : (v.direct_amount + v.indirect_amount);
@@ -523,17 +499,14 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
       }
     }
 
-    // Para os que ficaram sem dados (ou quando não deu para fazer batch), usa single
     const missing = arr.filter(id => !out[id]);
     dbgAcc.missingAfterSearch.push(...missing);
 
     for (const itemId of missing) {
       try {
-        // status
         const status_code = await fetchItemStatus({ token, site, itemId, dbgArr: dbgAcc.calls });
         const status_text = status_code === 'active' ? 'Ativo' : status_code === 'paused' ? 'Pausado' : 'Não';
 
-        // métricas single com canais configuráveis
         const m = await fetchAdsMetricsSingle({
           token, site, itemId, date_from, date_to, channels, dbgArr: dbgAcc.calls
         });
@@ -566,7 +539,188 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
   return out;
 }
 
-/** GET /api/analytics/abc-ml/items */
+/** --------- PROMOÇÕES (Central de Promoções) --------- */
+
+/**
+ * Tenta obter promoções ativas para os itens informados via /seller-promotions (batch).
+ * Retorna map { MLB...: { active: bool, percent: number|null } }
+ *
+ * Observações:
+ * - Agrupa por SITE (MLB/MLM…) e consulta campanhas ativas do seller.
+ * - Para cada campanha, pagina os itens e cruza com o conjunto desejado.
+ * - Se o endpoint não estiver disponível ao app, retornamos {} para que o caller faça fallback.
+ */
+async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDbg }) {
+  const out = {};
+  const ids = Array.from(new Set((itemIds || []).map(i => String(i).toUpperCase())));
+  if (!ids.length) return out;
+
+  // agrupa itens por site
+  const bySite = new Map();
+  for (const id of ids) {
+    const site = id.slice(0, 3);
+    if (!bySite.has(site)) bySite.set(site, new Set());
+    bySite.get(site).add(id);
+  }
+
+  for (const [site, wantedSet] of bySite.entries()) {
+    // 1) lista promoções ativas do seller neste site
+    const base = 'https://api.mercadolibre.com';
+    const headers = { Authorization: `Bearer ${token}` };
+    const searchUrl = new URL(`${base}/seller-promotions/search`);
+    searchUrl.searchParams.set('site_id', site);
+    searchUrl.searchParams.set('seller_id', String(sellerId));
+    searchUrl.searchParams.set('status', 'active');
+    // opcional: filtrar tipos mais comuns (PRICE_DISCOUNT, DEAL, etc.)
+    // searchUrl.searchParams.set('promotion_type', 'PRICE_DISCOUNT');
+
+    let promos;
+    try {
+      promos = await httpGetJson(searchUrl.toString(), headers, 2, promosDbg);
+    } catch (e) {
+      promosDbg && promosDbg.push({ type: 'promos_search_error', url: String(searchUrl), message: e.message });
+      continue;
+    }
+
+    const list = Array.isArray(promos?.results) ? promos.results : Array.isArray(promos?.promotions) ? promos.promotions : [];
+    for (const p of list) {
+      const promoId = p.id || p.promotion_id;
+      if (!promoId) continue;
+
+      // 2) pagina itens da promoção e cruza com os que precisamos
+      let offset = 0, limit = 200;
+      for (;;) {
+        const itemsUrl = new URL(`${base}/seller-promotions/${promoId}/items`);
+        itemsUrl.searchParams.set('offset', String(offset));
+        itemsUrl.searchParams.set('limit', String(limit));
+        let j;
+        try {
+          j = await httpGetJson(itemsUrl.toString(), headers, 2, promosDbg);
+        } catch (e) {
+          promosDbg && promosDbg.push({ type: 'promos_items_error', url: String(itemsUrl), message: e.message });
+          break;
+        }
+
+        const arr = Array.isArray(j?.results) ? j.results : Array.isArray(j?.items) ? j.items : [];
+        for (const it of arr) {
+          const itemId = String(it.item_id || it.id || '').toUpperCase();
+          if (!itemId || !wantedSet.has(itemId)) continue;
+
+          // percent pode vir como discount_rate/percentage/applied_percentage dependendo do tipo
+          const pct =
+            it.applied_percentage ??
+            it.discount_percentage ??
+            it.discount_rate ??
+            it.benefit_percentage ??
+            null;
+
+          out[itemId] = { active: true, percent: (pct != null ? Number(pct) / (pct > 1 ? 100 : 1) : null) };
+        }
+
+        const total = j?.paging?.total ?? j?.total ?? arr.length;
+        offset += limit;
+        if (offset >= total) break;
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Fallback por item quando /seller-promotions não estiver disponível:
+ * - tenta via Prices/Items obter price vs original_price e calcular percentual aplicado agora.
+ * - Retorna { active, percent } heurístico (active = true se price < original_price).
+ */
+async function fetchPromotionForItemFallback({ token, itemId, promosDbg }) {
+  const site = String(itemId).slice(0, 3);
+  const headers = { Authorization: `Bearer ${token}` };
+
+  // 1) tenta Prices API (se disponível)
+  // GET /prices/{item_id}
+  try {
+    const u = `https://api.mercadolibre.com/prices/${encodeURIComponent(itemId)}`;
+    const j = await httpGetJson(u, headers, 2, promosDbg);
+    const variations = Array.isArray(j?.prices) ? j.prices : [];
+    // pega o preço "current" (ou último) e o "original" se existir
+    let price = null, original = null;
+    for (const pr of variations) {
+      if (pr.status === 'active' || pr.type === 'standard') {
+        price = Number(pr.amount ?? pr.price ?? price);
+      }
+      if (pr.type === 'original' || pr.compare_price === true) {
+        original = Number(pr.amount ?? pr.price ?? original);
+      }
+    }
+    if (price != null && original != null && original > price) {
+      const pct = (original - price) / original; // 0..1
+      return { active: true, percent: pct };
+    }
+  } catch (e) {
+    promosDbg && promosDbg.push({ type: 'prices_api_error', itemId, message: e.message });
+  }
+
+  // 2) fallback final via /items (ainda expõe price/original_price em alguns sites)
+  try {
+    const u = `https://api.mercadolibre.com/items/${encodeURIComponent(itemId)}?attributes=price,original_price`;
+    const j = await httpGetJson(u, headers, 2, promosDbg);
+    const price = Number(j?.price ?? NaN);
+    const original = Number(j?.original_price ?? NaN);
+    if (Number.isFinite(price) && Number.isFinite(original) && original > price) {
+      const pct = (original - price) / original;
+      return { active: true, percent: pct };
+    }
+  } catch (e) {
+    promosDbg && promosDbg.push({ type: 'items_api_error', itemId, message: e.message });
+  }
+
+  return { active: false, percent: null };
+}
+
+/**
+ * Enriquecimento de promoções para itens (por conta), usando batch e fallback.
+ */
+async function enrichWithPromotions({ app, req, accounts, pageSlice, promosDebugEnabled }) {
+  const byAccount = new Map();
+  for (const r of pageSlice) {
+    const acc = r._account || accounts[0];
+    if (!byAccount.has(acc)) byAccount.set(acc, new Set());
+    byAccount.get(acc).add(String(r.mlb || '').toUpperCase());
+  }
+
+  const result = {};
+  const promos_debug = {};
+
+  for (const acc of byAccount.keys()) {
+    const token = await getToken(app, req, acc);
+    const sellerId = await getSellerId(token);
+    const ids = Array.from(byAccount.get(acc));
+
+    const dbg = { calls: [] };
+    try {
+      // tenta batch via Central de Promoções
+      const batch = await fetchPromotionsForItemsBatch({ token, sellerId, itemIds: ids, promosDbg: dbg.calls });
+      Object.assign(result, batch);
+
+      // completa os que ficaram sem informação com fallback por item
+      const missing = ids.filter(id => !result[id]);
+      for (const id of missing) {
+        try {
+          result[id] = await fetchPromotionForItemFallback({ token, itemId: id, promosDbg: dbg.calls });
+        } catch (e) {
+          dbg.calls.push({ type: 'promo_single_error', itemId: id, message: e.message });
+          result[id] = { active: false, percent: null };
+        }
+      }
+    } finally {
+      if (promosDebugEnabled) promos_debug[acc] = dbg;
+    }
+  }
+
+  return { map: result, debug: promos_debug };
+}
+
+/** -------------------- GET /api/analytics/abc-ml/items -------------------- */
 router.get('/abc-ml/items', async (req, res) => {
   const p = parseCommonQuery(req.query);
   const { date_from, date_to, accounts, full, metric, group_by, a_cut, b_cut } = p;
@@ -579,7 +733,9 @@ router.get('/abc-ml/items', async (req, res) => {
     limit = '50',
     include_ads = '1',
     include_ads_debug = '0',
-    ads_channels = 'marketplace'
+    ads_channels = 'marketplace',
+    include_promos = '1',
+    include_promos_debug = '0'
   } = req.query;
 
   if (!date_from || !date_to || accounts.length === 0) {
@@ -673,7 +829,7 @@ router.get('/abc-ml/items', async (req, res) => {
       r.revenue_share = totalRevenueCents > 0 ? r.revenue_cents / totalRevenueCents : 0;
     });
 
-    // filtros (curva + busca)
+    // filtros
     const filtered = labeled.filter(r =>
       (curve === 'ALL' || r.curve === curve) &&
       (!search ||
@@ -697,10 +853,9 @@ router.get('/abc-ml/items', async (req, res) => {
     const start = (pnum - 1) * lim;
     const pageSlice = filtered.slice(start, start + lim);
 
-    // ADS v2 — por anúncio (apenas itens da página)
+    /** ADS v2 — por anúncio (apenas itens da página) */
     const adsDebugEnabled = String(include_ads_debug) === '1';
     const adsDebug = {};
-    // canais configuráveis: ads_channels=marketplace,mshops
     const channels = String(ads_channels || 'marketplace')
       .split(',')
       .map(s => s.trim().toLowerCase())
@@ -748,8 +903,33 @@ router.get('/abc-ml/items', async (req, res) => {
       }
     }
 
+    /** Promoções — Central de Promoções (apenas itens da página) */
+    const promosDebugEnabled = String(include_promos_debug) === '1';
+    let promosDebug = {};
+    if (String(include_promos) === '1' && pageSlice.length) {
+      try {
+        const { map: promosMap, debug } = await enrichWithPromotions({
+          app: req.app, req, accounts, pageSlice, promosDebugEnabled
+        });
+        promosDebug = debug || {};
+        for (const it of pageSlice) {
+          const key = String(it.mlb || '').toUpperCase();
+          const pv = promosMap[key] || { active: false, percent: null };
+          it.promo = { active: !!pv.active, percent: (pv.percent != null ? Number(pv.percent) : null) };
+        }
+      } catch (e) {
+        if (promosDebugEnabled) promosDebug.__error = e.message;
+        // garante a presença da chave
+        for (const it of pageSlice) {
+          if (!it.promo) it.promo = { active: false, percent: null };
+        }
+      }
+    }
+
     const response = { page: pnum, limit: lim, total: filtered.length, data: pageSlice };
     if (adsDebugEnabled) response.ads_debug = adsDebug;
+    if (promosDebugEnabled) response.promos_debug = promosDebug;
+
     res.json(response);
   } catch (e) {
     console.error(e);

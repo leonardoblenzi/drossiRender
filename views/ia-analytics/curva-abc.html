@@ -162,38 +162,51 @@
 
     <!-- Tabela -->
     <section class="card" style="cursor:default">
-      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between">
+      <div class="table-scroll" style="display:flex;gap:12px;align-items:center;justify-content:space-between">
         <strong>Itens</strong>
         <input id="fSearch" placeholder="Buscar por MLB, SKU ou título" class="input" style="max-width:320px">
       </div>
       <table id="grid">
-        <thead>
-  <tr>
-    <th>Índice</th>
-    <th>MLB</th>
-    <th>SKU</th>
-    <th>Título</th>
-    <th>Tipo Logístico</th>
-    <th>Unidades</th>
-    <th class="percent">Unid. (%)</th>
-    <th class="num">Valor</th>
-    <th class="percent">Participação</th>
 
-    <!-- NOVAS COLUNAS ADS -->
-    <th>ADS</th>
-    <th class="num">Cliques</th>
-    <th class="num">Impr.</th>
-    <th class="num">Invest.</th>
-    <th class="percent">ACOS</th>
-    <th class="num">Receita Ads</th>
-  </tr>
-        </thead>
 
-        <tbody></tbody>
-      </table>
-      <div id="pager" style="margin-top:8px" class="muted"></div>
+  <thead>
+    <tr>
+      <th>Índice</th>
+      <th>MLB</th>
+      <th>Título</th>
+      <th>Unidades</th>
+      <th class="percent">Unid. (%)</th>
+      <th class="num">Valor</th>
+      <th class="percent">FATURAMENTO %</th>
+      <th class="promo">PROMO</th>
+      <th class="percent">% APLICADA</th>
+      <th>ADS</th>
+      <th class="num">Cliques</th>
+      <th class="num">Impr.</th>
+      <th class="num">Invest.</th>
+      <th class="percent">ACOS</th>
+      <th class="num">Receita Ads</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+      <div id="pager" style="margin-top:8px" class="pager-wrap muted"></div>
     </section>
   </div>
+<!-- Painel lateral de progresso -->
+<div id="abcProgress" class="abc-progress hidden" aria-live="polite">
+  <div class="abc-progress__head">
+    <strong id="abcProgressTitle">Processando relatório</strong>
+    <button id="abcProgressClose" type="button" title="Fechar">×</button>
+  </div>
+  <div class="abc-progress__bar">
+    <div class="abc-progress__bar-fill" style="width:0%"></div>
+    <div class="abc-progress__bar-indet"></div>
+  </div>
+  <div id="abcProgressStep" class="abc-progress__step">Iniciando…</div>
+  <ul id="abcProgressLog" class="abc-progress__log"></ul>
+</div>
 
   <script src="/js/ia-analytics-curva-abc.js"></script>
 </body>
