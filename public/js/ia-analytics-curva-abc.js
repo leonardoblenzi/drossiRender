@@ -14,14 +14,20 @@
     `${(Number(x || 0) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
   const asArray = (sel) => Array.from(sel.selectedOptions).map(o => o.value).filter(Boolean);
 
-  // 🔵 Badge visual "ADS: Sim/Não"
-  function adsBadgeHTML(isOn, hasActivity) {
-    const cls = isOn ? 'ads-yes' : 'ads-no';
-    const label = isOn ? 'Sim' : 'Não';
-    const hint = isOn
-      ? (hasActivity ? 'Em campanha e com atividade no período' : 'Em campanha no período')
-      : (hasActivity ? 'Sem campanha (verifique atribuição)' : 'Sem campanha no período');
-    return `<span class="ads-badge ${cls}" title="${hint}"><span class="dot"></span>${label}</span>`;
+  // 🔵 Badge visual "ADS: Status"
+  function adsBadgeHTML(statusCode, statusText, hasActivity) {
+    // statusCode: 'active' | 'paused' | 'none' (outros mapeados para 'none')
+    const cls =
+      statusCode === 'active' ? 'ads-yes' :
+      statusCode === 'paused' ? 'ads-paused' :
+      'ads-no';
+    const hint =
+      statusCode === 'active'
+        ? (hasActivity ? 'Em campanha (com atividade no período)' : 'Em campanha (sem atividade no período)')
+        : statusCode === 'paused'
+          ? 'Em campanha (pausado no período)'
+          : (hasActivity ? 'Sem campanha (houve atividade registrada — verifique atribuição)' : 'Sem campanha no período');
+    return `<span class="ads-badge ${cls}" title="${hint}"><span class="dot"></span>${statusText}</span>`;
   }
 
   const state = {
@@ -31,16 +37,16 @@
     metric: 'revenue',
     aCut: 0.75,
     bCut: 0.92,
-    minUnits: 1,           // ✅ mínimo alterado para 1
-    limit: 20,             // ✅ 20 por página
+    minUnits: 1,
+    limit: 20,
     page: 1,
-    sort: null,            // null | 'share'
+    sort: null,
     lastItems: [],
     totals: null,
     curveCards: null
   };
 
-  // ===== Topbar (conta / status)
+  // ===== Topbar
   async function initTopBar() {
     try {
       const r = await fetch('/api/account/current', { cache: 'no-store' });
@@ -110,7 +116,7 @@
       group_by:  state.groupBy,
       a_cut:     state.aCut,
       b_cut:     state.bCut,
-      min_units: 1,                // ✅ fixo como 1
+      min_units: 1,
       limit:     state.limit,
       page:      state.page
     };
@@ -249,12 +255,13 @@
       const revShare  = typeof r.revenue_share === 'number' ? r.revenue_share : (rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0);
 
       const ads = r.ads || {};
-      const adsActive = !!ads.active;
+      const statusCode = ads.status_code || (ads.in_campaign ? 'active' : 'none');
+      const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
       const clicks = Number(ads.clicks || 0);
       const imps   = Number(ads.impressions || 0);
       const spendC = Number(ads.spend_cents || 0);
       const aRevC  = Number(ads.revenue_cents || 0);
-      const hasActivity = (clicks + imps + spendC + aRevC) > 0;
+      const hasActivity = !!ads.had_activity || (clicks + imps + spendC + aRevC) > 0;
       const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
 
       const tr = document.createElement('tr');
@@ -269,7 +276,7 @@
         <td class="num">${fmtMoneyCents(r.revenue_cents || 0)}</td>
         <td class="percent">${fmtPct(revShare)}</td>
 
-        <td>${adsBadgeHTML(adsActive, hasActivity)}</td>
+        <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
         <td class="num">${clicks.toLocaleString('pt-BR')}</td>
         <td class="num">${imps.toLocaleString('pt-BR')}</td>
         <td class="num">${fmtMoneyCents(spendC)}</td>
@@ -314,99 +321,84 @@
     loadItems(curve, p);
   }
 
- 
- // ===== Items Loader
-async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
-  setLoading(true);
-  try {
-    state.curveTab = curve;
-    state.page = page;
+  // ===== Items Loader
+  async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
+    setLoading(true);
+    try {
+      state.curveTab = curve;
+      state.page = page;
 
-    // seleção visual
-    if (curve === 'ALL' && state.sort === 'share') {
-      setSelection('TOTAL');
-    } else if (curve === 'ALL') {
-      qsa('.cards .card').forEach(c => c.classList.remove('selected'));
-    } else {
-      setSelection(curve);
+      if (curve === 'ALL' && state.sort === 'share') {
+        setSelection('TOTAL');
+      } else if (curve === 'ALL') {
+        qsa('.cards .card').forEach(c => c.classList.remove('selected'));
+      } else {
+        setSelection(curve);
+      }
+
+      const base = getFilters({ curve, page, limit: state.limit, include_ads: '1' });
+      const s = $('fSearch').value?.trim();
+      if (s) base.search = s;
+
+      const params = new URLSearchParams(base).toString();
+      const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error(`items HTTP ${r.status}`);
+      const j = await r.json();
+
+      let rows = j.data || [];
+
+      if (state.sort === 'share') {
+        const T = state.totals || {};
+        const rTotal = Number(T.revenue_cents_total || 0);
+        rows = rows
+          .map(it => {
+            const share = (typeof it.revenue_share === 'number')
+              ? it.revenue_share
+              : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
+            return { ...it, __share__: share };
+          })
+          .sort((a, b) => b.__share__ - a.__share__);
+      } else if (state.metric === 'revenue') {
+        rows.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
+      } else {
+        rows.sort((a, b) => (b.units || 0) - (a.units || 0));
+      }
+
+      renderTable(rows, j.page || page, j.total || rows.length, j.limit || state.limit);
+    } catch (e) {
+      console.error(e);
+      alert('❌ Falha ao carregar itens da Curva ABC.');
+    } finally {
+      setLoading(false);
     }
-
-    const base = getFilters({ curve, page, limit: state.limit, include_ads: '1' });
-    const s = $('fSearch').value?.trim();
-    if (s) base.search = s;
-
-    const params = new URLSearchParams(base).toString();
-    const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
-    if (!r.ok) throw new Error(`items HTTP ${r.status}`);
-    const j = await r.json();
-
-    let rows = j.data || [];
-
-    // ===== Ordenação =====
-    if (state.sort === 'share') {
-      // 🔵 Caso especial: Faturamento Total → ordena por participação no faturamento
-      const T = state.totals || {};
-      const rTotal = Number(T.revenue_cents_total || 0);
-      rows = rows
-        .map(it => {
-          const share = (typeof it.revenue_share === 'number')
-            ? it.revenue_share
-            : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
-          return { ...it, __share__: share };
-        })
-        .sort((a, b) => b.__share__ - a.__share__);
-    } else if (state.metric === 'revenue') {
-      // 🔵 Padrão: sempre que métrica for "Valor" → ordena por faturamento
-      rows.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
-    } else {
-      // 🔵 Caso métrica seja "Unidades"
-      rows.sort((a, b) => (b.units || 0) - (a.units || 0));
-    }
-
-    renderTable(rows, j.page || page, j.total || rows.length, j.limit || state.limit);
-  } catch (e) {
-    console.error(e);
-    alert('❌ Falha ao carregar itens da Curva ABC.');
-  } finally {
-    setLoading(false);
   }
-}
 
+  async function fetchAllPages() {
+    let page = 1, all = [], totalPages = 1;
+    const limit = 500;
 
-async function fetchAllPages() {
-  let page = 1, all = [], totalPages = 1;
-  const limit = 500; // ou o máximo permitido
+    do {
+      const base = getFilters({ curve: state.curveTab || 'ALL', page, limit, include_ads: '1' });
+      const params = new URLSearchParams(base).toString();
+      const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
 
-  do {
-    const base = getFilters({ curve: state.curveTab || 'ALL', page, limit, include_ads: '1' });
-    const params = new URLSearchParams(base).toString();
-    const r = await fetch(`/api/analytics/abc-ml/items?${params}`, { credentials: 'same-origin' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const j = await r.json();
+      all = all.concat(j.data || []);
+      totalPages = Math.ceil((j.total || 0) / (j.limit || limit));
+      page++;
+    } while (page <= totalPages);
 
-    all = all.concat(j.data || []);
-    totalPages = Math.ceil((j.total || 0) / (j.limit || limit));
-    page++;
-  } while (page <= totalPages);
+    return all;
+  }
 
-  return all;
-}
-
-
-
-  // ===== Export CSV
-  // Agora com janelas móveis fixas (Vendas 7D/30D/40D/60D/90D) em vez de colunas mensais
+  // ===== Export CSV (com status ADS textual e janelas fixas já existentes no backend)
   async function exportCSV() {
     try {
       setLoading(true);
 
-      // 1) Buscar TODOS os itens (paginando nos bastidores, com ADS)
-      const allRows = await fetchAllPages(); // usa include_ads='1' internamente
+      const allRows = await fetchAllPages();
 
-      // 2) Ordenação para o CSV (mesma regra da tela):
-      // - Se state.sort === 'share' → ordenar por participação de faturamento (equivale a faturamento desc)
-      // - Senão, se métrica = 'revenue' (Valor) → faturamento desc
-      // - Senão (métrica = 'units') → unidades desc
       const rowsForCsv = allRows.slice();
       if (state.sort === 'share' || state.metric === 'revenue') {
         rowsForCsv.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
@@ -414,39 +406,28 @@ async function fetchAllPages() {
         rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
       }
 
-      // 3) Totais para calcular % de participação com base em TODOS os itens
       const uTotal = rowsForCsv.reduce((s, r) => s + (r.units || 0), 0);
       const rTotal = rowsForCsv.reduce((s, r) => s + (r.revenue_cents || 0), 0);
 
-      // 4) Cabeçalho base + colunas FIXAS de janelas móveis (unidades)
       const head = [
         'Índice','MLB','SKU','Título','Tipo Logístico',
         'Unidades','Unid. (%)','Valor','Participação',
         'ADS','Cliques','Impr.','Invest.','ACOS','Receita Ads',
-        'Vendas 7D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
+        'Vendas 7D','Vendas 15D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
       ];
 
-      // 5) Linhas
       const rows = rowsForCsv.map(r => {
         const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
         const revShare  = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
 
         const ads = r.ads || {};
-        const adsActive = !!ads.active;
         const clicks = Number(ads.clicks || 0);
         const imps   = Number(ads.impressions || 0);
         const spendC = Number(ads.spend_cents || 0);
         const aRevC  = Number(ads.revenue_cents || 0);
-        const hasActivity = (clicks + imps + spendC + aRevC) > 0;
         const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
 
-        // 🔸 Espera-se que o backend passe estes campos inteiros:
-        // units_7d, units_30d, units_40d, units_60d, units_90d
-        const u7   = Number(r.units_7d  ?? 0);
-        const u30  = Number(r.units_30d ?? 0);
-        const u40  = Number(r.units_40d ?? 0);
-        const u60  = Number(r.units_60d ?? 0);
-        const u90  = Number(r.units_90d ?? 0);
+        const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
 
         return [
           r.curve || '-',
@@ -458,17 +439,22 @@ async function fetchAllPages() {
           (unitShare * 100).toFixed(2).replace('.', ',') + '%',
           (Number(r.revenue_cents || 0) / 100).toFixed(2).replace('.', ','),
           (revShare * 100).toFixed(2).replace('.', ',') + '%',
-          adsActive ? 'Sim' : 'Não',
+          statusText,
           clicks,
           imps,
           (spendC / 100).toFixed(2).replace('.', ','),
-          hasActivity && acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
+          acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
           (aRevC / 100).toFixed(2).replace('.', ','),
-          u7, u30, u40, u60, u90
+
+          Number(r.units_7d  || 0),
+          Number(r.units_15d || 0),
+          Number(r.units_30d || 0),
+          Number(r.units_40d || 0),
+          Number(r.units_60d || 0),
+          Number(r.units_90d || 0)
         ];
       });
 
-      // 6) Geração e download do CSV
       const data = [head, ...rows]
         .map(cols => cols.map(c => `"${String(c)}"`).join(';'))
         .join('\r\n');
@@ -488,8 +474,6 @@ async function fetchAllPages() {
       setLoading(false);
     }
   }
-
-
 
   // ===== Bind
   function debounce(fn, ms = 300) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
