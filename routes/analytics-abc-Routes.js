@@ -539,21 +539,167 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
   return out;
 }
 
+/** ------- PROMO helpers (Central de Promoções / Smart Campaign / Seller Promotion) ------- **/
+
+/** Mescla duas fontes de promo (prioriza ativo e maior %). */
+// [FIX] helper de merge para não sobrescrever promo boa por promo vazia
+function mergePromo(a, b) {
+  const A = a || { active: false, percent: null, source: null };
+  const B = b || { active: false, percent: null, source: null };
+  const aPct = (A.percent != null ? Number(A.percent) : null);
+  const bPct = (B.percent != null ? Number(B.percent) : null);
+
+  // se uma estiver ativa e a outra não, mantém a ativa
+  if (A.active && !B.active) return A;
+  if (B.active && !A.active) return B;
+
+  // ambas ativas (ou ambas inativas): fica com a que tiver maior % conhecida
+  if (aPct != null && bPct != null) return (bPct > aPct) ? B : A;
+
+  // somente uma tem % → use a que tem % (se empatar, prioriza A)
+  if (bPct != null && aPct == null) return B;
+  return A;
+}
+
+/**
+ * Lê a Prices API do item e tenta inferir promoção ativa “agora”.
+ * Funciona para promoções do seller e para campanhas de marketplace (smart).
+ * Retorna { active: bool, percent: number|null, source: string|null }  (percent 0..1)
+ */
+
+async function fetchItemPromoNow({ token, itemId, dbgArr }) {
+  const url = `https://api.mercadolibre.com/items/${itemId}/prices`;
+
+  // helper p/ % (0..1)
+  const pct = (full, price) => {
+    const f = Number(full || 0), p = Number(price || 0);
+    if (f > 0 && p > 0 && p < f) return 1 - (p / f);
+    return null;
+  };
+
+  try {
+    const j = await httpGetJson(url, { Authorization: `Bearer ${token}` }, 2, dbgArr);
+
+    // Consolida “linhas de preço”
+    const buckets = [];
+    if (Array.isArray(j?.prices?.prices)) buckets.push(...j.prices.prices);
+    if (Array.isArray(j?.prices))       buckets.push(...j.prices);
+    if (Array.isArray(j?.reference_prices)) buckets.push(...j.reference_prices);
+
+    // Algumas contas trazem “promotions” separadas
+    const promoNodes = Array.isArray(j?.promotions) ? j.promotions : [];
+
+    const nowMs = Date.now();
+    const candidates = [];
+
+    // 1) Preços com type=promotion dentro da janela
+    for (const p of buckets) {
+      const t  = String(p?.type || '').toLowerCase();
+      if (t !== 'promotion') continue;
+
+      const df = p?.conditions?.start_time || p?.date_from || p?.start_time;
+      const dt = p?.conditions?.end_time   || p?.date_to   || p?.end_time;
+      const inWindow = (!df || nowMs >= new Date(df).getTime()) &&
+                       (!dt || nowMs <= new Date(dt).getTime());
+
+      if (!inWindow) continue;
+
+      const percent = pct(p?.regular_amount, p?.amount);
+      if (percent !== null && percent > 0) {
+        const source = p?.metadata?.campaign_id ? 'marketplace_campaign' : 'seller_promotion';
+        candidates.push({ percent, source, active: true });
+      }
+    }
+
+    // 2) Nó “promotions” (alguns sites retornam aqui)
+    for (const p of promoNodes) {
+      const st = String(p?.status || '').toLowerCase(); // active/scheduled/etc.
+      const df = p?.date_from || p?.start_time;
+      const dt = p?.date_to   || p?.end_time;
+      const inWindow = (!df || nowMs >= new Date(df).getTime()) &&
+                       (!dt || nowMs <= new Date(dt).getTime());
+
+      // Consideramos “ativa” apenas se status indicar ativo (quando existir) E estiver na janela
+      const isActive = (st ? st === 'active' : true) && inWindow;
+      if (!isActive) continue;
+
+      const percent = pct(p?.regular_amount || p?.base_price, p?.price || p?.amount);
+      if (percent !== null && percent > 0) {
+        const source = (p?.type || p?.campaign_type || p?.origin || 'promotion').toString();
+        candidates.push({ percent, source, active: true });
+      }
+    }
+
+    // 3) Fallback: linha “standard/active” com regular_amount menor que amount
+    const anyPrice = (buckets || []).find(x => x?.amount);
+    if (anyPrice && anyPrice?.regular_amount) {
+      const percent = pct(anyPrice.regular_amount, anyPrice.amount);
+      if (percent !== null && percent > 0) {
+        candidates.push({ percent, source: 'inferred_from_regular_amount', active: true });
+      }
+    }
+
+    // Escolhe a MAIOR % dentre as candidatas ativas
+    if (candidates.length) {
+      candidates.sort((a, b) => (b.percent || 0) - (a.percent || 0));
+      const best = candidates[0];
+      return { active: true, percent: best.percent, source: best.source };
+    }
+
+    return { active: false, percent: null, source: null };
+  } catch (e) {
+    dbgArr && dbgArr.push({ type: 'promo_error', url, message: e.message || String(e) });
+    return { active: false, percent: null, source: null };
+  }
+}
+
+
+/**
+ * Busca promoções atuais para uma lista de itens (apenas os visíveis na página).
+ * Faz 1 chamada por item (precisamos do “snapshot” do preço vigente do item).
+ */
+async function fetchPromosByItems({ token, itemIds, dbgAcc }) {
+  const out = {};
+  const ids = Array.from(new Set((itemIds || []).map(x => String(x).toUpperCase()).filter(Boolean)));
+  for (const id of ids) {
+    out[id] = await fetchItemPromoNow({ token, itemId: id, dbgArr: dbgAcc.calls });
+  }
+  return out;
+}
+
 /** --------- PROMOÇÕES (Central de Promoções) --------- */
 
 /**
  * Tenta obter promoções ativas para os itens informados via /seller-promotions (batch).
- * Retorna map { MLB...: { active: bool, percent: number|null } }
+ * Retorna map { MLB...: { active: bool, percent: number|null, source: 'seller_promotion_batch' } }
  *
- * Observações:
- * - Agrupa por SITE (MLB/MLM…) e consulta campanhas ativas do seller.
- * - Para cada campanha, pagina os itens e cruza com o conjunto desejado.
- * - Se o endpoint não estiver disponível ao app, retornamos {} para que o caller faça fallback.
+ * Regras:
+ * - Considera apenas itens realmente ATIVOS agora (status + janela de datas do item).
+ * - Quando houver mais de uma promoção elegível para o mesmo item, mantém a de MAIOR %.
  */
 async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDbg }) {
   const out = {};
   const ids = Array.from(new Set((itemIds || []).map(i => String(i).toUpperCase())));
   if (!ids.length) return out;
+
+  // helper: escolhe a melhor promo (maior %) sem perder 'active'
+  const keepBetter = (prev, next) => {
+    const A = prev || { active: false, percent: null, source: null };
+    const B = next || { active: false, percent: null, source: null };
+    const aPct = A.percent != null ? Number(A.percent) : null;
+    const bPct = B.percent != null ? Number(B.percent) : null;
+
+    // se uma é ativa e a outra não, fica com a ativa
+    if (A.active && !B.active) return A;
+    if (B.active && !A.active) return B;
+
+    // ambas ativas: maior %
+    if (aPct != null && bPct != null) return (bPct > aPct) ? B : A;
+
+    // só uma tem % conhecida
+    if (bPct != null && aPct == null) return B;
+    return A;
+  };
 
   // agrupa itens por site
   const bySite = new Map();
@@ -563,16 +709,16 @@ async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDb
     bySite.get(site).add(id);
   }
 
+  const base = 'https://api.mercadolibre.com';
+  const headers = { Authorization: `Bearer ${token}` };
+  const nowMs = Date.now();
+
   for (const [site, wantedSet] of bySite.entries()) {
-    // 1) lista promoções ativas do seller neste site
-    const base = 'https://api.mercadolibre.com';
-    const headers = { Authorization: `Bearer ${token}` };
+    // 1) lista promoções do seller com status=active
     const searchUrl = new URL(`${base}/seller-promotions/search`);
     searchUrl.searchParams.set('site_id', site);
     searchUrl.searchParams.set('seller_id', String(sellerId));
     searchUrl.searchParams.set('status', 'active');
-    // opcional: filtrar tipos mais comuns (PRICE_DISCOUNT, DEAL, etc.)
-    // searchUrl.searchParams.set('promotion_type', 'PRICE_DISCOUNT');
 
     let promos;
     try {
@@ -582,17 +728,21 @@ async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDb
       continue;
     }
 
-    const list = Array.isArray(promos?.results) ? promos.results : Array.isArray(promos?.promotions) ? promos.promotions : [];
+    const list = Array.isArray(promos?.results) ? promos.results
+                : Array.isArray(promos?.promotions) ? promos.promotions
+                : [];
+
     for (const p of list) {
       const promoId = p.id || p.promotion_id;
       if (!promoId) continue;
 
-      // 2) pagina itens da promoção e cruza com os que precisamos
+      // 2) pagina itens da promoção e cruza com os desejados
       let offset = 0, limit = 200;
       for (;;) {
         const itemsUrl = new URL(`${base}/seller-promotions/${promoId}/items`);
         itemsUrl.searchParams.set('offset', String(offset));
         itemsUrl.searchParams.set('limit', String(limit));
+
         let j;
         try {
           j = await httpGetJson(itemsUrl.toString(), headers, 2, promosDbg);
@@ -601,20 +751,42 @@ async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDb
           break;
         }
 
-        const arr = Array.isArray(j?.results) ? j.results : Array.isArray(j?.items) ? j.items : [];
+        const arr = Array.isArray(j?.results) ? j.results
+                  : Array.isArray(j?.items) ? j.items
+                  : [];
+
         for (const it of arr) {
           const itemId = String(it.item_id || it.id || '').toUpperCase();
           if (!itemId || !wantedSet.has(itemId)) continue;
 
-          // percent pode vir como discount_rate/percentage/applied_percentage dependendo do tipo
-          const pct =
+          // --- filtro de ATIVIDADE no nível do item ---
+          const st = String(it.status || '').toLowerCase();    // alguns retornam "active"/"scheduled"
+          const df = it.date_from || it.start_time;
+          const dt = it.date_to   || it.end_time;
+
+          const inWindow = (!df || nowMs >= new Date(df).getTime()) &&
+                           (!dt || nowMs <= new Date(dt).getTime());
+
+          // Considerar ativo somente se status indicar ativo (quando existir) E estiver na janela
+          const itemActive = (st ? st === 'active' : true) && inWindow;
+          if (!itemActive) continue; // ignora itens programados ou fora da janela
+
+          // --- % aplicada: normaliza para 0..1 ---
+          let pct =
             it.applied_percentage ??
             it.discount_percentage ??
             it.discount_rate ??
             it.benefit_percentage ??
             null;
+          if (pct != null) {
+            pct = Number(pct);
+            if (!Number.isFinite(pct)) pct = null;
+            else if (pct > 1) pct = pct / 100; // alguns sites retornam 18 -> 0.18
+            if (pct <= 0) pct = null;
+          }
 
-          out[itemId] = { active: true, percent: (pct != null ? Number(pct) / (pct > 1 ? 100 : 1) : null) };
+          const next = { active: true, percent: pct, source: 'seller_promotion_batch' };
+          out[itemId] = keepBetter(out[itemId], next);
         }
 
         const total = j?.paging?.total ?? j?.total ?? arr.length;
@@ -627,40 +799,42 @@ async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDb
   return out;
 }
 
-/**
- * Fallback por item quando /seller-promotions não estiver disponível:
- * - tenta via Prices/Items obter price vs original_price e calcular percentual aplicado agora.
- * - Retorna { active, percent } heurístico (active = true se price < original_price).
- */
+
+/** [FIX] corrigido: usar /items/{id}/prices aqui também quando batch falhar */
 async function fetchPromotionForItemFallback({ token, itemId, promosDbg }) {
-  const site = String(itemId).slice(0, 3);
   const headers = { Authorization: `Bearer ${token}` };
 
-  // 1) tenta Prices API (se disponível)
-  // GET /prices/{item_id}
   try {
-    const u = `https://api.mercadolibre.com/prices/${encodeURIComponent(itemId)}`;
+    const u = `https://api.mercadolibre.com/items/${encodeURIComponent(itemId)}/prices`;
     const j = await httpGetJson(u, headers, 2, promosDbg);
-    const variations = Array.isArray(j?.prices) ? j.prices : [];
-    // pega o preço "current" (ou último) e o "original" se existir
-    let price = null, original = null;
-    for (const pr of variations) {
-      if (pr.status === 'active' || pr.type === 'standard') {
-        price = Number(pr.amount ?? pr.price ?? price);
-      }
-      if (pr.type === 'original' || pr.compare_price === true) {
-        original = Number(pr.amount ?? pr.price ?? original);
-      }
+
+    const prices = [];
+    if (Array.isArray(j?.prices?.prices)) prices.push(...j.prices.prices);
+    if (Array.isArray(j?.prices)) prices.push(...j.prices);
+
+    const current = prices.find(p => p.type === 'standard' || p.status === 'active');
+    const promo   = prices.find(p => p.type === 'promotion');
+
+    const pct = (orig, now) => {
+      const o = Number(orig || 0), n = Number(now || 0);
+      return (o > 0 && n > 0 && n < o) ? (1 - n / o) : null;
+    };
+
+    // preferir linha de promoção explícita
+    if (promo) {
+      const percent = pct(promo.regular_amount, promo.amount);
+      if (percent !== null) return { active: true, percent, source: 'prices_promotion' };
     }
-    if (price != null && original != null && original > price) {
-      const pct = (original - price) / original; // 0..1
-      return { active: true, percent: pct };
+
+    // fallback: current com regular_amount menor que amount
+    if (current && current.regular_amount) {
+      const percent = pct(current.regular_amount, current.amount);
+      if (percent !== null) return { active: true, percent, source: 'prices_regular_amount' };
     }
   } catch (e) {
     promosDbg && promosDbg.push({ type: 'prices_api_error', itemId, message: e.message });
   }
 
-  // 2) fallback final via /items (ainda expõe price/original_price em alguns sites)
   try {
     const u = `https://api.mercadolibre.com/items/${encodeURIComponent(itemId)}?attributes=price,original_price`;
     const j = await httpGetJson(u, headers, 2, promosDbg);
@@ -668,18 +842,15 @@ async function fetchPromotionForItemFallback({ token, itemId, promosDbg }) {
     const original = Number(j?.original_price ?? NaN);
     if (Number.isFinite(price) && Number.isFinite(original) && original > price) {
       const pct = (original - price) / original;
-      return { active: true, percent: pct };
+      return { active: true, percent: pct, source: 'items_original_price' };
     }
   } catch (e) {
     promosDbg && promosDbg.push({ type: 'items_api_error', itemId, message: e.message });
   }
 
-  return { active: false, percent: null };
+  return { active: false, percent: null, source: null };
 }
 
-/**
- * Enriquecimento de promoções para itens (por conta), usando batch e fallback.
- */
 async function enrichWithPromotions({ app, req, accounts, pageSlice, promosDebugEnabled }) {
   const byAccount = new Map();
   for (const r of pageSlice) {
@@ -698,18 +869,16 @@ async function enrichWithPromotions({ app, req, accounts, pageSlice, promosDebug
 
     const dbg = { calls: [] };
     try {
-      // tenta batch via Central de Promoções
       const batch = await fetchPromotionsForItemsBatch({ token, sellerId, itemIds: ids, promosDbg: dbg.calls });
       Object.assign(result, batch);
 
-      // completa os que ficaram sem informação com fallback por item
       const missing = ids.filter(id => !result[id]);
       for (const id of missing) {
         try {
           result[id] = await fetchPromotionForItemFallback({ token, itemId: id, promosDbg: dbg.calls });
         } catch (e) {
           dbg.calls.push({ type: 'promo_single_error', itemId: id, message: e.message });
-          result[id] = { active: false, percent: null };
+          result[id] = { active: false, percent: null, source: null };
         }
       }
     } finally {
@@ -745,7 +914,6 @@ router.get('/abc-ml/items', async (req, res) => {
   try {
     const map = new Map();
 
-    // janelas móveis (para 90D)
     const from90 = ymdShift(date_to, -89);
     const fetchFrom = ymdMin(date_from, from90);
 
@@ -829,7 +997,6 @@ router.get('/abc-ml/items', async (req, res) => {
       r.revenue_share = totalRevenueCents > 0 ? r.revenue_cents / totalRevenueCents : 0;
     });
 
-    // filtros
     const filtered = labeled.filter(r =>
       (curve === 'ALL' || r.curve === curve) &&
       (!search ||
@@ -838,7 +1005,6 @@ router.get('/abc-ml/items', async (req, res) => {
         (r.title || '').toLowerCase().includes(search.toLowerCase()))
     );
 
-    // ordenação
     if (sort === 'revenue_desc') {
       filtered.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
     } else if (sort === 'share') {
@@ -847,7 +1013,6 @@ router.get('/abc-ml/items', async (req, res) => {
       filtered.sort((a, b) => (b.units || 0) - (a.units || 0));
     }
 
-    // paginação
     const pnum = Math.max(parseInt(page, 10), 1);
     const lim  = Math.min(Math.max(parseInt(limit, 10), 1), 200);
     const start = (pnum - 1) * lim;
@@ -903,7 +1068,31 @@ router.get('/abc-ml/items', async (req, res) => {
       }
     }
 
-    /** Promoções — Central de Promoções (apenas itens da página) */
+    // ===== PROMOÇÕES (estado ATUAL via /items/{id}/prices) — fora do bloco de ADS
+    const promosPricesDebug = {};
+    let pricesPromosAccum = {};
+    if (pageSlice.length) {
+      const byAccountPromo = new Map();
+      for (const r of pageSlice) {
+        const acc = r._account || accounts[0];
+        if (!byAccountPromo.has(acc)) byAccountPromo.set(acc, new Set());
+        byAccountPromo.get(acc).add(String(r.mlb || '').toUpperCase());
+      }
+
+      for (const acc of byAccountPromo.keys()) {
+        const token = await getToken(req.app, req, acc);
+        const mlbIds = Array.from(byAccountPromo.get(acc));
+        const dbgAcc = { calls: [] };
+        try {
+          const mapPromos = await fetchPromosByItems({ token, itemIds: mlbIds, dbgAcc });
+          Object.assign(pricesPromosAccum, mapPromos);
+        } finally {
+          promosPricesDebug[acc] = dbgAcc;
+        }
+      }
+    }
+
+    /** Promoções — Central de Promoções + fallback e MESCLA com prices */
     const promosDebugEnabled = String(include_promos_debug) === '1';
     let promosDebug = {};
     if (String(include_promos) === '1' && pageSlice.length) {
@@ -912,23 +1101,53 @@ router.get('/abc-ml/items', async (req, res) => {
           app: req.app, req, accounts, pageSlice, promosDebugEnabled
         });
         promosDebug = debug || {};
+
         for (const it of pageSlice) {
           const key = String(it.mlb || '').toUpperCase();
-          const pv = promosMap[key] || { active: false, percent: null };
-          it.promo = { active: !!pv.active, percent: (pv.percent != null ? Number(pv.percent) : null) };
+          const fromBatch = promosMap[key] || { active: false, percent: null, source: null };
+          const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
+          const merged = mergePromo(fromPrices, fromBatch); // [FIX] mescla, não sobrescreve
+                    it.promo = {
+            active: !!merged.active,
+            percent: (merged.percent != null ? Number(merged.percent) : null),
+            source: merged.source || fromBatch.source || fromPrices.source || null
+          };
         }
       } catch (e) {
         if (promosDebugEnabled) promosDebug.__error = e.message;
-        // garante a presença da chave
+        // se der erro na central, ainda tenta manter o que veio do /prices
         for (const it of pageSlice) {
-          if (!it.promo) it.promo = { active: false, percent: null };
+          const key = String(it.mlb || '').toUpperCase();
+          const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
+          if (!it.promo) {
+            it.promo = {
+              active: !!fromPrices.active,
+              percent: (fromPrices.percent != null ? Number(fromPrices.percent) : null),
+              source: fromPrices.source || null
+            };
+          }
         }
+      }
+    } else {
+      // quando include_promos !== '1', ainda assim mantemos a leitura do /prices
+      for (const it of pageSlice) {
+        const key = String(it.mlb || '').toUpperCase();
+        const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
+        it.promo = {
+          active: !!fromPrices.active,
+          percent: (fromPrices.percent != null ? Number(fromPrices.percent) : null),
+          source: fromPrices.source || null
+        };
       }
     }
 
+    // ===== resposta
     const response = { page: pnum, limit: lim, total: filtered.length, data: pageSlice };
     if (adsDebugEnabled) response.ads_debug = adsDebug;
-    if (promosDebugEnabled) response.promos_debug = promosDebug;
+    if (promosDebugEnabled) {
+      // anexa debug separado do que veio do /prices para ajudar troubleshooting
+      response.promos_debug = { ...(promosDebug || {}), prices_probe: promosPricesDebug || {} };
+    }
 
     res.json(response);
   } catch (e) {
@@ -938,3 +1157,4 @@ router.get('/abc-ml/items', async (req, res) => {
 });
 
 module.exports = router;
+
