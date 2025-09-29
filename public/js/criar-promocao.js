@@ -106,10 +106,10 @@ const HUD = {
   open(){}, bump(){}, tickProcessed(){}, reset(){}, render(){}
 };
 
+/* ======================== Helpers utilitários ======================== */
 
-
-
-/* ======================== Helpers de dados ======================== */
+function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+function chunkArray(arr, size){ const out=[]; for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
 
 function toNum(x){ return (x===null || x===undefined || x==='') ? null : Number(x); }
 
@@ -758,58 +758,9 @@ async function buscarItemNaCampanha(mlb){
   return null;
 }
 
-async function carregarSomenteMLBSelecionado(){
-  const $body = elTbody();
-  $body.innerHTML = `<tr><td colspan="12" class="muted">Carregando item…</td></tr>`;
-  state.loading = true;
-  renderPaginacao();
+/* ======================== Offer/Candidate helpers ======================== */
 
-  try {
-    let item = await montarItemRapido(state.mlbFilter.toUpperCase());
-    const semDados = !item || ((item.original_price == null) && (item.deal_price == null) && (item.discount_percentage == null));
-    if (semDados) {
-      const viaCampanha = await buscarItemNaCampanha(state.mlbFilter.toUpperCase());
-      if (viaCampanha) item = viaCampanha;
-    }
-
-    if (!item) {
-      $body.innerHTML = `<tr><td colspan="12" class="muted">Este item não possui oferta nesta campanha.</td></tr>`;
-      state.items = [];
-      state.paging = { total: 0, limit: PAGE_SIZE, tokensByPage:{1:null}, currentPage:1, lastPageKnown:1 };
-      renderPaginacao();
-      return;
-    }
-
-    state.items = [item];
-    state.paging = { total: 1, limit: PAGE_SIZE, tokensByPage:{1:null}, currentPage:1, lastPageKnown:1 };
-
-    renderTabela(state.items);
-    applyRebateHeaderTooltip();
-  } catch (e) {
-    console.warn('Falha ao montar item único:', e);
-    $body.innerHTML = `<tr><td colspan="12" class="muted">Erro ao carregar item (ver console).</td></tr>`;
-  } finally {
-    state.loading = false;
-    renderPaginacao();
-  }
-}
-/* ======================== Ações ======================== */
-
-function calcDealPriceFromItem(it) {
-  const orig = Number(it.original_price ?? it.price ?? NaN);
-  const deal = Number(it.deal_price ?? it.price ?? NaN);
-  let d = Number(it.discount_percentage ?? NaN);
-
-  if (!Number.isNaN(deal)) return round2(deal);
-  if (!Number.isNaN(orig) && !Number.isNaN(d)) {
-    return round2(orig * (1 - d / 100));
-  }
-  return null;
-}
-
-/* --- Helpers p/ candidatos (SMART/PRICE_MATCHING) --- */
-
-const isCandidateId = (id) => /^CANDIDATE-[A-Z0-9-]+$/i.test(String(id || ''));
+function isCandidateId (id) { return /^CANDIDATE-[A-Z0-9-]+$/i.test(String(id || '')); }
 
 function getAllOfferLikeIds(it) {
   const set = new Set();
@@ -860,7 +811,21 @@ async function buscarOfferIdCandidate(mlb) {
   return { candidateId: null, offerId: null };
 }
 
-/* --- aplicarUnico com validação e fallback candidate_id -> offer_id --- */
+/* ======================== Ações: aplicar/remover ======================== */
+
+function calcDealPriceFromItem(it) {
+  const orig = Number(it.original_price ?? it.price ?? NaN);
+  const deal = Number(it.deal_price ?? it.price ?? NaN);
+  let d = Number(it.discount_percentage ?? NaN);
+
+  if (!Number.isNaN(deal)) return round2(deal);
+  if (!Number.isNaN(orig) && !Number.isNaN(d)) {
+    return round2(orig * (1 - d / 100));
+  }
+  return null;
+}
+
+/* --- aplicarUnico (orig) --- kept for UI buttons that operate on visible items */
 async function aplicarUnico(mlb, opts = {}) {
   const silent = !!opts.silent;
   if (!state.selectedCard) { if (!silent) alert('Selecione uma campanha.'); return false; }
@@ -998,6 +963,148 @@ async function aplicarUnico(mlb, opts = {}) {
 
 window.aplicarUnico = aplicarUnico;
 
+/* --- aplicarUnicoRemote: mesma lógica de aplicarUnico mas busca o item quando não está na página atual.
+       Usado no fallback do apply-bulk para aplicar todos os MLBS filtrados (todas as páginas). */
+
+async function aplicarUnicoRemote(mlb, opts = {}) {
+  const silent = !!opts.silent;
+  if (!state.selectedCard) { if (!silent) alert('Selecione uma campanha.'); return false; }
+
+  // busca item por várias estratégias (rápido -> campanha)
+  let it = null;
+  try {
+    it = await montarItemRapido(mlb).catch(()=>null);
+    if (!it) {
+      const viaCampanha = await buscarItemNaCampanha(mlb);
+      if (viaCampanha) it = viaCampanha;
+    }
+  } catch (e) {
+    console.warn('buscar item remoto falhou:', e);
+  }
+
+  if (!it) {
+    if (!silent) console.warn(`Item ${mlb} não encontrado na campanha (remote). Pulando.`);
+    state.applySession.errors++;
+    HUD.tickProcessed();
+    return false;
+  }
+
+  // reaproveitar lógica de construir payload e postar (mesma de aplicarUnico)
+  const t = (state.selectedCard.type || '').toUpperCase();
+  if (t === 'PRICE_MATCHING_MELI_ALL') {
+    if (!silent) console.warn('Campanha PRICE_MATCHING_MELI_ALL é gerida pelo ML. Pulando', mlb);
+    state.applySession.errors++;
+    HUD.tickProcessed();
+    return false;
+  }
+
+  const payloadBase = { promotion_id: state.selectedCard.id, promotion_type: t };
+  try {
+    let payload = { ...payloadBase };
+
+    if (t === 'SELLER_CAMPAIGN' || t === 'DEAL') {
+      let dealPrice = calcDealPriceFromItem(it);
+      if (dealPrice == null) {
+        // no silent mode we might prompt, but for bulk we skip
+        if (!silent) {
+          const entrada = prompt(`Informe o NOVO preço para ${mlb} (ex: 99.90):`);
+          if (!entrada) return false;
+          const num = Number(String(entrada).replace(',', '.'));
+          if (Number.isNaN(num) || num <= 0) return alert('Preço inválido.'), false;
+          dealPrice = round2(num);
+        } else {
+          state.applySession.errors++;
+          HUD.tickProcessed();
+          return false;
+        }
+      }
+      payload.deal_price = dealPrice;
+    } else if (t === 'SMART' || t.startsWith('PRICE_MATCHING')) {
+      const status = normalizeStatus(it.status);
+      if (status !== 'candidate') {
+        if (!silent) console.warn(`Item ${mlb} não está candidate (status ${status}). Pulando.`);
+        state.applySession.errors++;
+        HUD.tickProcessed();
+        return false;
+      }
+
+      // tenta ids direto do item primeiro
+      let candidateId = extractCandidateIdFromItem(it);
+      let offerId     = getAllOfferLikeIds(it).find(id => !isCandidateId(id)) || null;
+
+      if (!candidateId || !offerId) {
+        const found = await buscarOfferIdCandidate(mlb);
+        candidateId = candidateId || found.candidateId;
+        offerId = offerId || found.offerId;
+      }
+
+      if (!candidateId && !offerId) {
+        if (!silent) console.warn(`Candidato/offer não encontrado para ${mlb}. Pulando.`);
+        state.applySession.errors++;
+        HUD.tickProcessed();
+        return false;
+      }
+
+      if (offerId) payload.offer_id = offerId;
+      if (candidateId) payload.candidate_id = candidateId;
+    }
+
+    const doPost = async (pl) => {
+      const r = await fetch(`/api/promocoes/items/${encodeURIComponent(mlb)}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept':'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(pl)
+      });
+      let respBody = null;
+      try { respBody = await r.clone().json(); } catch { respBody = {}; }
+      return { ok: r.ok, status: r.status, body: respBody };
+    };
+
+    let res = await doPost(payload);
+
+    // tentativa com offer explicit se houver erro e candidate presente
+    const bodyMsg = String(res?.body?.message || res?.body?.error || '').toLowerCase();
+    const shouldRetryWithOffer =
+      !res.ok && res.status === 400 &&
+      !('offer_id' in payload) && ('candidate_id' in payload) &&
+      (bodyMsg.includes('offer') || bodyMsg.includes('candidate') || bodyMsg.includes('invalid') || bodyMsg.includes('not found'));
+
+    if (shouldRetryWithOffer) {
+      let offerId = getAllOfferLikeIds(it).find(id => !isCandidateId(id)) || null;
+      if (!offerId) {
+        const found = await buscarOfferIdCandidate(mlb);
+        offerId = found.offerId || found.candidateId;
+      }
+      if (offerId) {
+        const retryPayload = { ...payloadBase, offer_id: offerId };
+        res = await doPost(retryPayload);
+      }
+    }
+
+    if (!res.ok) {
+      console.warn(`Falha ao aplicar ${mlb}:`, res.status, res.body);
+      state.applySession.errors++;
+      HUD.tickProcessed();
+      return false;
+    }
+
+    // sucesso
+    const prevStatus = normalizeStatus(it.status);
+    if (prevStatus === 'candidate') state.applySession.added++;
+    else state.applySession.changed++;
+    state.applySession.processed++;
+    HUD.tickProcessed();
+
+    return true;
+  } catch (e) {
+    console.error('Erro aplicarUnicoRemote:', e);
+    state.applySession.errors++;
+    HUD.tickProcessed();
+    return false;
+  }
+}
+
 /* --- Coletar todos os ids filtrados (suporta bulk silencioso) --- */
 async function coletarTodosIdsFiltrados() {
   if (!state.selectedCard) return [];
@@ -1048,7 +1155,6 @@ async function coletarTodosIdsFiltrados() {
   return [...new Set(ids)];
 }
 
-
 /* --- Remoção em massa (abre HUD e atualiza contadores) --- */
 async function removerEmMassaSelecionados() {
   if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
@@ -1092,7 +1198,7 @@ async function removerEmMassaSelecionados() {
   }
 }
 
-
+/* --- Aplicar todos filtrados (usa apply-bulk -> se falhar faz fallback local) --- */
 async function aplicarTodosFiltrados() {
   if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
 
@@ -1163,34 +1269,112 @@ async function aplicarTodosFiltrados() {
     });
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.success === false) {
-      console.error('Falha ao iniciar aplicação em massa', res.status, data);
-      state.applySession.errors++;
-      HUD.render();
-      alert(`Falha ao iniciar aplicação em massa (HTTP ${res.status}).`);
+    if (res.ok && (data?.success === true || data?.job_id)) {
+      // 5) Vincula placeholder ao job real (para a barra acompanhar o progresso do worker)
+      if (localJobId && data?.job_id) {
+        window.JobsPanel?.replaceId?.(localJobId, String(data.job_id));
+        if (expected_total != null) {
+          window.JobsPanel?.updateLocalJob?.(String(data.job_id), {
+            state: `active 0/${expected_total}`, progress: 0
+          });
+        }
+      }
+      alert('Aplicação em massa iniciada. Acompanhe o progresso no painel de processos.');
       return;
     }
 
-    // 5) Vincula placeholder ao job real (para a barra acompanhar o progresso do worker)
-    if (localJobId && data?.job_id) {
-      window.JobsPanel?.replaceId?.(localJobId, String(data.job_id));
-      if (expected_total != null) {
-        window.JobsPanel?.updateLocalJob?.(String(data.job_id), {
-          state: `active 0/${expected_total}`, progress: 0
-        });
-      }
+    // Se aqui, algo não foi OK no apply-bulk -> faz fallback local (iterando páginas)
+    console.warn('apply-bulk retornou falha ou não iniciou job, fazendo fallback local', res.status, data);
+
+    // 6) coletar todos ids filtrados
+    const ids = await coletarTodosIdsFiltrados();
+    if (!ids.length) {
+      alert('Não foi possível iniciar a aplicação em massa (nenhum item localizado para aplicar).');
+      return;
     }
 
-    alert('Aplicação em massa iniciada. Acompanhe o progresso no painel de processos.');
+    // ajusta HUD com total conhecido agora
+    HUD.open(ids.length, 'Aplicação em massa (fallback)');
+    state.applySession.processed = 0;
+    state.applySession.added = 0;
+    state.applySession.changed = 0;
+    state.applySession.errors = 0;
+
+    // Atualiza JobsPanel placeholder se existir
+    if (localJobId) {
+      window.JobsPanel?.updateLocalJob?.(localJobId, { state: `active 0/${ids.length}`, progress: 0 });
+    }
+
+    // 7) aplica em batches com concorrência limitada
+    const concurrency = 4;
+    const chunks = chunkArray(ids, concurrency);
+    let processedCount = 0;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const batch = chunks[i];
+      const promises = batch.map(id => aplicarUnicoRemote(id, { silent: true }));
+      const results = await Promise.allSettled(promises);
+
+      // conta resultados
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value === true) {
+          // aplicarUnicoRemote já incrementa counters e chama HUD.tickProcessed
+        } else {
+          // contar erro se rejeitado/false
+          state.applySession.errors++;
+        }
+        processedCount++;
+        state.applySession.processed = processedCount;
+      }
+
+      // atualizar painel local job
+      if (localJobId) {
+        const progress = Math.round((processedCount / ids.length) * 100);
+        window.JobsPanel?.updateLocalJob?.(localJobId, {
+          state: `active ${processedCount}/${ids.length}`, progress
+        });
+      }
+
+      // pequena espera para evitar bursts
+      await sleep(200);
+    }
+
+    // final
+    state.applySession.started = false;
+    HUD.render();
+    alert(`Aplicação em massa (fallback) finalizada. Processados: ${state.applySession.processed}, Erros: ${state.applySession.errors}`);
+    return;
   } catch (e) {
     console.error('Erro aplicarTodosFiltrados:', e);
+    // fallback final: tenta coletar e aplicar localmente
+    try {
+      const ids = await coletarTodosIdsFiltrados();
+      if (ids.length) {
+        HUD.open(ids.length, 'Aplicação em massa (fallback extremo)');
+        // simples aplicação sequencial (silenciosa) - safe option
+        for (const mlb of ids) {
+          await aplicarUnicoRemote(mlb, { silent: true });
+        }
+        HUD.render();
+        alert('Aplicação em massa (fallback extremo) concluída.');
+        return;
+      }
+    } catch (err) {
+      console.error('Fallback extremo falhou:', err);
+    }
     state.applySession.errors++;
     HUD.render();
     alert('Erro ao iniciar aplicação em massa.');
   }
 }
 
-
+window.aplicarLoteSelecionados = async function(){
+  const sel = getSelecionados();
+  if (!sel.length) return alert('Selecione ao menos 1 item');
+  // abre HUD com uma estimativa de total
+  HUD.open(sel.length, 'Aplicação (selecionados)');
+  for (const mlb of sel) { await aplicarUnico(mlb, { silent:true }); }
+};
 
 /* --- Navegação e helpers --- */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
@@ -1199,13 +1383,6 @@ function toggleTodos(master){
   if (window.PromoBulk) { window.PromoBulk.onHeaderToggle(!!master.checked); }
 }
 function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
-async function aplicarLoteSelecionados(){
-  const sel = getSelecionados();
-  if (!sel.length) return alert('Selecione ao menos 1 item');
-  // abre HUD com uma estimativa de total
-  HUD.open(sel.length, 'Aplicação (selecionados)');
-  for (const mlb of sel) { await aplicarUnico(mlb, { silent:true }); }
-}
 function removerUnicoDaCampanha(mlb){ alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ''}`); }
 
 window.goPage = goPage;
