@@ -67,7 +67,7 @@ const offerIdsPaths = (mlb) => ([
 
 const PAGE_SIZE = 50;
 const $  = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s)); // Corrigido para $$
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 function esc(s) {
   return (s == null ? '' : String(s).replace(/[&<>"']/g, c => ({
@@ -131,14 +131,10 @@ const state = {
 // =================== HUD (no-op) =====================
 // =====================================================
 // Mantido propositalmente como no-op para não quebrar chamadas.
-// O progresso visual é feito via JobsPanel.
+// O progresso visual é feito via JobsPanel + PromoDebug.
 const HUD = {
   open(){}, bump(){}, tickProcessed(){}, reset(){}, render(){},
 };
-
-// =====================================================
-// ================ Jobs Watcher (poll) ================
-// =====================================================
 
 // =====================================================
 // ================ Jobs Watcher (poll) ================
@@ -167,42 +163,17 @@ const JobsWatcher = (function(){
         ? `${j.state} ${processed}/${total}`
         : String(j.state || 'queued');
 
-      // 🔧 CORREÇÃO: Verificar se job já existe localmente
+      // Atualiza o painel, se existir
       if (window.JobsPanel?.updateLocalJob) {
-        const existingIds = window.JobsPanel.listActiveIds?.() || [];
-        const existingId = existingIds.find(id => 
-          id.includes(j.id) || id.includes(`server|${j.id}`)
-        );
-        
-        if (existingId) {
-          // Atualizar job existente
-          window.JobsPanel.updateLocalJob(existingId, {
-            state: stateText,
-            progress: pct
-          });
-        } else {
-          // Criar novo job local para job do servidor
-          const localId = window.JobsPanel.addLocalJob?.({
-            title: j.label || `Job ${j.id}`,
-            accountKey: 'server',
-            accountLabel: 'Servidor'
-          });
-          
-          if (localId) {
-            window.JobsPanel.updateLocalJob(localId, {
-              state: stateText,
-              progress: pct
-            });
-            
-            // Mapear para futuras atualizações
-            window.JobsPanel.replaceId?.(localId, `server|${j.id}|${localId.split('|')[2] || Date.now()}`);
-          }
-        }
+        window.JobsPanel.updateLocalJob(String(j.id), {
+          state: stateText,
+          progress: pct
+        });
       }
 
       // log opcional do job focado
       if (watchingId && String(j.id) === String(watchingId)) {
-        console.log(`🎯 Job ${j.id}: ${stateText} (${pct}%)`);
+        PromoDebug.log(`JOB ${j.id} → state=${j.state} processed=${processed}/${total} (${pct}%)`);
       }
     }
   }
@@ -211,28 +182,21 @@ const JobsWatcher = (function(){
     try {
       const r = await fetch('/api/promocoes/jobs', { credentials: 'same-origin' });
       const data = await r.json().catch(()=>({}));
-      if (r.ok && data?.jobs) {
-        updateUIFromList(data.jobs);
-      }
+      if (r.ok && data?.jobs) updateUIFromList(data.jobs);
     } catch(e){
-      // silencioso - mas log para debug se necessário
-      // console.warn('JobsWatcher poll error:', e);
+      // silencioso
     }
   }
 
   function start(){
     if (timer) return;
-    console.log('🚀 JobsWatcher iniciando...');
     timer = setInterval(poll, PERIOD_MS);
-    poll(); // primeira chamada imediata
+    poll(); // primeira chamada
   }
 
   function stop(){
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-      console.log('⏹️ JobsWatcher parado');
-    }
+    if (timer) clearInterval(timer);
+    timer = null;
   }
 
   function watch(id){
@@ -240,18 +204,80 @@ const JobsWatcher = (function(){
     start();
   }
 
-  // 🔧 CORREÇÃO: Adicionar método para verificar se está rodando
-  function isRunning() {
-    return timer !== null;
-  }
-
-  return { start, stop, watch, isRunning, poll };
+  return { start, stop, watch };
 })();
+
 
 // =====================================================
 // ================= Painel de Debug ===================
-// (Seção PromoDebug removida integralmente)
 // =====================================================
+
+const PromoDebug = (function () {
+  let enabled = true; // mantenha true enquanto depurando
+  let maxLines = 400;
+
+  function ensurePanel() {
+    if (document.getElementById('promoDebugPanel')) return;
+
+    const box = document.createElement('div');
+    box.id = 'promoDebugPanel';
+    box.style.cssText = `
+      position: fixed; right: 18px; bottom: 18px; width: 420px; max-height: 260px;
+      background: #0b1220; color:#cfe3ff; font:12px/1.4 Consolas,monospace;
+      border-radius: 10px; box-shadow:0 8px 24px rgba(0,0,0,.25); overflow: hidden; z-index: 99999;
+      display:flex; flex-direction: column; border:1px solid #1d2b48;
+    `;
+    box.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 10px; background:#0e1730;">
+        <strong>Debug Promo</strong>
+        <div>
+          <button id="dbgToggle" class="btn" style="margin-right:6px">Ocultar</button>
+          <button id="dbgClear"  class="btn">Limpar</button>
+        </div>
+      </div>
+      <div id="dbgBody" style="padding:8px 10px; overflow:auto; white-space:pre-wrap; flex:1;"></div>
+    `;
+    document.body.appendChild(box);
+
+    box.querySelector('#dbgToggle').onclick = () => {
+      enabled = !enabled;
+      box.querySelector('#dbgBody').style.display = enabled ? 'block' : 'none';
+      box.querySelector('#dbgToggle').textContent = enabled ? 'Ocultar' : 'Mostrar';
+    };
+    box.querySelector('#dbgClear').onclick = () => {
+      const body = box.querySelector('#dbgBody');
+      if (body) body.textContent = '';
+    };
+  }
+
+  function log(msg) {
+    try { console.debug('[PromoDebug]', msg); } catch {}
+    ensurePanel();
+
+    const body = document.getElementById('dbgBody');
+    if (!body) return;
+
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+
+    const line = `[${hh}:${mm}:${ss}] ${msg}\n`;
+    body.textContent += line;
+
+    const lines = body.textContent.split('\n');
+    if (lines.length > maxLines) {
+      body.textContent = lines.slice(lines.length - maxLines).join('\n');
+    }
+    body.scrollTop = body.scrollHeight;
+  }
+
+  return {
+    log,
+    setEnabled(v) { enabled = !!v; },
+    setMaxLines(n) { maxLines = Number(n) || 400; },
+  };
+})();
 
 // =====================================================
 // =================== Utils diversos ==================
@@ -482,8 +508,7 @@ function resolveDealFinalAndPctFront(raw) {
       const candidateFinal = orig - px;
       if (isPlausibleFinal(candidateFinal)) {
         final = candidateFinal;
-        source = 'PriceΔR';
-        estimated = true;
+        source = 'PriceΔR$';
       }
     }
   }
@@ -573,7 +598,7 @@ function applyRebateHeaderTooltip() {
 // ================ Eventos básicos da UI ==============
 // =====================================================
 
-document.addEventListener('click', async (ev) => {
+document.addEventListener('click', (ev) => {
   const t = ev.target;
 
   if (t.closest?.('#btnFiltrarItem')) {
@@ -581,8 +606,7 @@ document.addEventListener('click', async (ev) => {
     const mlb = ($('#mlbFilter')?.value || '').trim().toUpperCase();
     state.mlbFilter = mlb;
     if (!mlb) { state.cardsFilteredIds = null; renderCards(); return; }
-    await filtrarCardsPorMLB(mlb);
-    atualizarFaixaSelecaoCampanha();
+    filtrarCardsPorMLB(mlb);
     return;
   }
 
@@ -592,7 +616,6 @@ document.addEventListener('click', async (ev) => {
     state.cardsFilteredIds = null;
     const input = $('#mlbFilter'); if (input) input.value = '';
     renderCards();
-    atualizarFaixaSelecaoCampanha();
     return;
   }
 
@@ -600,8 +623,7 @@ document.addEventListener('click', async (ev) => {
     ev.preventDefault();
     const v = $('#maxDescTableInput')?.value?.trim();
     state.maxDesc = (v === '' || v == null) ? null : Number(v);
-    if (state.selectedCard) await carregarItensPagina(1, true);
-    atualizarFaixaSelecaoCampanha();
+    if (state.selectedCard) carregarItensPagina(1, true);
     return;
   }
 
@@ -609,44 +631,39 @@ document.addEventListener('click', async (ev) => {
     ev.preventDefault();
     state.maxDesc = null;
     const input = $('#maxDescTableInput'); if (input) input.value = '';
-    if (state.selectedCard) await carregarItensPagina(1, true);
-    atualizarFaixaSelecaoCampanha();
+    if (state.selectedCard) carregarItensPagina(1, true);
     return;
   }
 
   if (t.closest?.('#btnRemoverTodos')) {
     ev.preventDefault();
-    await removerEmMassaSelecionados().catch(err => console.error(err));
-    atualizarFaixaSelecaoCampanha();
+    removerEmMassaSelecionados().catch(err => console.error(err));
     return;
   }
 
   // 🔥 Aplicar em massa todos os filtrados (todas as páginas)
   if (t.closest?.('#btnAplicarTodos')) {
     ev.preventDefault();
-    await aplicarTodosFiltrados().catch(err => console.error(err));
-    atualizarFaixaSelecaoCampanha();
+    aplicarTodosFiltrados().catch(err => console.error(err));
     return;
   }
 });
 
-document.addEventListener('change', async (ev) => {
+document.addEventListener('change', (ev) => {
   const r = ev.target;
   if (r.name === 'filtro') {
     state.filtroParticipacao = r.value || 'all';
-    if (state.selectedCard) await carregarItensPagina(1, true);
-    atualizarFaixaSelecaoCampanha();
+    if (state.selectedCard) carregarItensPagina(1, true);
   }
 });
 
-document.addEventListener('keydown', async (ev) => {
+document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && ev.target?.id === 'mlbFilter') {
     ev.preventDefault();
     const mlb = ev.target.value.trim().toUpperCase();
     state.mlbFilter = mlb;
     if (!mlb) { state.cardsFilteredIds = null; renderCards(); return; }
-    await filtrarCardsPorMLB(mlb);
-    atualizarFaixaSelecaoCampanha();
+    filtrarCardsPorMLB(mlb);
   }
 });
 /* ======================== Busca por MLB (cards do item) ======================== */
@@ -704,8 +721,6 @@ async function carregarCards(){
       : 'Não foi possível carregar promoções (ver console).';
     console.error('[/users] erro ao carregar cards:', e, e?.cause);
     $cards.innerHTML = `<div class="card"><h3>Falha</h3><pre class="muted">${esc(authMsg)}</pre></div>`;
-  } finally {
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar banner após carregamento inicial dos cards
   }
 }
 
@@ -757,8 +772,7 @@ function renderCards(){
 
 function destacarCardSelecionado(){
   const $cards = elCards();
-  // ✅ CORREÇÃO: usar querySelectorAll diretamente no elemento
-  $cards.querySelectorAll('div.card').forEach(n => n.classList.remove('card--active'));
+  [...$cards.children].forEach(n => n.classList.remove('card--active'));
   const list = (state.cardsFilteredIds ? state.cards.filter(c => state.cardsFilteredIds.has(c.id)) : state.cards);
   const idx = list.findIndex(c => c.id === state.selectedCard?.id);
   if (idx >= 0 && $cards.children[idx]) $cards.children[idx].classList.add('card--active');
@@ -823,7 +837,6 @@ async function selecionarCard(card){
   } else {
     await carregarItensPagina(1, true);
   }
-  // A chamada para atualizarFaixaSelecaoCampanha já ocorre no finally de carregarItensPagina/carregarSomenteMLBSelecionado
 }
 
 function qsBuild(params){
@@ -938,7 +951,6 @@ async function carregarItensPagina(pageNumber, reset=false){
   } finally {
     state.loading = false;
     renderPaginacao();
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
   }
 }
 function renderTabela(items){
@@ -998,6 +1010,7 @@ function renderTabela(items){
     const precoAtual = (original != null) ? fmtMoeda(original) : '—';
     const precoFinal = (toNum(it.deal_price) != null) ? fmtMoeda(toNum(it.deal_price)) : '—';
     const novoPreco  = (basePrice != null) ? (res.estimated ? `≈ ${fmtMoeda(basePrice)}` : fmtMoeda(basePrice)) : '—';
+
     const rb = pickRebate(it);
     const meliPct =
       (it.meli_percentage != null ? Number(it.meli_percentage)
@@ -1136,14 +1149,14 @@ async function montarItemRapido(mlb){
     // preços candidatos
     original_price: toNum(match.original_price ?? offer.original_price ?? b?.price ?? null),
     deal_price:     toNum(match.price ?? match.new_price ?? offer.new_price ?? offer.price ?? null),
+
     // desconto reportado (quando vier)
     discount_percentage: toNum(match.discount_percentage ?? offer.discount_percentage ?? null),
 
     // campos candidatos para DEAL/SELLER
     min_discounted_price:      toNum(match.min_discounted_price ?? offer.min_discounted_price ?? null),
     suggested_discounted_price:toNum(match.suggested_discounted_price ?? offer.suggested_discounted_price ?? null),
-    max_discounted_price:      toNum(match.max_discounted_price ?? offer.max_discounted_price ?? null), // Adicionado max_discounted_price
-    
+
     // rebate/percentuais
     meli_percentage:   toNum(match.meli_percentage ?? offer.meli_percentage ?? null),
     seller_percentage: toNum(match.seller_percentage ?? offer.seller_percentage ?? null),
@@ -1669,11 +1682,10 @@ async function removerEmMassaSelecionados() {
     state.applySession.errors++;
     HUD.render();
     alert('Erro ao iniciar remoção em massa.');
-  } finally {
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
   }
 }
 
+/* --- Aplicar todos filtrados (usa apply-bulk -> se falhar faz fallback local) --- */
 /* --- Aplicar todos filtrados (usa apply-bulk -> se falhar faz fallback local) --- */
 async function aplicarTodosFiltrados() {
   if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
@@ -1853,8 +1865,6 @@ async function aplicarTodosFiltrados() {
     state.applySession.errors++;
     HUD.render();
     alert('Erro ao iniciar aplicação em massa.');
-  } finally {
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
   }
 }
 
@@ -1864,17 +1874,15 @@ window.aplicarLoteSelecionados = async function(){
   if (!sel.length) return alert('Selecione ao menos 1 item');
   HUD.open(sel.length, 'Aplicação (selecionados)');
   for (const mlb of sel) { await aplicarUnico(mlb, { silent:true }); }
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
 };
 
 /* --- Navegação e helpers --- */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){
-  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked); // Uso de $$
+  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked);
   if (window.PromoBulk) { window.PromoBulk.onHeaderToggle(!!master.checked); }
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
 }
-function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); } // Uso de $$
+function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
 function removerUnicoDaCampanha(mlb){ alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ''}`); }
 
 window.goPage = goPage;
@@ -1892,10 +1900,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateSelectedCampaignName();
   HUD.reset(); // inicializa HUD da sessão
   JobsWatcher.start(); // começa a observar progresso de jobs
-  // PromoDebug.setEnabled(true); // Removido
-  // PromoDebug.log('Boot OK. Carregando cards...'); // Removido
+  PromoDebug.setEnabled(true);
+  PromoDebug.log('Boot OK. Carregando cards...');
   await carregarCards();
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção após o boot
 });
 /* ======================== Modo busca unitária (apenas 1 MLB) ======================== */
 
@@ -1943,18 +1950,13 @@ async function carregarSomenteMLBSelecionado() {
   } finally {
     state.loading = false;
     renderPaginacao();
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
   }
 }
 
 // cole perto dos outros helpers de UI
 async function atualizarFaixaSelecaoCampanha() {
   try {
-    if (!state.selectedCard) { // Se nenhum card está selecionado, o banner deve ser vazio ou ter uma mensagem padrão.
-      const faixa = document.querySelector('[data-js="selecionados-banner"]');
-      if (faixa) faixa.textContent = ''; // Limpa ou define uma mensagem padrão
-      return;
-    }
+    if (!state.selectedCard) return;
 
     const body = {
       promotion_id: state.selectedCard.id,
@@ -1976,7 +1978,7 @@ async function atualizarFaixaSelecaoCampanha() {
     const faixa = document.querySelector('[data-js="selecionados-banner"]');
     if (faixa) {
       // exemplo de texto: "32 nesta página • toda a campanha: 209 selecionados (filtrados)"
-      const paginaSel = getSelecionados().length; // Usa getSelecionados() para contar itens marcados na página atual
+      const paginaSel = $$('#tbody input[type="checkbox"][data-mlb]:checked').length;
       faixa.textContent = `${paginaSel} selecionados nesta página • toda a campanha: ${totalFiltrados ?? '…'} selecionados (filtrados)`;
     }
   } catch (_) {
@@ -1988,7 +1990,7 @@ async function atualizarFaixaSelecaoCampanha() {
 /* ======================== Exports de utilidade no window ======================== */
 
 window.__PromoState = state;
-// window.__PromoDebug = PromoDebug; // Removido
+window.__PromoDebug = PromoDebug;
 window.__JobsWatcher = JobsWatcher;
 
 /* ======================== Shims opcionais (evita erros se painel não existir) ======================== */
@@ -1997,40 +1999,60 @@ if (!window.JobsPanel) {
   window.JobsPanel = {
     addLocalJob(info){
       const id = `local-${Date.now()}`;
-      console.log(`JobsPanel shim: addLocalJob ${id} "${info?.title||''}"`); // Usado console.log
+      PromoDebug.log(`JobsPanel shim: addLocalJob ${id} "${info?.title||''}"`);
       return id;
     },
     updateLocalJob(id, data){
-      console.log(`JobsPanel shim: update ${id} → ${JSON.stringify(data)}`); // Usado console.log
+      PromoDebug.log(`JobsPanel shim: update ${id} → ${JSON.stringify(data)}`);
     },
     replaceId(oldId, newId){
-      console.log(`JobsPanel shim: replace ${oldId} → ${newId}`); // Usado console.log
+      PromoDebug.log(`JobsPanel shim: replace ${oldId} → ${newId}`);
     }
   };
 }
 
 if (!window.PromoBulk) {
   window.PromoBulk = {
-    setContext(ctx){ console.log(`PromoBulk shim: context → ${JSON.stringify(ctx)}`); }, // Usado console.log
-    onHeaderToggle(all){ console.log(`PromoBulk shim: header toggle = ${all}`); } // Usado console.log
+    setContext(ctx){ PromoDebug.log(`PromoBulk shim: context → ${JSON.stringify(ctx)}`); },
+    onHeaderToggle(all){ PromoDebug.log(`PromoBulk shim: header toggle = ${all}`); }
   };
 }
 
 /* ======================== Util: botão de copiar logs (opcional) ======================== */
 
-// (Seção addCopyLogsButton removida integralmente)
+(function addCopyLogsButton(){
+  try {
+    if (document.getElementById('promoCopyLogsBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'promoCopyLogsBtn';
+    btn.textContent = 'Copiar logs';
+    btn.className = 'btn ghost';
+    btn.style.cssText = 'position:fixed;right:18px;bottom:290px;z-index:99999;';
+    btn.onclick = () => {
+      const el = document.getElementById('dbgBody');
+      const text = el ? el.textContent : '(sem logs)';
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copiado!';
+        setTimeout(()=> btn.textContent = 'Copiar logs', 1200);
+      }).catch(()=> alert('Não foi possível copiar.'));
+    };
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.appendChild(btn);
+    });
+  } catch {}
+})();
 
 /* ======================== Guard rails para erros não-capturados ======================== */
 
 window.addEventListener('unhandledrejection', (ev) => {
   try {
-    console.error(`Promise rejeitada: ${ev.reason?.message || ev.reason || 'erro'}`); // Usado console.error
+    PromoDebug.log(`Promise rejeitada: ${ev.reason?.message || ev.reason || 'erro'}`);
   } catch {}
 });
 
 window.addEventListener('error', (ev) => {
   try {
-    console.error(`Erro JS: ${ev.message} @ ${ev.filename}:${ev.lineno}`); // Usado console.error
+    PromoDebug.log(`Erro JS: ${ev.message} @ ${ev.filename}:${ev.lineno}`);
   } catch {}
 });
 
@@ -2057,24 +2079,50 @@ function clamp(n, min, max) {
 const Flags = {
   dealPricePriceDeltaEnabled: true, // considerar price como ΔR$ quando candidate-like e sem sugestões
   jobsWatcherEnabled: true,
-  // debugPanelEnabled: true, // Removido
+  debugPanelEnabled: true,
 };
 
-console.log('Flags ativas: ' + JSON.stringify(Flags)); // Usado console.log
+PromoDebug.log('Flags ativas: ' + JSON.stringify(Flags));
+/* ======================== Acesso rápido via console ======================== */
+// Exemplos no console:
+//   __PromoDebug.log('oi');
+//   __JobsWatcher.start(); __JobsWatcher.watch('<job_id>');
+//   __PromoState.selectedCard  // ver campanha atual
 
-// 🔧 CORREÇÃO: Inicialização melhorada do JobsWatcher
-window.__JobsWatcher = JobsWatcher;
-
-// Auto-iniciar se a flag estiver ativa
-if (Flags.jobsWatcherEnabled) {
-  setTimeout(() => {
+// Mantém o watcher ligado por padrão (para a barra de progresso não “travar”)
+try {
+  if (Flags.jobsWatcherEnabled) {
     JobsWatcher.start();
-    console.log('JobsWatcher auto-iniciado:', {
-      isRunning: JobsWatcher.isRunning(),
-      flagEnabled: Flags.jobsWatcherEnabled
-    });
-  }, 1000); // Delay para garantir que tudo esteja carregado
-}
+  }
+} catch {}
 
 /* ======================== Estilos mínimos para o painel (fallback) ======================== */
-// (Seção injectDebugStyles removida integralmente)
+(function injectDebugStyles(){
+  try {
+    if (document.getElementById('promoDebugStyles')) return;
+    const css = `
+      #promoDebugPanel .btn {
+        font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        background: #122046; color: #e7f0ff; border: 1px solid #22386f; border-radius: 6px;
+        padding: 4px 8px; cursor: pointer;
+      }
+      #promoDebugPanel .btn:hover { background:#162a5e; }
+      .badge.badge-rebate { background:#0e6b2f; color:#fff; border-radius: 6px; padding:2px 6px; font-size:11px; }
+      .pill { background:#1e2a46; color:#a3c0ff; border-radius:12px; padding:2px 8px; font-size:11px; }
+      .pill.muted { background:#28365a; color:#8aa3d7; }
+      .pill.green { background:#124e2a; color:#b9f4c9; }
+      .cards-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:12px; }
+      .card { border:1px solid #dfe3ee; border-radius:12px; padding:12px; background:#fff; cursor:pointer; }
+      .card--active { outline:2px solid #2d6cdf; outline-offset: 2px; }
+      .muted { color:#6b7280; }
+      table.hide-leading-rebate thead th:first-child { display:none; }
+      table.hide-leading-rebate tbody td:first-child { display:none; }
+    `;
+    const style = document.createElement('style');
+    style.id = 'promoDebugStyles';
+    style.type = 'text/css';
+    style.appendChild(document.createTextNode(css));
+    document.head.appendChild(style);
+  } catch {}
+})();
+

@@ -9,7 +9,6 @@
  */
 
 const Queue = require('bull');
-const { makeRedis } = require('../lib/redisClient');
 const fetch = require('node-fetch');
 const TokenService = require('./tokenService');
 
@@ -39,80 +38,11 @@ try {
 
 let queue;
 
-/* ----------------------- Helpers HTTP com renovação ----------------------- */
-// services/promoJobsService.js
-function computeDiscountPct(it, promotion_type, benefitsGlobal, price_policy) {
-  const t = String(promotion_type).toUpperCase();
-  const n = (v) => (v==null || Number.isNaN(Number(v)) ? null : Number(v));
+/* ------------------------- Helpers genéricos ------------------------- */
 
-  // já veio pronto?
-  let pct = n(it.discount_percentage);
-  if (pct != null) return pct;
-
-  if (t === 'DEAL' || t === 'SELLER_CAMPAIGN' || t === 'PRICE_DISCOUNT' || t === 'DOD') {
-    const orig = n(it.original_price ?? it.price);
-    let deal  = n(it.deal_price ?? it.price);
-    if (deal == null) {
-      const r = resolveDealPriceForDealItem(it, price_policy);
-      if (r.newPrice != null) {
-        it.deal_price = r.newPrice; // cache para não recalcular depois
-        deal = r.newPrice;
-      }
-    }
-    if (orig != null && deal != null && orig > 0) return 100 * (1 - deal / orig);
-    return null;
-  }
-
-  if (t === 'SMART' || t.startsWith('PRICE_MATCHING')) {
-    const meli   = n(it.meli_percentage ?? it.rebate_meli_percent ?? benefitsGlobal?.meli_percent);
-    const seller = n(it.seller_percentage ?? benefitsGlobal?.seller_percent);
-    const tot = n((meli || 0) + (seller || 0));
-    return tot;
-  }
-
-  return n(it.discount_percentage);
-}
-
-function isEligible(it, { mlb, maxDesc }, promotion_type, benefitsGlobal, price_policy) {
-  if (mlb && String(it.id || it.item_id).toUpperCase() !== String(mlb).toUpperCase()) return false;
-  if (maxDesc != null) {
-    const pct = computeDiscountPct(it, promotion_type, benefitsGlobal, price_policy);
-    if (pct == null || pct > Number(maxDesc)) return false;
-  }
-  return true;
-}
-
-async function precountEligible({ mlCreds, promotion_id, promotion_type, status, filters, price_policy }) {
-  let token = null;
-  let total = 0;
-  let benefitsGlobal = null;
-
-  while (true) {
-    const page = await fetchPromotionItemsPaged({
-      mlCreds, promotion_id, promotion_type, status, limit: 50, search_after: token
-    });
-
-    if (!benefitsGlobal && page.benefits) benefitsGlobal = page.benefits;
-
-    const items = page.results || [];
-    for (const it of items) {
-      if (isEligible(it, filters, promotion_type, benefitsGlobal, price_policy)) total++;
-    }
-
-    if (!page.next || items.length === 0) break;
-    token = page.next;
-  }
-
-  return { total, benefitsGlobal };
-}
-
-
-
-// --- helpers comuns ---
 const extractAccessToken = (ret) =>
   (typeof ret === 'string' ? ret : ret?.access_token || null);
 
-// substitua seu authFetch por este (usa o helper)
 async function authFetch(url, init = {}, mlCreds = {}) {
   const call = async (tkn) => {
     const headers = {
@@ -137,8 +67,6 @@ async function authFetch(url, init = {}, mlCreds = {}) {
   return call(newToken);
 }
 
-
-
 const toNum = (v) =>
   v === null || v === undefined || v === '' || Number.isNaN(Number(v))
     ? null
@@ -148,19 +76,42 @@ function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
+function clampPct(n){
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+/* -------------------- Normalização de status p/ ML ------------------- */
+
+function normalizeStatusForML(s) {
+  if (!s) return '';
+  const v = String(s).toLowerCase().trim();
+  if (v === 'pending') return 'scheduled';
+  if (v === 'prog' || v === 'programados' || v === 'programado') return 'scheduled';
+  if (v === 'yes' || v === 'participantes') return 'started';
+  if (v === 'non' || v === 'nao' || v === 'não') return 'candidate';
+  return v; // 'candidate' | 'started' | 'scheduled' | 'all'
+}
+function statusQueryOrNull(s) {
+  const v = normalizeStatusForML(s);
+  return (!v || v === 'all') ? null : v;
+}
+
 /* ----------------------------- Busca paginada ----------------------------- */
 
 async function fetchPromotionItemsPaged({
   mlCreds,
   promotion_id,
   promotion_type,
-  status,           // 'started' | 'candidate' | undefined
+  status,           // 'started' | 'candidate' | 'scheduled' | null
   limit = 50,
   search_after = null
 }) {
   const qs = new URLSearchParams();
   qs.set('promotion_type', String(promotion_type).toUpperCase());
-  if (status) qs.set('status', String(status));
+  const s = statusQueryOrNull(status);
+  if (s) qs.set('status', String(s));
   qs.set('limit', String(limit));
   if (search_after) qs.set('search_after', String(search_after));
   qs.set('app_version', 'v2');
@@ -235,6 +186,75 @@ function resolveDealPriceForDealItem(item, policy = 'min') {
 
   const pct = 100 * (1 - candidate / original);
   return { newPrice: round2(candidate), discountPct: pct };
+}
+
+/* ----------------- Cálculo de % de desconto e filtros ----------------- */
+
+function computeDiscountPct(it, promotion_type, benefitsGlobal, price_policy) {
+  const t = String(promotion_type).toUpperCase();
+  const n = (v) => (v==null || Number.isNaN(Number(v)) ? null : Number(v));
+
+  // já veio pronto?
+  let pct = n(it.discount_percentage);
+  if (pct != null) return pct;
+
+  if (t === 'DEAL' || t === 'SELLER_CAMPAIGN' || t === 'PRICE_DISCOUNT' || t === 'DOD') {
+    const orig = n(it.original_price ?? it.price);
+    let deal  = n(it.deal_price ?? it.price);
+    if (deal == null) {
+      const r = resolveDealPriceForDealItem(it, price_policy);
+      if (r.newPrice != null) {
+        it.deal_price = r.newPrice; // cache para não recalcular depois
+        deal = r.newPrice;
+      }
+    }
+    if (orig != null && deal != null && orig > 0) return 100 * (1 - deal / orig);
+    return null;
+  }
+
+  if (t === 'SMART' || t.startsWith('PRICE_MATCHING')) {
+    const meli   = n(it.meli_percentage ?? it.rebate_meli_percent ?? benefitsGlobal?.meli_percent);
+    const seller = n(it.seller_percentage ?? benefitsGlobal?.seller_percent);
+    const tot = n((meli || 0) + (seller || 0));
+    return tot;
+  }
+
+  return n(it.discount_percentage);
+}
+
+function isEligible(it, { mlb, maxDesc }, promotion_type, benefitsGlobal, price_policy) {
+  if (mlb && String(it.id || it.item_id).toUpperCase() !== String(mlb).toUpperCase()) return false;
+  if (maxDesc != null) {
+    const pct = computeDiscountPct(it, promotion_type, benefitsGlobal, price_policy);
+    if (pct == null || pct > Number(maxDesc)) return false;
+  }
+  return true;
+}
+
+/* -------------------------- Pré-contagem (estável) -------------------------- */
+
+async function precountEligible({ mlCreds, promotion_id, promotion_type, status, filters, price_policy }) {
+  let token = null;
+  let total = 0;
+  let benefitsGlobal = null;
+
+  while (true) {
+    const page = await fetchPromotionItemsPaged({
+      mlCreds, promotion_id, promotion_type, status, limit: 50, search_after: token
+    });
+
+    if (!benefitsGlobal && page.benefits) benefitsGlobal = page.benefits;
+
+    const items = page.results || [];
+    for (const it of items) {
+      if (isEligible(it, filters, promotion_type, benefitsGlobal, price_policy)) total++;
+    }
+
+    if (!page.next || items.length === 0) break;
+    token = page.next;
+  }
+
+  return { total, benefitsGlobal };
 }
 
 /* ----------------------------- Aplicar o item ----------------------------- */
@@ -331,20 +351,63 @@ async function runBulkJob(job, done) {
   } = data;
 
   const promotion_type = String(promotion_type_raw || '').toUpperCase();
-  job.progress(0);
+  
+  // 🔧 CORREÇÃO 1: Inicializar progresso imediatamente
+  await job.progress(0);
 
-  const wantStatus =
-    filters.status === 'started' || filters.status === 'candidate'
-      ? filters.status
-      : undefined;
+  const wantStatus = statusQueryOrNull(filters.status) || undefined;
 
+  // Counters
   let total = 0;
   let processed = 0;
   let success = 0;
   let failed = 0;
 
-  let token = null;
+  // 🔧 CORREÇÃO 2: Definir total ANTES e atualizar job imediatamente
   let benefitsGlobal = null;
+  try {
+    console.log(`[PromoJobsService] Job ${job.id} - Calculando total...`);
+    
+    if (typeof options.expected_total === 'number' && options.expected_total > 0) {
+      total = Number(options.expected_total);
+      console.log(`[PromoJobsService] Job ${job.id} - Total esperado: ${total}`);
+    } else {
+      const pre = await precountEligible({
+        mlCreds,
+        promotion_id,
+        promotion_type,
+        status: wantStatus,
+        filters,
+        price_policy
+      });
+      total = Number(pre.total || 0);
+      benefitsGlobal = pre.benefitsGlobal || null;
+      console.log(`[PromoJobsService] Job ${job.id} - Total calculado: ${total}`);
+    }
+  } catch (e) {
+    console.error(`[PromoJobsService] Job ${job.id} - Erro ao calcular total:`, e.message);
+    total = 0;
+  }
+
+  // 🔧 CORREÇÃO 3: Atualizar job data com total definido IMEDIATAMENTE
+  const initialData = {
+    ...job.data,
+    counters: { processed, total, success, failed },
+    stateLabel: total > 0 ? `iniciando 0/${total}` : `iniciando 0/?`,
+    lastUpdate: Date.now()
+  };
+
+  try {
+    await job.update(initialData);
+    console.log(`[PromoJobsService] Job ${job.id} - Dados iniciais atualizados`);
+  } catch (e) {
+    console.error(`[PromoJobsService] Job ${job.id} - Erro ao atualizar dados iniciais:`, e.message);
+  }
+
+  let token = null;
+
+  // 🔧 CORREÇÃO 4: Melhorar logging e controle de progresso
+  console.log(`[PromoJobsService] Job ${job.id} - Iniciando processamento...`);
 
   // varrer todas as páginas aplicando filtros
   while (true) {
@@ -366,38 +429,10 @@ async function runBulkJob(job, done) {
       const id = (it.id || it.item_id || '').toUpperCase();
       if (filters.mlb && id !== String(filters.mlb).toUpperCase()) continue;
 
-      // filtra por % máx, calculando quando necessário
-      if (filters.maxDesc != null) {
-        let pct = toNum(it.discount_percentage);
-
-        if (pct == null && (promotion_type === 'DEAL' || promotion_type === 'SELLER_CAMPAIGN')) {
-          const dealAlready = toNum(it.deal_price);
-          let discountPct;
-          if (dealAlready != null && toNum(it.original_price ?? it.price) != null) {
-            const original = toNum(it.original_price ?? it.price);
-            discountPct = 100 * (1 - dealAlready / original);
-          } else {
-            const res = resolveDealPriceForDealItem(it, price_policy);
-            if (res.newPrice != null) it.deal_price = res.newPrice;
-            discountPct = res.discountPct;
-          }
-          pct = discountPct;
-        }
-
-        if (pct == null && (promotion_type === 'SMART' || promotion_type.startsWith('PRICE_MATCHING'))) {
-          const meli   = toNum(it.meli_percentage) ?? toNum(it.rebate_meli_percent) ?? toNum(benefitsGlobal?.meli_percent);
-          const seller = toNum(it.seller_percentage) ?? toNum(benefitsGlobal?.seller_percent);
-          const totalPct = toNum((meli || 0) + (seller || 0));
-          pct = totalPct != null ? totalPct : null;
-        }
-
-        if (pct == null || pct > Number(filters.maxDesc)) {
-          continue;
-        }
+      // aplica filtro de % máx
+      if (!isEligible(it, { mlb: null, maxDesc: filters.maxDesc }, promotion_type, benefitsGlobal, price_policy)) {
+        continue;
       }
-
-      // conta item que será processado
-      total++;
 
       try {
         if (action === 'apply') {
@@ -423,26 +458,43 @@ async function runBulkJob(job, done) {
         } else {
           processed++; failed++;
         }
-      } catch {
+      } catch (e) {
+        console.error(`[PromoJobsService] Job ${job.id} - Erro ao processar item ${id}:`, e.message);
         processed++; failed++;
       }
 
-      // atualiza progresso + counters visíveis para o painel
-      const pct = Math.round((processed / Math.max(total, 1)) * 100);
-      job.progress(pct);
+      // �� CORREÇÃO 5: Atualizar progresso e dados a cada item processado
+      const denom = (total && total > 0) ? total : Math.max(processed, 1);
+      const pct = clampPct((processed / denom) * 100);
+      
+      await job.progress(pct);
+      
+      const updateData = {
+        ...job.data,
+        counters: { processed, total, success, failed },
+        stateLabel: total > 0
+          ? `active ${processed}/${total}`
+          : `active ${processed}/?`,
+        lastUpdate: Date.now()
+      };
+
       try {
-        await job.update({
-          ...job.data,
-          counters: { processed, total },
-          stateLabel: `processando ${processed}/${total}`
-        });
-      } catch (_) { /* silencioso */ }
+        await job.update(updateData);
+        
+        // Log a cada 10 itens processados
+        if (processed % 10 === 0) {
+          console.log(`[PromoJobsService] Job ${job.id} - Progresso: ${processed}/${total} (${pct}%)`);
+        }
+      } catch (e) {
+        console.error(`[PromoJobsService] Job ${job.id} - Erro ao atualizar progresso:`, e.message);
+      }
     }
 
     if (!page.next) break;
     token = page.next;
   }
 
+  // 🔧 CORREÇÃO 6: Finalização com dados completos
   const summary = {
     id: job.id,
     title: `${action === 'remove' ? 'Remover' : 'Aplicar'} ${promotion_type} ${promotion_id}`,
@@ -455,18 +507,23 @@ async function runBulkJob(job, done) {
   };
 
   // grava rótulo final (aproveitado pela listagem)
+  const finalData = {
+    ...job.data,
+    counters: { processed, total, success, failed },
+    stateLabel: `concluído: ${success} ok, ${failed} erros`,
+    lastUpdate: Date.now()
+  };
+
   try {
-    await job.update({
-      ...job.data,
-      counters: { processed, total },
-      stateLabel: `concluído: ${success} ok, ${failed} erros`
-    });
-  } catch (_) {}
+    await job.update(finalData);
+    await job.progress(100);
+    console.log(`[PromoJobsService] Job ${job.id} - Finalizado: ${success} ok, ${failed} erros`);
+  } catch (e) {
+    console.error(`[PromoJobsService] Job ${job.id} - Erro ao finalizar:`, e.message);
+  }
 
   done(null, summary);
 }
-
-
 
 /* ------------------------------ API do serviço ---------------------------- */
 
@@ -483,8 +540,8 @@ module.exports = {
     queue.on('failed', (job, err) => {
       console.error('PromoJobsService Job failed:', job?.id, err?.message);
     });
-    queue.on('completed', () => {
-      // noop – o summary é retornado pelo worker
+    queue.on('completed', (job, result) => {
+      console.log(`PromoJobsService Job completed: ${job?.id}`, result);
     });
 
     console.log(`⚙️  PromoJobsService inicializado (Bull) — concurrency=${CONCURRENCY}`);
@@ -499,10 +556,11 @@ module.exports = {
    *  - filters {status, maxDesc, mlb}
    *  - price_policy 'min' | 'suggested' | 'max'
    *  - action 'apply' | 'remove'
-   *  - options { dryRun?: boolean }
+   *  - options { dryRun?: boolean, expected_total?: number }
    */
   async enqueueBulkApply(opts) {
     if (!queue) this.init();
+    
     const data = {
       ...opts,
       action: opts.action || 'apply',
@@ -510,83 +568,161 @@ module.exports = {
       promotion: {
         id: String(opts?.promotion?.id || ''),
         type: String(opts?.promotion?.type || '').toUpperCase()
-      }
+      },
+      createdAt: Date.now()
     };
+    
     const job = await queue.add(
       data,
       {
-        removeOnComplete: true,
+        removeOnComplete: 10, // �� CORREÇÃO 7: Manter mais jobs completos
         removeOnFail: false,
-        attempts: 1 // pode ajustar/backoff conforme necessidade
+        attempts: 1
       }
     );
+    
+    console.log(`[PromoJobsService] Job ${job.id} criado para ${data.action} ${data.promotion.type} ${data.promotion.id}`);
     return job?.id;
   },
 
-  // usados pela UI direita
- 
+  // 🔎 Jobs para o painel (lista) - 🔧 CORREÇÃO 8: Melhorar normalização
+  async listRecent(n = 25) {
+    if (!queue) this.init();
+    
+    try {
+      const jobs = await queue.getJobs(['active', 'waiting', 'delayed', 'failed', 'completed'], 0, n - 1, false);
 
+      const map = await Promise.all(
+        jobs.map(async (j) => {
+          try {
+            const state = await j.getState().catch(() => 'unknown');
+            const d = j.data || {};
+            const counters = d.counters || {};
+            const processed = Number(counters.processed ?? 0);
+            const total = Number(counters.total ?? 0);
+            const success = Number(counters.success ?? 0);
+            const failed = Number(counters.failed ?? 0);
 
-  // SUBSTITUA listRecent por este:
-async listRecent(n = 10) {
-  if (!queue) this.init();
-  const jobs = await queue.getJobs(['active', 'waiting', 'delayed', 'failed', 'completed'], 0, n - 1, false);
+            // �� CORREÇÃO 9: Progresso mais confiável
+            let progress = 0;
+            if (total > 0) {
+              progress = clampPct((processed / total) * 100);
+            } else {
+              const jobProgress = await j.progress().catch(() => 0);
+              progress = clampPct(jobProgress);
+            }
 
-  const map = await Promise.all(
-    jobs.map(async (j) => {
+            // título padrão
+            const title = d?.promotion?.id
+              ? `${d.action === 'remove' ? 'Removendo' : 'Aplicando'} ${d.promotion.type} ${d.promotion.id}`
+              : 'Job de promoção';
+
+            // 🔧 CORREÇÃO 10: Label mais consistente
+            let stateLabel = d.stateLabel || state;
+            if (state === 'active') {
+              stateLabel = total > 0 ? `active ${processed}/${total}` : `active ${processed}/?`;
+            } else if (state === 'completed') {
+              stateLabel = `concluído: ${success} ok, ${failed} erros`;
+            } else if (state === 'waiting') {
+              stateLabel = 'aguardando';
+            } else if (state === 'failed') {
+              stateLabel = 'falhou';
+            }
+
+            // resultado só quando concluído
+            const result = state === 'completed' ? (j.returnvalue || null) : null;
+
+            return {
+              id: j.id,
+              title,
+              state: stateLabel,
+              progress,
+              processed,
+              total,
+              counters: { processed, total, success, failed },
+              created_at: new Date(j.timestamp).toISOString(),
+              updated_at: new Date(j.processedOn || d.lastUpdate || j.timestamp).toISOString(),
+              result,
+              label: title // 🔧 CORREÇÃO 11: Adicionar label para compatibilidade
+            };
+          } catch (e) {
+            console.error(`[PromoJobsService] Erro ao processar job ${j.id}:`, e.message);
+            return {
+              id: j.id,
+              title: 'Job com erro',
+              state: 'error',
+              progress: 0,
+              processed: 0,
+              total: 0,
+              counters: { processed: 0, total: 0, success: 0, failed: 0 },
+              created_at: new Date(j.timestamp).toISOString(),
+              updated_at: new Date().toISOString(),
+              result: null,
+              label: 'Job com erro'
+            };
+          }
+        })
+      );
+      
+      console.log(`[PromoJobsService] Retornando ${map.length} jobs`);
+      return map;
+    } catch (e) {
+      console.error('[PromoJobsService] Erro ao listar jobs:', e.message);
+      return [];
+    }
+  },
+
+  // 🔎 Detalhe do job (para a barra acompanhar certinho) - 🔧 CORREÇÃO 12
+  async jobDetail(job_id) {
+    if (!queue) this.init();
+    
+    try {
+      const j = await queue.getJob(job_id);
+      if (!j) return null;
+
       const state = await j.getState().catch(() => 'unknown');
-      const pct   = Number(j.progress() || 0);
-      const d     = j.data || {};
-
-      // título padrão
-      const title = d?.promotion?.id
-        ? `${d.action === 'remove' ? 'Removendo' : 'Aplicando'} ${d.promotion.type} ${d.promotion.id}`
-        : 'Job de promoção';
-
-      // se o worker atualizou counters/stateLabel, usa "processando 4/xx"
+      const d = j.data || {};
       const counters = d.counters || {};
-      let stateLabel = d.stateLabel || state;
-      if (state === 'active' && (counters.processed != null || counters.total != null)) {
-        stateLabel = `processando ${counters.processed ?? 0}/${counters.total ?? '?'}`;
+      const processed = Number(counters.processed ?? 0);
+      const total = Number(counters.total ?? 0);
+      const success = Number(counters.success ?? 0);
+      const failed = Number(counters.failed ?? 0);
+
+      let progress = 0;
+      if (total > 0) {
+        progress = clampPct((processed / total) * 100);
+      } else {
+        const jobProgress = await j.progress().catch(() => 0);
+        progress = clampPct(jobProgress);
       }
 
-      // resultado só quando concluído
-      const result = state === 'completed' ? (j.returnvalue || null) : null;
+      let stateLabel = d.stateLabel || state;
+      if (state === 'active') {
+        stateLabel = total > 0 ? `active ${processed}/${total}` : `active ${processed}/?`;
+      } else if (state === 'completed') {
+        stateLabel = `concluído: ${success} ok, ${failed} erros`;
+      }
 
       return {
         id: j.id,
-        title,
         state: stateLabel,
-        progress: pct,
-        result,
-        created_at: new Date(j.timestamp).toISOString(),
-        updated_at: new Date(j.processedOn || j.timestamp).toISOString()
+        progress,
+        processed,
+        total,
+        data: {
+          ...d,
+          counters: { processed, total, success, failed }
+        },
+        result: state === 'completed' ? (j.returnvalue || null) : null
       };
-    })
-  );
-  return map;
-},
+    } catch (e) {
+      console.error(`[PromoJobsService] Erro ao obter detalhes do job ${job_id}:`, e.message);
+      return null;
+    }
+  },
 
-// SUBSTITUA jobDetail por este:
-async jobDetail(job_id) {
-  if (!queue) this.init();
-  const j = await queue.getJob(job_id);
-  if (!j) return null;
-
-  const state = await j.getState().catch(() => 'unknown');
-  const d     = j.data || {};
-  const counters = d.counters || {};
-
-  return {
-    id: j.id,
-    state: d.stateLabel || state,
-    progress: Number(j.progress() || 0),
-    data: {
-      ...d,
-      counters
-    },
-    result: state === 'completed' ? (j.returnvalue || null) : null
-  };
-}
-
+  // 🔧 CORREÇÃO 13: Método para compatibilidade com rota existente
+  async enqueueApplyMass(opts) {
+    return { id: await this.enqueueBulkApply(opts) };
+  }
 };

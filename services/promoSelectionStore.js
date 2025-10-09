@@ -7,12 +7,17 @@ const TTL_SECONDS = Number(process.env.PROMO_SELECTION_TTL_SECONDS || 15 * 60);
 function makeRedis() {
   if (process.env.REDIS_URL) {
     // Suporta redis:// e rediss://
-    return makeRedis();
+    return new IORedis(process.env.REDIS_URL);
   }
+  
   const host = process.env.REDIS_HOST || '127.0.0.1';
   const port = Number(process.env.REDIS_PORT || 6379);
   const password = process.env.REDIS_PASSWORD || undefined;
-  return makeRedis();
+  
+  const config = { host, port };
+  if (password) config.password = password;
+  
+  return new IORedis(config);
 }
 
 const redis = makeRedis();

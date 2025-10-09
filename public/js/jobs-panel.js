@@ -108,8 +108,76 @@
     return pct >= 100 || /conclu/i.test(st) || /complete/i.test(st) || /finished/i.test(st);
   }
 
+  // Extrai "a/b" do state (ex.: “processando 7/51”)
+  function parsePairFromState(state){
+    const s = String(state || '');
+    const m = s.match(/(\d+)\s*\/\s*(\d+)/);
+    if (!m) return null;
+    const a = Number(m[1]), b = Number(m[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= 0) return null;
+    return { a, b };
+  }
+
+  // Normaliza progress/estado usando contadores acumulados com expected_total
+  function normalizeProgressAndState(j){
+    const state = j.state || '';
+    const pair = parsePairFromState(state);
+    const meta = j.meta || (j.meta = { expected: null, pageDone: 0, lastPair: null, maxDen: 0 });
+
+    // expected_total “vence” qualquer outra estimativa
+    if (Number.isFinite(j.expected_total) && j.expected_total > 0) {
+      meta.expected = Math.max(Number(j.expected_total), meta.expected || 0);
+    }
+
+    // mantém o maior denominador já visto (caso backend varie de 7/7 → 20/20 → 51/51)
+    if (pair) {
+      meta.maxDen = Math.max(meta.maxDen || 0, pair.b);
+      if (!meta.expected) meta.expected = meta.maxDen;
+      // Detecta reset (nova página): numerador menor e denominador não cresce
+      if (meta.lastPair && pair.a < meta.lastPair.a && pair.b <= meta.lastPair.b) {
+        meta.pageDone += meta.lastPair.a;         // acumula o que já foi concluído no lote anterior
+      }
+      meta.lastPair = pair;
+    }
+
+    const expected = Number(meta.expected || 0) > 0 ? Number(meta.expected) : null;
+
+    // Decide progress:
+    // 1) Se houver pair + expected: usa acumulado
+    // 2) Senão, se progress numérico veio do backend, mantemos
+    // 3) Caso contrário, deixa como estava
+    let pct = clampPct(j.progress);
+    let stateLabel = state;
+
+    if (pair && expected) {
+      const done = Math.min(expected, meta.pageDone + pair.a);
+      pct = clampPct((done / expected) * 100);
+      // monta texto “processando done/expected”
+      const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
+      const base = `processando ${done}/${expected}`;
+      stateLabel = hasPctInState ? base : `${base}`;
+      j.completed = (done >= expected);
+    } else if (expected && Number.isFinite(j.done)) {
+      // caminho alternativo: se backend enviar {done, expected_total}
+      const done = Math.min(expected, Math.max(0, Number(j.done)));
+      pct = clampPct((done / expected) * 100);
+      const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
+      const base = `processando ${done}/${expected}`;
+      stateLabel = hasPctInState ? base : `${base}`;
+      j.completed = (done >= expected);
+    } else {
+      // sem pares nem expected → mantém state e progress que já vieram
+      // evita duplicar “ – 12%” se o state já contém “%”
+      const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
+      if (!hasPctInState && state) stateLabel = `${state} – ${pct}%`;
+    }
+
+    j.progress = pct;
+    j.state = stateLabel;
+  }
+
   /* ================================== CRUD ====================================== */
-  function addLocalJob({ id, title, badge, badges, accountKey, accountLabel }) {
+  function addLocalJob({ id, title, badge, badges, accountKey, accountLabel, expected_total }) {
     loadIfNeeded();
     const jobId = id || `local|${Date.now()}|${Math.random().toString(36).slice(2,8)}`;
     cache[jobId] = {
@@ -121,22 +189,29 @@
       completed: false,
       dismissed: false,
       started: Date.now(),
-      updated: Date.now()
+      updated: Date.now(),
+      expected_total: Number.isFinite(expected_total) ? Number(expected_total) : null,
+      meta: { expected: Number.isFinite(expected_total) ? Number(expected_total) : null, pageDone: 0, lastPair: null, maxDen: 0 }
     };
     save(); show(); render();
     return jobId;
   }
 
-  function updateLocalJob(id, { progress, state, completed, badges, badge, accountKey, accountLabel }) {
+  function updateLocalJob(id, { progress, state, completed, badges, badge, accountKey, accountLabel, expected_total, done }) {
     loadIfNeeded();
     const j = cache[id]; if (!j) return;
     if (typeof progress === 'number') j.progress = clampPct(progress);
     if (state != null) j.state = String(state);
     if (typeof completed === 'boolean') j.completed = completed;
+    if (Number.isFinite(expected_total)) j.expected_total = Number(expected_total);
+    if (Number.isFinite(done)) j.done = Number(done);
     if (completed == null) j.completed = guessCompleted(j.progress, j.state);
     const nb = normalizeBadges(badges, badge, accountKey, accountLabel);
     if (nb.length) j.badges = nb;
     j.updated = Date.now();
+
+    // normaliza e re-renderiza com acumulado
+    normalizeProgressAndState(j);
     save(); render();
   }
 
@@ -173,36 +248,71 @@
 
   /* ========================= API: merge jobs do backend ========================= */
   function normalizeIncomingJob(j){
-    // aceita formatos vindos do backend (routes/promocoesRoutes listRecent/jobDetail)
-    const id    = String(j.id || j.job_id || '');
-    const title = j.title || 'Processo';
-    const progress = clampPct(j.progress ?? j.pct ?? 0);
-    const state = j.state || j.status || '';
-    const accountKey   = j.account?.key   || j.accountKey   || null;
-    const accountLabel = j.account?.label || j.accountLabel || null;
-    const badges = normalizeBadges(j.badges, j.badge, accountKey, accountLabel);
-    const completed = ('completed' in j) ? !!j.completed : guessCompleted(progress, state);
-    return { id, title, progress, state, badges, completed };
+  const id    = String(j.id || j.job_id || '');
+  const title = j.title || 'Processo';
+
+  // tenta extrair progresso numérico
+  let pct = j.progress ?? j.pct;
+  const processed = Number(j.processed ?? j.done ?? j.ok ?? NaN);
+  const total     = Number(j.total ?? j.expected_total ?? NaN);
+
+  if (!Number.isFinite(pct) && Number.isFinite(processed) && Number.isFinite(total) && total > 0) {
+    pct = Math.round((processed / total) * 100);
   }
+  const progress = clampPct(pct ?? 0);
+
+  // monta um "state" amigável se vierem contadores
+  let state = j.state || j.status || '';
+  const success = Number(j.success ?? j.sucessos ?? j.applied ?? NaN);
+  const errors  = Number(j.errors  ?? j.fails    ?? j.erros   ?? NaN);
+
+  // monta "processando x/y — zz%  (✓a · ⚠b)" se dados existirem
+  if (Number.isFinite(processed) && Number.isFinite(total)) {
+    const parts = [`processando ${processed}/${total} — ${progress}%`];
+    const badges = [];
+    if (Number.isFinite(success)) badges.push(`✓${success}`);
+    if (Number.isFinite(errors))  badges.push(`⚠${errors}`);
+    if (badges.length) parts.push(`(${badges.join(' · ')})`);
+    state = parts.join('  ');
+  }
+
+  const accountKey   = j.account?.key   || j.accountKey   || null;
+  const accountLabel = j.account?.label || j.accountLabel || null;
+  const badges = normalizeBadges(j.badges, j.badge, accountKey, accountLabel);
+
+  const completed = ('completed' in j)
+    ? !!j.completed
+    : guessCompleted(progress, state);
+
+  return { id, title, progress, state, badges, completed };
+}
+
 
   function mergeApiJobs(list){
     loadIfNeeded();
     const now = Date.now();
     (Array.isArray(list) ? list : []).forEach(raw => {
-      const j = normalizeIncomingJob(raw);
-      if (!j.id) return;
-      const prev = cache[j.id] || {};
-      cache[j.id] = {
-        id: j.id,
-        title: j.title || prev.title || 'Processo',
-        badges: (j.badges && j.badges.length) ? j.badges : (prev.badges || []),
-        progress: clampPct(j.progress != null ? j.progress : prev.progress || 0),
-        state: j.state != null ? String(j.state) : (prev.state || ''),
-        completed: ('completed' in j) ? !!j.completed : guessCompleted(j.progress ?? prev.progress, j.state ?? prev.state),
+      const inc = normalizeIncomingJob(raw);
+      if (!inc.id) return;
+
+      const prev = cache[inc.id] || {};
+      cache[inc.id] = {
+        id: inc.id,
+        title: inc.title || prev.title || 'Processo',
+        badges: (inc.badges && inc.badges.length) ? inc.badges : (prev.badges || []),
+        progress: clampPct(inc.progress != null ? inc.progress : prev.progress || 0),
+        state: inc.state != null ? String(inc.state) : (prev.state || ''),
+        expected_total: (inc.expected_total != null ? inc.expected_total : prev.expected_total || null),
+        done: (inc.done != null ? inc.done : prev.done),
+        completed: ('completed' in inc) ? !!inc.completed : guessCompleted(inc.progress ?? prev.progress, inc.state ?? prev.state),
         dismissed: !!prev.dismissed,
         started: prev.started || now,
-        updated: now
+        updated: now,
+        meta: prev.meta || { expected: inc.expected_total || null, pageDone: 0, lastPair: null, maxDen: 0 }
       };
+
+      // Normaliza (acúmulo x/y → expected_total)
+      normalizeProgressAndState(cache[inc.id]);
     });
     cleanup(); save(); render();
   }
@@ -215,6 +325,7 @@
     const rows = jobsForRender().map(j => {
       const pct = clampPct(j.progress);
       const state = String(j.state || '');
+
       // Evita duplicar porcentagem: se state já contém "%", não acrescenta " – 12%"
       const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
       const stateHtml = hasPctInState ? esc(state) : (state ? `${esc(state)} – ${pct}%` : `${pct}%`);
@@ -279,7 +390,14 @@
   if (!window.PromoJobs) {
     window.PromoJobs = {
       noteLocalJobStart(title, ctx = {}) {
-        return addLocalJob({ title, accountKey: ctx.accountKey, accountLabel: ctx.accountLabel, badges: ctx.badges, badge: ctx.badge });
+        return addLocalJob({
+          title,
+          accountKey: ctx.accountKey,
+          accountLabel: ctx.accountLabel,
+          badges: ctx.badges,
+          badge: ctx.badge,
+          expected_total: ctx.expected_total
+        });
       },
       linkLocalToServer(localId, serverId) {
         return replaceId(localId, serverId);
