@@ -32,6 +32,7 @@
       <button class="nav-tab" data-tab="benchmarking">Benchmarking</button>
       <button class="nav-tab" data-tab="alertas">Alertas</button>
       <button class="nav-tab" data-tab="ml">ML</button>
+      <button class="nav-tab" data-tab="full">FULL</button>
     </div>
   </nav>
 
@@ -170,6 +171,56 @@
         </div>
       </div>
     </section>
+
+    <!-- ✅ FULL -->
+    <section id="tab-full" class="tab-page">
+      <div class="container">
+        <h1>📦 FULL</h1>
+        <p class="subtitle">Produtos que estão no fulfillment do Mercado Livre (ML Full).</p>
+
+        <div class="endpoints">
+          <!-- Card principal -->
+          <div class="endpoint">
+            <h3>🗂️ Produtos (Full) <span id="full-status-pill" class="status active">Ativo</span></h3>
+            <p>Veja os itens que estão no centro de fulfillment (estoque, preço, status, promoções ativas).</p>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <span class="mini-stat">
+                <strong id="full-total-itens">—</strong>
+                <small>itens em Full</small>
+              </span>
+              <span class="mini-stat">
+                <strong id="full-total-ativos">—</strong>
+                <small>ativos</small>
+              </span>
+              <span class="mini-stat">
+                <strong id="full-total-transf">—</strong>
+                <small>em transferência</small>
+              </span>
+              <span class="mini-stat">
+                <strong id="full-total-ineleg">—</strong>
+                <small>inelegíveis</small>
+              </span>
+            </div>
+            <div style="margin-top:12px;">
+              <!-- abre a página dedicada (grid completo) -->
+              <a class="btn-primary" href="/full">🚀 Abrir Produtos (Full)</a>
+            </div>
+          </div>
+
+          <!-- Card auxiliar (opcional) -->
+          <div class="endpoint">
+            <h3>📤 Exportações</h3>
+            <p>Gere relatórios CSV/XLSX dos itens sob Full. (Na página dedicada, use “Exportar CSV”.)</p>
+            <a href="/full">📄 Ir para Exportar</a>
+          </div>
+        </div>
+
+        <div class="placeholder" id="full-hint" style="display:none; margin-top:8px;">
+          ℹ️ Dica: caso os totais não carreguem, finalize a configuração do endpoint <code>GET /api/full/summary</code>.
+        </div>
+      </div>
+    </section>
+    <!-- /FULL -->
   </main>
 
   <!-- Modal de Processos -->
@@ -218,237 +269,312 @@
     </div>
   </div>
 
-  <script>
-    /* ===== Abas ===== */
-    const tabs = document.querySelectorAll('.nav-tab');
-    const pages = document.querySelectorAll('.tab-page');
+<script>
+(() => {
+  /* ===== Util ===== */
+  const $ = (id) => document.getElementById(id);
+  const qs = (s, el=document) => el.querySelector(s);
+  const qsa = (s, el=document) => Array.from(el.querySelectorAll(s));
+
+  function safeBind(el, ev, fn) { if (el) el.addEventListener(ev, fn); }
+  function show(el) { if (el) el.style.display = 'block'; }
+  function hide(el) { if (el) el.style.display = 'none'; }
+  function safeAlert(msg) { try { alert(msg); } catch(_) { console.log('ALERT:', msg); } }
+
+  /* ===== Abas ===== */
+  function initTabs() {
+    const tabs = qsa('.nav-tab');
+    const pages = qsa('.tab-page');
     tabs.forEach(btn => {
-      btn.addEventListener('click', () => {
+      safeBind(btn, 'click', () => {
         tabs.forEach(b => b.classList.remove('active'));
         pages.forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         const id = 'tab-' + btn.dataset.tab;
-        document.getElementById(id).classList.add('active');
+        const page = $(id);
+        if (page) page.classList.add('active');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
+  }
 
-    /* ===== Conta / Trocar conta ===== */
-    const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
-    async function carregarContaAtual() {
-      const currentEl = document.getElementById('account-current');
-      const inlineEl  = document.getElementById('account-name-inline');
-      try {
-        const r = await fetch('/api/account/current', { cache: 'no-store' });
-        const data = await r.json();
-        let shown = 'Não selecionada';
-        if (data && (data.ok || data.success)) {
-          shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
-        }
-        currentEl.textContent = shown;
-        inlineEl.textContent  = shown;
-      } catch(e) {
-        currentEl.textContent = 'Indisponível';
-        inlineEl.textContent  = 'Indisponível';
+  /* ===== Conta / Trocar conta ===== */
+  const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
+
+  async function carregarContaAtual() {
+    const currentEl = $('account-current');
+    const inlineEl  = $('account-name-inline');
+    try {
+      const r = await fetch('/api/account/current', { cache: 'no-store' });
+      const data = await r.json();
+      let shown = 'Não selecionada';
+      if (data && (data.ok || data.success)) {
+        shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
       }
+      if (currentEl) currentEl.textContent = shown;
+      if (inlineEl)  inlineEl.textContent  = shown;
+    } catch(e) {
+      if (currentEl) currentEl.textContent = 'Indisponível';
+      if (inlineEl)  inlineEl.textContent  = 'Indisponível';
+      console.error('carregarContaAtual:', e);
     }
-    async function trocarConta() {
-      try {
-        await fetch('/api/account/clear', { method: 'POST' });
-        window.location.href = '/select-conta';
-      } catch(e) {
-        window.location.href = '/select-conta';
-      }
-    }
-    document.getElementById('account-switch').addEventListener('click', trocarConta);
+  }
 
-    /* ===== Token / Status ===== */
-    function abrirModalStatus() {
-      document.getElementById('modal-status').style.display = 'block';
-    }
-    function fecharModalStatus() {
-      document.getElementById('modal-status').style.display = 'none';
-    }
-    document.getElementById('btn-status').addEventListener('click', async () => {
-      abrirModalStatus();
-      await verificarToken(true);
-    });
+  async function trocarConta() {
+    try {
+      await fetch('/api/account/clear', { method: 'POST' });
+    } catch (_) { /* ignora */ }
+    window.location.href = '/select-conta';
+  }
 
-    async function verificarToken(updateModal=false) {
-      try {
-        const response = await fetch('/verificar-token');
-        const data = await response.json();
-        if (data.success) {
-          if (updateModal) {
-            document.getElementById('status-usuario').textContent = data.nickname || '—';
-            document.getElementById('status-token').textContent = data.token_preview || '—';
-            document.getElementById('status-msg').textContent = data.message || 'OK';
-          } else {
-            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
-          }
-        } else {
-          if (updateModal) {
-            document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
-          } else {
-            alert('❌ ' + (data.error || 'Falha ao verificar'));
-          }
-        }
-      } catch (error) { 
+  /* ===== Token / Status ===== */
+  function abrirModalStatus() { show($('modal-status')); }
+  function fecharModalStatus() { hide($('modal-status')); }
+
+  async function verificarToken(updateModal=false) {
+    try {
+      const response = await fetch('/verificar-token');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.success) {
         if (updateModal) {
-          document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+          const u = $('status-usuario'), t = $('status-token'), m = $('status-msg');
+          if (u) u.textContent = data.nickname || '—';
+          if (t) t.textContent = data.token_preview || '—';
+          if (m) m.textContent = data.message || 'OK';
         } else {
-          alert('❌ Erro: ' + error.message); 
+          safeAlert('✅ ' + (data.message || 'OK') + '\nUser: ' + (data.nickname || '—') + '\nToken: ' + (data.token_preview || '—'));
         }
-      }
-    }
-
-    async function renovarToken(updateModal=false) {
-      try {
-        const response = await fetch('/renovar-token-automatico', { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-          if (updateModal) {
-            document.getElementById('status-usuario').textContent = data.nickname || '—';
-            document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
-            document.getElementById('status-msg').textContent = data.message || 'Token renovado';
-          } else {
-            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
-          }
-        } else {
-          if (updateModal) {
-            document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
-          } else {
-            alert('❌ ' + (data.error || 'Falha ao renovar'));
-          }
-        }
-      } catch (error) { 
-        if (updateModal) {
-          document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
-        } else {
-          alert('❌ Erro: ' + error.message); 
-        }
-      }
-    }
-
-    /* ===== Modal Processos ===== */
-    let intervalAtualizacao;
-    async function abrirModalProcessos() {
-      document.getElementById('modal-processos').style.display = 'block';
-      await atualizarProcessos();
-      intervalAtualizacao = setInterval(atualizarProcessos, 5000);
-    }
-    function fecharModalProcessos() {
-      document.getElementById('modal-processos').style.display = 'none';
-      if (intervalAtualizacao) clearInterval(intervalAtualizacao);
-    }
-    async function atualizarProcessos() {
-      try {
-        const response = await fetch('/api/pesquisa-descricao/jobs?limite=20', { cache:'no-store' });
-        const data = await response.json();
-        if (data && (data.success || data.ok)) {
-          const stats = data.estatisticas_gerais || data.stats || {};
-          atualizarEstatisticas(stats);
-          exibirProcessos(data.jobs || []);
-          atualizarContadorDashboard(data.jobs || []);
-        }
-      } catch (error) { console.error('Erro ao atualizar processos:', error); }
-    }
-    function atualizarEstatisticas(stats) {
-      document.getElementById('total-processando').textContent = stats.processando_agora || 0;
-      document.getElementById('total-aguardando').textContent = stats.fila_aguardando || 0;
-      document.getElementById('total-concluidos').textContent = stats.concluidos_recentes || 0;
-      document.getElementById('total-erros').textContent = stats.falharam_recentes || 0;
-    }
-    function exibirProcessos(jobs) {
-      const container = document.getElementById('lista-processos');
-      if (!jobs || jobs.length === 0) {
-        container.innerHTML = `
-          <div style="text-align:center; padding:40px;">
-            <p>📭 Nenhum processo encontrado</p>
-            <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Iniciar Primeiro Processo</button>
-          </div>`;
-        return;
-      }
-      container.innerHTML = jobs.map(job => `
-        <div class="process-item ${job.status}">
-          <div class="process-header">
-            <div class="process-title">📋 ${job.job_id || job.id}</div>
-            <div class="process-status ${job.status}">${job.status}</div>
-          </div>
-          <div style="font-size:14px; color:#666; margin:5px 0;">
-            📊 ${((job.concluidos || 0) + (job.falharam || 0))}/${job.total_mlbs || 0} MLBs processados
-            ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ''}
-          </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${(job.progresso_percentual || 0)}%"></div></div>
-          <div class="process-actions">
-            <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id || job.id}')">📊 Detalhes</button>
-            ${job.status === 'concluido' ? `<a href="/api/pesquisa-descricao/download/${job.job_id || job.id}" class="btn-small btn-success">📥 Download</a>` : ''}
-            ${(job.status === 'processando' || job.status === 'aguardando') ? `<button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id || job.id}')">🚫 Cancelar</button>` : ''}
-          </div>
-        </div>
-      `).join('');
-    }
-    function atualizarContadorDashboard(jobs) {
-      const ativos = (jobs || []).filter(j => j.status === 'processando' || j.status === 'aguardando').length;
-      const counter = document.getElementById('process-counter');
-      const counterNumber = document.getElementById('counter-number');
-      if (ativos > 0) {
-        counter.style.display = 'inline-flex';
-        counter.classList.add('pulsing');
-        counterNumber.textContent = ativos;
       } else {
-        counter.style.display = 'none';
-        counter.classList.remove('pulsing');
+        const msg = data.error || 'Falha ao verificar';
+        if (updateModal) { const m = $('status-msg'); if (m) m.textContent = msg; }
+        else { safeAlert('❌ ' + msg); }
       }
+    } catch (error) {
+      if (updateModal) { const m = $('status-msg'); if (m) m.textContent = 'Erro: ' + error.message; }
+      else { safeAlert('❌ Erro: ' + error.message); }
     }
-    async function verDetalhesProcesso(jobId) {
-      try {
-        const response = await fetch(`/api/pesquisa-descricao/status/${jobId}`, { cache:'no-store' });
-        const data = await response.json();
-        if (data && (data.success || data.ok)) {
-          const job = data.status || {};
-          alert(`📊 Detalhes do Processo: ${jobId}
+  }
 
-Status: ${job.status}
-Progresso: ${job.progresso_percentual || 0}%
-Total MLBs: ${job.total_mlbs || 0}
-Processados: ${(job.concluidos || 0) + (job.falharam || 0)}
-Sucessos: ${job.concluidos || 0}
-Erros: ${job.falharam || 0}
-Tempo decorrido: ${job.tempo_decorrido || 'N/A'}
-${job.tempo_estimado_restante ? `Tempo restante: ${job.tempo_estimado_restante}` : ''}`);
+  async function renovarToken(updateModal=false) {
+    try {
+      const response = await fetch('/renovar-token-automatico', { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          const u = $('status-usuario'), t = $('status-token'), m = $('status-msg');
+          if (u) u.textContent = data.nickname || '—';
+          if (t) t.textContent = (data.access_token || '').substring(0, 20) + '...';
+          if (m) m.textContent = data.message || 'Token renovado';
         } else {
-          alert('❌ Não foi possível obter os detalhes.');
+          safeAlert('✅ ' + (data.message || 'Token renovado') + '\nUser: ' + (data.nickname || '—') + '\nNovo token: ' + (data.access_token || '').substring(0, 20) + '...');
         }
-      } catch (error) { alert('❌ Erro ao obter detalhes: ' + error.message); }
+      } else {
+        const msg = data.error || 'Falha ao renovar';
+        if (updateModal) { const m = $('status-msg'); if (m) m.textContent = msg; }
+        else { safeAlert('❌ ' + msg); }
+      }
+    } catch (error) {
+      if (updateModal) { const m = $('status-msg'); if (m) m.textContent = 'Erro: ' + error.message; }
+      else { safeAlert('❌ Erro: ' + error.message); }
     }
-    async function cancelarProcesso(jobId) {
-      if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) return;
-      try {
-        const response = await fetch(`/api/pesquisa-descricao/cancelar/${jobId}`, { method: 'POST' });
-        const data = await response.json();
-        if (data && (data.success || data.ok)) {
-          alert('✅ Processo cancelado com sucesso!');
-          atualizarProcessos();
-        } else {
-          alert('❌ Erro ao cancelar: ' + (data.message || data.error || 'Falha'));
-        }
-      } catch (error) { alert('❌ Erro: ' + error.message); }
-    }
-    function iniciarNovoProcesso() { window.location.href = '/pesquisa-descricao?novo_processo=true'; }
+  }
 
-    // fechar modais ao clicar fora
+  /* ===== Modal Processos ===== */
+  let intervalAtualizacao = null;
+
+  function abrirModalProcessos() {
+    show($('modal-processos'));
+    atualizarProcessos().catch(e => console.error(e));
+    if (intervalAtualizacao) clearInterval(intervalAtualizacao);
+    intervalAtualizacao = setInterval(() => atualizarProcessos().catch(e => console.error(e)), 5000);
+  }
+  function fecharModalProcessos() {
+    hide($('modal-processos'));
+    if (intervalAtualizacao) clearInterval(intervalAtualizacao);
+    intervalAtualizacao = null;
+  }
+
+  async function atualizarProcessos() {
+    try {
+      const response = await fetch('/api/pesquisa-descricao/jobs?limite=20', { cache:'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data && (data.success || data.ok)) {
+        const stats = data.estatisticas_gerais || data.stats || {};
+        atualizarEstatisticas(stats);
+        exibirProcessos(data.jobs || []);
+        atualizarContadorDashboard(data.jobs || []);
+      }
+    } catch (error) {
+      console.error('atualizarProcessos:', error);
+    }
+  }
+
+  function atualizarEstatisticas(stats) {
+    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    set('total-processando', stats.processando_agora || 0);
+    set('total-aguardando',  stats.fila_aguardando   || 0);
+    set('total-concluidos',  stats.concluidos_recentes || 0);
+    set('total-erros',       stats.falharam_recentes || 0);
+  }
+
+  function exibirProcessos(jobs) {
+    const container = $('lista-processos');
+    if (!container) return;
+    if (!jobs || jobs.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:40px;">
+          <p>📭 Nenhum processo encontrado</p>
+          <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Iniciar Primeiro Processo</button>
+        </div>`;
+      return;
+    }
+    container.innerHTML = jobs.map(job => `
+      <div class="process-item ${job.status}">
+        <div class="process-header">
+          <div class="process-title">📋 ${job.job_id || job.id}</div>
+          <div class="process-status ${job.status}">${job.status}</div>
+        </div>
+        <div style="font-size:14px; color:#666; margin:5px 0;">
+          📊 ${((job.concluidos || 0) + (job.falharam || 0))}/${job.total_mlbs || 0} MLBs processados
+          ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ''}
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${(job.progresso_percentual || 0)}%"></div></div>
+        <div class="process-actions">
+          <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id || job.id}')">📊 Detalhes</button>
+          ${job.status === 'concluido' ? `<a href="/api/pesquisa-descricao/download/${job.job_id || job.id}" class="btn-small btn-success">📥 Download</a>` : ''}
+          ${(job.status === 'processando' || job.status === 'aguardando') ? `<button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id || job.id}')">🚫 Cancelar</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function atualizarContadorDashboard(jobs) {
+    const ativos = (jobs || []).filter(j => j.status === 'processando' || j.status === 'aguardando').length;
+    const counter = $('process-counter');
+    const counterNumber = $('counter-number');
+    if (!counter || !counterNumber) return;
+    if (ativos > 0) {
+      counter.style.display = 'inline-flex';
+      counter.classList.add('pulsing');
+      counterNumber.textContent = String(ativos);
+    } else {
+      counter.style.display = 'none';
+      counter.classList.remove('pulsing');
+    }
+  }
+
+  function iniciarNovoProcesso() { window.location.href = '/pesquisa-descricao?novo_processo=true'; }
+
+  async function verDetalhesProcesso(jobId) {
+    const ctl = new AbortController();
+    const timeout = setTimeout(() => ctl.abort(), 10000); // 10s
+
+    try {
+      const response = await fetch(`/api/pesquisa-descricao/status/${encodeURIComponent(jobId)}`, {
+        cache: 'no-store',
+        signal: ctl.signal
+      });
+
+      if (!response.ok) {
+        const txt = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status} ${txt || ''}`.trim());
+      }
+
+      const data = await response.json();
+
+      if (data && (data.success || data.ok)) {
+        const job = data.status || {};
+        const progresso = Number(job.progresso_percentual ?? 0);
+        const total = Number(job.total_mlbs ?? 0);
+        const concluidos = Number(job.concluidos ?? 0);
+        const falharam = Number(job.falharam ?? 0);
+        const processados = concluidos + falharam;
+
+        const detalhes =
+`📊 Detalhes do Processo: ${jobId}
+
+Status: ${job.status ?? '—'}
+Progresso: ${progresso}% 
+Total MLBs: ${total}
+Processados: ${processados}
+Sucessos: ${concluidos}
+Erros: ${falharam}
+Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? `\nTempo restante: ${job.tempo_estimado_restante}` : ''}`;
+
+        safeAlert(detalhes);
+      } else {
+        const msg = (data && (data.message || data.error)) || 'Não foi possível obter os detalhes.';
+        safeAlert('❌ ' + msg);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        safeAlert('⏱️ Tempo esgotado ao consultar o status. Tente novamente.');
+      } else if (err instanceof TypeError) {
+        safeAlert('📡 Erro de rede ao consultar o status. Verifique sua conexão e tente novamente.');
+      } else {
+        safeAlert('❌ Erro ao obter detalhes: ' + (err.message || String(err)));
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function cancelarProcesso(jobId) {
+    if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) return;
+    try {
+      const response = await fetch(`/api/pesquisa-descricao/cancelar/${encodeURIComponent(jobId)}`, { method: 'POST' });
+      const data = await response.json();
+      if (data && (data.success || data.ok)) {
+        safeAlert('✅ Processo cancelado com sucesso!');
+        atualizarProcessos();
+      } else {
+        safeAlert('❌ Erro ao cancelar: ' + (data.message || data.error || 'Falha'));
+      }
+    } catch (error) { safeAlert('❌ Erro: ' + error.message); }
+  }
+
+  /* ===== Bind global (para onclick no HTML) ===== */
+  Object.assign(window, {
+    abrirModalStatus,
+    fecharModalStatus,
+    verificarToken,
+    renovarToken,
+    abrirModalProcessos,
+    fecharModalProcessos,
+    atualizarProcessos,
+    verDetalhesProcesso,
+    cancelarProcesso,
+    iniciarNovoProcesso,
+    trocarConta
+  });
+
+  /* ===== Listeners estáticos ===== */
+  function bindStaticListeners() {
+    safeBind($('btn-status'), 'click', async () => { abrirModalStatus(); await verificarToken(true); });
+    safeBind($('account-switch'), 'click', trocarConta);
+
+    // Fechar modais ao clicar fora
     window.addEventListener('click', (event) => {
-      const m1 = document.getElementById('modal-processos');
-      const m2 = document.getElementById('modal-status');
+      const m1 = $('modal-processos');
+      const m2 = $('modal-status');
       if (event.target === m1) fecharModalProcessos();
       if (event.target === m2) fecharModalStatus();
     });
+  }
 
-    // boot
-    document.addEventListener('DOMContentLoaded', () => {
+  /* ===== Boot ===== */
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      initTabs();
+      bindStaticListeners();
       carregarContaAtual();
-    });
-  </script>
-</body>
-</html>
+    } catch (e) {
+      console.error('Erro na inicialização:', e);
+      // não deixar a página inteira quebrar
+    }
+  });
+})();
+</script>

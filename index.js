@@ -312,6 +312,15 @@ try {
   console.error('❌ Erro ao expor página Curva ABC:', error.message);
 }
 
+// Full (API)
+try {
+  const fullRoutes = require('./routes/fullRoutes');
+  app.use('/api/full', fullRoutes);
+  console.log('✅ FullRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar FullRoutes:', error.message);
+}
+
 // ==========================================
 // ERRORS
 // ==========================================

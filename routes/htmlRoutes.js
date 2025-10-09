@@ -50,9 +50,16 @@ router.get('/test', (_req, res) => {
 });
 
 /* ================================
- * NOVO: Página Curva ABC (HTML)
+ * NOVO: Página Full (HTML)
  * ================================ */
-router.get('/ia-analytics/curva-abc', noCache, (req, res) => {
+router.get('/full', noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'full.html'));
+});
+
+/* ================================
+ * Já existente: Página Curva ABC (HTML)
+ * ================================ */
+router.get('/ia-analytics/curva-abc', noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'views', 'ia-analytics', 'curva-abc.html'));
 });
 
