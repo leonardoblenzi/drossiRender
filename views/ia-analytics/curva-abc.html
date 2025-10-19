@@ -31,7 +31,6 @@
   <div class="wrap">
     <!-- ===== Card de Filtros ===== -->
     <section class="card filter-card" style="cursor:default">
-      <!-- Grid de filtros -->
       <div class="filters form-grid">
         <div class="form-group">
           <label for="fDateFrom">Data início</label>
@@ -43,7 +42,6 @@
           <input id="fDateTo" type="date" class="input">
         </div>
 
-        <!-- Multicontas com layout melhorado -->
         <div class="form-group group-multicontas">
           <label for="fAccounts">Multicontas</label>
           <select id="fAccounts" class="input select-multi" multiple></select>
@@ -66,7 +64,6 @@
         </div>
       </div>
 
-      <!-- Toolbar (somente switches on/off) -->
       <div class="filter-toolbar">
         <div class="switch-group" id="switch-groupby">
           <button class="btn-switch" data-group="mlb_sku" type="button">SKU</button>
@@ -78,12 +75,10 @@
         </div>
       </div>
 
-      <!-- Rodapé do card de filtros: dicas + export ao canto inferior direito -->
       <div class="filters-footer">
         <ul class="muted tips">
           <li>* Vendas canceladas não são consideradas</li>
           <li>* O valor de frete pago pelo comprador não é considerado nos cálculos</li>
-          <li>* A opção “Tipo logístico” aparece somente com a chave processada em MLB</li>
           <li>* Na Curva ABC por SKU somente são consideradas as vendas de produtos que possuam SKU no ato destas</li>
         </ul>
         <div class="export-actions bottom">
@@ -132,7 +127,6 @@
         </div>
       </div>
 
-      <!-- Card de Total -->
       <div class="card total-kpi" id="cardTotal" tabindex="0">
         <h3>Faturamento total</h3>
         <div class="mini-kpi total">
@@ -162,51 +156,54 @@
 
     <!-- Tabela -->
     <section class="card" style="cursor:default">
-      <div class="table-scroll" style="display:flex;gap:12px;align-items:center;justify-content:space-between">
+      <!-- cabeçalho do bloco (fora do wrapper de rolagem) -->
+      <div class="table-head" style="display:flex;gap:12px;align-items:center;justify-content:space-between">
         <strong>Itens</strong>
         <input id="fSearch" placeholder="Buscar por MLB, SKU ou título" class="input" style="max-width:320px">
       </div>
-      <table id="grid">
 
-
-  <thead>
-    <tr>
-      <th>Índice</th>
-      <th>MLB</th>
-      <th>Título</th>
-      <th>Unidades</th>
-      <th class="percent">Unid. (%)</th>
-      <th class="num">Valor</th>
-      <th class="percent">FATURAMENTO %</th>
-      <th class="promo">PROMO</th>
-      <th class="percent">% APLICADA</th>
-      <th>ADS</th>
-      <th class="num">Cliques</th>
-      <th class="num">Impr.</th>
-      <th class="num">Invest.</th>
-      <th class="percent">ACOS</th>
-      <th class="num">Receita Ads</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+      <!-- wrapper com overflow horizontal -->
+      <div class="table-scroll">
+        <table id="grid">
+          <thead>
+            <tr>
+              <th>Índice</th>
+              <th>MLB</th>
+              <th>Título</th>
+              <th>Unidades</th>
+              <th class="percent">Unid. (%)</th>
+              <th class="num">Valor</th>
+              <th class="percent th-fat"><abbr title="Faturamento %">FAT. %</abbr></th>
+              <th class="promo th-promo">PROMO</th>
+              <th class="percent th-promopct">% PROMO.</th>
+              <th>ADS</th>
+              <th class="num">Cliq.</th>
+              <th class="num">Impr.</th>
+              <th class="num">Visit.</th>
+              <th class="percent th-conv">Conv.</th>
+            </tr>
+</thead>
+          <tbody></tbody>
+        </table>
+      </div>
 
       <div id="pager" style="margin-top:8px" class="pager-wrap muted"></div>
     </section>
   </div>
-<!-- Painel lateral de progresso -->
-<div id="abcProgress" class="abc-progress hidden" aria-live="polite">
-  <div class="abc-progress__head">
-    <strong id="abcProgressTitle">Processando relatório</strong>
-    <button id="abcProgressClose" type="button" title="Fechar">×</button>
+
+  <!-- Painel lateral de progresso -->
+  <div id="abcProgress" class="abc-progress hidden" aria-live="polite">
+    <div class="abc-progress__head">
+      <strong id="abcProgressTitle">Processando relatório</strong>
+      <button id="abcProgressClose" type="button" title="Fechar">×</button>
+    </div>
+    <div class="abc-progress__bar">
+      <div class="abc-progress__bar-fill" style="width:0%"></div>
+      <div class="abc-progress__bar-indet"></div>
+    </div>
+    <div id="abcProgressStep" class="abc-progress__step">Iniciando…</div>
+    <ul id="abcProgressLog" class="abc-progress__log"></ul>
   </div>
-  <div class="abc-progress__bar">
-    <div class="abc-progress__bar-fill" style="width:0%"></div>
-    <div class="abc-progress__bar-indet"></div>
-  </div>
-  <div id="abcProgressStep" class="abc-progress__step">Iniciando…</div>
-  <ul id="abcProgressLog" class="abc-progress__log"></ul>
-</div>
 
   <script src="/js/ia-analytics-curva-abc.js"></script>
 </body>

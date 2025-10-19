@@ -268,7 +268,6 @@ router.get('/abc-ml/summary', async (req, res) => {
     res.status(500).json({ error: 'abc-ml summary failed', detail: e.message });
   }
 });
-
 /** ------- HTTP helper + ADS v2 helpers ------- */
 
 /** GET JSON com retry simples + coleta de debug */
@@ -538,7 +537,6 @@ async function fetchAdsMetricsByItems({ req, token, itemIds, date_from, date_to,
 
   return out;
 }
-
 /** ------- PROMO helpers (Central de Promoções / Smart Campaign / Seller Promotion) ------- **/
 
 /** Mescla duas fontes de promo (prioriza ativo e maior %). */
@@ -798,8 +796,6 @@ async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDb
 
   return out;
 }
-
-
 /** [FIX] corrigido: usar /items/{id}/prices aqui também quando batch falhar */
 async function fetchPromotionForItemFallback({ token, itemId, promosDbg }) {
   const headers = { Authorization: `Bearer ${token}` };
@@ -889,6 +885,66 @@ async function enrichWithPromotions({ app, req, accounts, pageSlice, promosDebug
   return { map: result, debug: promos_debug };
 }
 
+/** ================== VISITAS (items/{id}/visits) + cache e rate-limit ================== */
+
+const VISITS_TTL_MS = 15 * 60 * 1000; // 15 minutos
+const visitsCache = new Map(); // key: `${itemId}:${from}:${to}` -> { value: number, exp: ms }
+
+function visitsCacheGet(key) {
+  const hit = visitsCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.exp) {
+    visitsCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function visitsCacheSet(key, value, ttlMs = VISITS_TTL_MS) {
+  visitsCache.set(key, { value, exp: Date.now() + ttlMs });
+}
+
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+/** Busca visitas de um item no período (com cache e fallback gracioso) */
+async function fetchVisitsSingle({ token, itemId, date_from, date_to, dbgArr }) {
+  const key = `${itemId}:${date_from}:${date_to}`;
+  const cached = visitsCacheGet(key);
+  if (cached != null) return cached;
+
+  const url = new URL(`https://api.mercadolibre.com/items/${encodeURIComponent(itemId)}/visits`);
+  url.searchParams.set('date_from', date_from);
+  url.searchParams.set('date_to', date_to);
+
+  try {
+    const j = await httpGetJson(url.toString(), { Authorization: `Bearer ${token}` }, 2, dbgArr);
+    // formatos possíveis: { total_visits }, { visits }, { quantity }
+    const v = Number(
+      (j && (j.total_visits ?? j.visits ?? j.quantity)) ?? 0
+    );
+    const val = Number.isFinite(v) && v >= 0 ? Math.trunc(v) : 0;
+    visitsCacheSet(key, val);
+    return val;
+  } catch (e) {
+    dbgArr && dbgArr.push({ type: 'visits_error', url: url.toString(), message: e.message });
+    visitsCacheSet(key, 0); // fallback gracioso
+    return 0;
+  }
+}
+
+/** Busca visitas para vários itens com chunking e delay (rate-limit amigável) */
+async function fetchVisitsByItems({ token, itemIds, date_from, date_to, chunkSize = 10, delayMs = 200, dbgArr }) {
+  const out = {};
+  const ids = Array.from(new Set((itemIds || []).map(x => String(x).toUpperCase()).filter(Boolean)));
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const slice = ids.slice(i, i + chunkSize);
+    await Promise.all(slice.map(async (id) => {
+      out[id] = await fetchVisitsSingle({ token, itemId: id, date_from, date_to, dbgArr });
+    }));
+    if (i + chunkSize < ids.length) await sleep(delayMs);
+  }
+  return out;
+}
+
 /** -------------------- GET /api/analytics/abc-ml/items -------------------- */
 router.get('/abc-ml/items', async (req, res) => {
   const p = parseCommonQuery(req.query);
@@ -904,7 +960,9 @@ router.get('/abc-ml/items', async (req, res) => {
     include_ads_debug = '0',
     ads_channels = 'marketplace',
     include_promos = '1',
-    include_promos_debug = '0'
+    include_promos_debug = '0',
+    include_visits = '1',            // NOVO: controle de visitas
+    include_visits_debug = '0'       // NOVO: debug de visitas
   } = req.query;
 
   if (!date_from || !date_to || accounts.length === 0) {
@@ -1017,7 +1075,6 @@ router.get('/abc-ml/items', async (req, res) => {
     const lim  = Math.min(Math.max(parseInt(limit, 10), 1), 200);
     const start = (pnum - 1) * lim;
     const pageSlice = filtered.slice(start, start + lim);
-
     /** ADS v2 — por anúncio (apenas itens da página) */
     const adsDebugEnabled = String(include_ads_debug) === '1';
     const adsDebug = {};
@@ -1068,7 +1125,7 @@ router.get('/abc-ml/items', async (req, res) => {
       }
     }
 
-    // ===== PROMOÇÕES (estado ATUAL via /items/{id}/prices) — fora do bloco de ADS
+    // ===== PROMOÇÕES (estado ATUAL via /items/{id}/prices)
     const promosPricesDebug = {};
     let pricesPromosAccum = {};
     if (pageSlice.length) {
@@ -1106,8 +1163,8 @@ router.get('/abc-ml/items', async (req, res) => {
           const key = String(it.mlb || '').toUpperCase();
           const fromBatch = promosMap[key] || { active: false, percent: null, source: null };
           const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
-          const merged = mergePromo(fromPrices, fromBatch); // [FIX] mescla, não sobrescreve
-                    it.promo = {
+          const merged = mergePromo(fromPrices, fromBatch);
+          it.promo = {
             active: !!merged.active,
             percent: (merged.percent != null ? Number(merged.percent) : null),
             source: merged.source || fromBatch.source || fromPrices.source || null
@@ -1115,7 +1172,6 @@ router.get('/abc-ml/items', async (req, res) => {
         }
       } catch (e) {
         if (promosDebugEnabled) promosDebug.__error = e.message;
-        // se der erro na central, ainda tenta manter o que veio do /prices
         for (const it of pageSlice) {
           const key = String(it.mlb || '').toUpperCase();
           const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
@@ -1129,7 +1185,6 @@ router.get('/abc-ml/items', async (req, res) => {
         }
       }
     } else {
-      // quando include_promos !== '1', ainda assim mantemos a leitura do /prices
       for (const it of pageSlice) {
         const key = String(it.mlb || '').toUpperCase();
         const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
@@ -1141,13 +1196,53 @@ router.get('/abc-ml/items', async (req, res) => {
       }
     }
 
+    /** ===== VISITAS + CONVERSÃO (apenas itens da página) ===== */
+    const visitsDebugEnabled = String(include_visits_debug) === '1';
+    const visitsDebug = {};
+    if (String(include_visits) === '1' && pageSlice.length) {
+      const byAccountVisits = new Map();
+      for (const r of pageSlice) {
+        const acc = r._account || accounts[0];
+        if (!byAccountVisits.has(acc)) byAccountVisits.set(acc, new Set());
+        byAccountVisits.get(acc).add(String(r.mlb || '').toUpperCase());
+      }
+
+      const visitsAccum = {};
+      for (const acc of byAccountVisits.keys()) {
+        const token = await getToken(req.app, req, acc);
+        const mlbIds = Array.from(byAccountVisits.get(acc));
+        const dbgArr = visitsDebugEnabled ? (visitsDebug[acc] = []) : null;
+        const m = await fetchVisitsByItems({
+          token, itemIds: mlbIds, date_from, date_to, chunkSize: 10, delayMs: 200, dbgArr
+        });
+        Object.assign(visitsAccum, m);
+      }
+
+      for (const it of pageSlice) {
+        const key = String(it.mlb || '').toUpperCase();
+        const visits = Number(visitsAccum[key] || 0);
+        it.visits = visits; // inteiro
+        if (visits > 0) {
+          const pct = (it.units / visits) * 100;
+          it.conversion_pct = Math.round(pct * 100) / 100; // duas casas
+        } else {
+          it.conversion_pct = null; // frontend mostra "—"
+        }
+      }
+    } else {
+      for (const it of pageSlice) {
+        it.visits = 0;
+        it.conversion_pct = null;
+      }
+    }
+
     // ===== resposta
     const response = { page: pnum, limit: lim, total: filtered.length, data: pageSlice };
     if (adsDebugEnabled) response.ads_debug = adsDebug;
     if (promosDebugEnabled) {
-      // anexa debug separado do que veio do /prices para ajudar troubleshooting
       response.promos_debug = { ...(promosDebug || {}), prices_probe: promosPricesDebug || {} };
     }
+    if (visitsDebugEnabled) response.visits_debug = visitsDebug;
 
     res.json(response);
   } catch (e) {
@@ -1157,4 +1252,3 @@ router.get('/abc-ml/items', async (req, res) => {
 });
 
 module.exports = router;
-
