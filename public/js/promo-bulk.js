@@ -657,30 +657,104 @@
 
   /* ============================== Jobs: polling ============================= */
 
-// SUBSTITUA a pollJobs() atual por esta:
-async function pollJobs(){
-  try {
-    const r = await fetch(`/api/promocoes/jobs?_=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' },
-      credentials: 'same-origin'
-    });
+  // ✅ SISTEMA DE POLLING INTELIGENTE COM CONTROLE DE LOOP
+  let pollInterval = null;
+  let pollErrorCount = 0;
+  let lastPollTime = 0;
+  const POLL_INTERVAL_MS = 8000; // Aumentado de 5s para 8s
+  const MAX_POLL_ERRORS = 3;
+  const MIN_POLL_DELAY = 2000; // Mínimo 2s entre polls
 
-    // Se o servidor ainda devolver 304, apenas re-renderiza o que já temos
-    if (r.status === 304) { renderJobsPanel(); return; }
-    if (!r.ok) { renderJobsPanel(); return; }
+  async function pollJobs(){
+    const now = Date.now();
+    
+    // ✅ PROTEÇÃO: Evitar polls muito frequentes
+    if (now - lastPollTime < MIN_POLL_DELAY) {
+      console.log('🛡️ Poll muito frequente, aguardando...');
+      return;
+    }
+    
+    lastPollTime = now;
+    
+    try {
+      const r = await fetch(`/api/promocoes/jobs?_=${now}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+        credentials: 'same-origin',
+        signal: AbortSignal.timeout(5000) // Timeout de 5s
+      });
 
-    const data = await r.json().catch(()=>({}));
-    const apiJobs = (data?.jobs || []);
-    recordJobFromApi(apiJobs);
-    renderJobsPanel();
-  } catch {
-    renderJobsPanel();
+      // Se o servidor ainda devolver 304, apenas re-renderiza o que já temos
+      if (r.status === 304) { 
+        renderJobsPanel(); 
+        pollErrorCount = 0; // Reset contador de erro
+        return; 
+      }
+      
+      if (!r.ok) { 
+        throw new Error(`HTTP ${r.status}`);
+      }
+
+      const data = await r.json().catch(()=>({}));
+      const apiJobs = (data?.jobs || []);
+      
+      recordJobFromApi(apiJobs);
+      renderJobsPanel();
+      pollErrorCount = 0; // Reset contador de erro
+      
+      // ✅ PARAR POLLING SE NÃO HÁ JOBS ATIVOS
+      const hasActiveJobs = apiJobs.some(job => 
+        job.state && !/(conclu|complete|failed|erro)/i.test(job.state)
+      );
+      
+      if (!hasActiveJobs && Object.keys(jobsCache).length === 0) {
+        console.log('📋 Nenhum job ativo, pausando polling...');
+        stopPolling();
+      }
+      
+    } catch (error) {
+      pollErrorCount++;
+      console.warn(`⚠️ Erro no polling (${pollErrorCount}/${MAX_POLL_ERRORS}):`, error.message);
+      
+      // ✅ PARAR POLLING APÓS MUITOS ERROS
+      if (pollErrorCount >= MAX_POLL_ERRORS) {
+        console.error('❌ Muitos erros no polling, parando...');
+        stopPolling();
+      }
+      
+      renderJobsPanel(); // Renderiza o que já temos
+    }
   }
-}
 
-// (o setInterval pode permanecer igual; se quiser mais fluido, use 2000ms)
-setInterval(pollJobs, 5000);
+  // ✅ CONTROLE DO POLLING
+  function startPolling() {
+    if (pollInterval) return; // Já está rodando
+    
+    console.log('▶️ Iniciando polling de jobs...');
+    pollErrorCount = 0;
+    pollJobs(); // Poll imediato
+    pollInterval = setInterval(pollJobs, POLL_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (pollInterval) {
+      console.log('⏹️ Parando polling de jobs...');
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }
+
+  // ✅ INICIAR POLLING APENAS QUANDO NECESSÁRIO
+  function ensurePolling() {
+    const hasJobs = Object.keys(jobsCache).length > 0;
+    const hasActiveJobs = Object.values(jobsCache).some(job => !job.completed && !job.dismissed);
+    
+    if (hasActiveJobs && !pollInterval) {
+      startPolling();
+    } else if (!hasActiveJobs && pollInterval) {
+      setTimeout(stopPolling, 10000); // Para após 10s sem jobs ativos
+    }
+  }
 
   /* ============================= API pública (UI) =========================== */
 
@@ -706,20 +780,46 @@ setInterval(pollJobs, 5000);
     // permite ao wrapper do HTML injetar a conta atual para os jobs
     setAccountContext(acc){
       AccountCtx.set(acc);
+    },
+    // ✅ MÉTODOS PARA CONTROLAR POLLING EXTERNAMENTE
+    startPolling,
+    stopPolling,
+    pollJobs: () => {
+      ensurePolling();
+      if (!pollInterval) pollJobs(); // Poll único se não estiver rodando
     }
   };
 
+  // ✅ EVENTOS OTIMIZADOS
   document.addEventListener('change', (ev) => {
     if (ev.target?.matches?.('#tbody input[type="checkbox"][data-mlb]')) render();
   });
+  
   const tbody = document.getElementById('tbody');
   if (tbody) {
     const obs = new MutationObserver(render);
     obs.observe(tbody, { childList: true, subtree: false });
   }
 
+  // ✅ INICIALIZAÇÃO CONTROLADA
   document.addEventListener('DOMContentLoaded', () => {
-    ensureUI(); render(); pollJobs();
+    ensureUI(); 
+    render(); 
+    ensurePolling(); // Só inicia polling se necessário
+  });
+
+  // ✅ LIMPEZA AO SAIR DA PÁGINA
+  window.addEventListener('beforeunload', () => {
+    stopPolling();
+  });
+
+  // ✅ VISIBILIDADE DA PÁGINA (pausa polling quando não visível)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stopPolling();
+    } else {
+      ensurePolling();
+    }
   });
 
 })();

@@ -352,7 +352,49 @@ async function runBulkJob(job, done) {
 
   const promotion_type = String(promotion_type_raw || '').toUpperCase();
   
-  // 🔧 CORREÇÃO 1: Inicializar progresso imediatamente
+  // ✅ VALIDAÇÃO CRÍTICA: Se promotion_id está vazio/inválido, cancelar job imediatamente
+  if (!promotion_id || promotion_id === 'undefined' || promotion_id === 'null' || promotion_id === '') {
+    console.error(`[PromoJobsService] Job ${job.id} - promotion_id inválido: "${promotion_id}". Cancelando job.`);
+    
+    const errorData = {
+      ...job.data,
+      counters: { processed: 0, total: 0, success: 0, failed: 0 },
+      stateLabel: 'erro: promotion_id inválido',
+      lastUpdate: Date.now()
+    };
+    
+    try {
+      await job.update(errorData);
+      await job.progress(100);
+    } catch (e) {
+      console.error(`[PromoJobsService] Job ${job.id} - Erro ao atualizar job com erro:`, e.message);
+    }
+    
+    return done(new Error('promotion_id inválido'), null);
+  }
+
+  // ✅ VALIDAÇÃO: Se não há credenciais ML, cancelar
+  if (!mlCreds || !mlCreds.access_token) {
+    console.error(`[PromoJobsService] Job ${job.id} - Credenciais ML ausentes. Cancelando job.`);
+    
+    const errorData = {
+      ...job.data,
+      counters: { processed: 0, total: 0, success: 0, failed: 0 },
+      stateLabel: 'erro: credenciais ML ausentes',
+      lastUpdate: Date.now()
+    };
+    
+    try {
+      await job.update(errorData);
+      await job.progress(100);
+    } catch (e) {
+      console.error(`[PromoJobsService] Job ${job.id} - Erro ao atualizar job com erro:`, e.message);
+    }
+    
+    return done(new Error('Credenciais ML ausentes'), null);
+  }
+  
+  // Inicializar progresso imediatamente
   await job.progress(0);
 
   const wantStatus = statusQueryOrNull(filters.status) || undefined;
@@ -363,10 +405,10 @@ async function runBulkJob(job, done) {
   let success = 0;
   let failed = 0;
 
-  // 🔧 CORREÇÃO 2: Definir total ANTES e atualizar job imediatamente
+  // Definir total ANTES e atualizar job imediatamente
   let benefitsGlobal = null;
   try {
-    console.log(`[PromoJobsService] Job ${job.id} - Calculando total...`);
+    console.log(`[PromoJobsService] Job ${job.id} - Calculando total para promotion_id: ${promotion_id}...`);
     
     if (typeof options.expected_total === 'number' && options.expected_total > 0) {
       total = Number(options.expected_total);
@@ -389,7 +431,40 @@ async function runBulkJob(job, done) {
     total = 0;
   }
 
-  // 🔧 CORREÇÃO 3: Atualizar job data com total definido IMEDIATAMENTE
+  // ✅ VALIDAÇÃO: Se total é 0, finalizar job imediatamente
+  if (total === 0) {
+    console.log(`[PromoJobsService] Job ${job.id} - Nenhum item encontrado para processar. Finalizando job.`);
+    
+    const emptyData = {
+      ...job.data,
+      counters: { processed: 0, total: 0, success: 0, failed: 0 },
+      stateLabel: 'concluído: nenhum item encontrado',
+      lastUpdate: Date.now()
+    };
+    
+    try {
+      await job.update(emptyData);
+      await job.progress(100);
+    } catch (e) {
+      console.error(`[PromoJobsService] Job ${job.id} - Erro ao finalizar job vazio:`, e.message);
+    }
+    
+    const summary = {
+      id: job.id,
+      title: `${action === 'remove' ? 'Remover' : 'Aplicar'} ${promotion_type} ${promotion_id}`,
+      status: 'completed',
+      total: 0,
+      processed: 0,
+      success: 0,
+      failed: 0,
+      finished_at: new Date().toISOString(),
+      message: 'Nenhum item encontrado para processar'
+    };
+    
+    return done(null, summary);
+  }
+
+  // Atualizar job data com total definido IMEDIATAMENTE
   const initialData = {
     ...job.data,
     counters: { processed, total, success, failed },
@@ -406,7 +481,6 @@ async function runBulkJob(job, done) {
 
   let token = null;
 
-  // 🔧 CORREÇÃO 4: Melhorar logging e controle de progresso
   console.log(`[PromoJobsService] Job ${job.id} - Iniciando processamento...`);
 
   // varrer todas as páginas aplicando filtros
@@ -463,7 +537,7 @@ async function runBulkJob(job, done) {
         processed++; failed++;
       }
 
-      // �� CORREÇÃO 5: Atualizar progresso e dados a cada item processado
+      // Atualizar progresso e dados a cada item processado
       const denom = (total && total > 0) ? total : Math.max(processed, 1);
       const pct = clampPct((processed / denom) * 100);
       
@@ -473,8 +547,8 @@ async function runBulkJob(job, done) {
         ...job.data,
         counters: { processed, total, success, failed },
         stateLabel: total > 0
-          ? `active ${processed}/${total}`
-          : `active ${processed}/?`,
+          ? `processando ${processed}/${total}`
+          : `processando ${processed}/?`,
         lastUpdate: Date.now()
       };
 
@@ -494,7 +568,7 @@ async function runBulkJob(job, done) {
     token = page.next;
   }
 
-  // 🔧 CORREÇÃO 6: Finalização com dados completos
+  // Finalização com dados completos
   const summary = {
     id: job.id,
     title: `${action === 'remove' ? 'Remover' : 'Aplicar'} ${promotion_type} ${promotion_id}`,
@@ -548,6 +622,79 @@ module.exports = {
     return queue;
   },
 
+  // ✅ MÉTODO PARA LIMPAR TODOS OS JOBS (EMERGÊNCIA)
+  async clearAllJobs() {
+    if (!queue) this.init();
+    
+    try {
+      console.log('🧹 Iniciando limpeza de todos os jobs...');
+      
+      // Obter todos os jobs
+      const jobs = await queue.getJobs(['active', 'waiting', 'delayed', 'failed', 'completed', 'paused'], 0, -1);
+      
+      console.log(`🔍 Encontrados ${jobs.length} jobs para limpar`);
+      
+      // Remover cada job
+      for (const job of jobs) {
+        try {
+          await job.remove();
+          console.log(`✅ Job ${job.id} removido`);
+        } catch (e) {
+          console.error(`❌ Erro ao remover job ${job.id}:`, e.message);
+        }
+      }
+      
+      // Limpar filas
+      await queue.clean(0, 'completed');
+      await queue.clean(0, 'failed');
+      await queue.clean(0, 'active');
+      await queue.clean(0, 'waiting');
+      await queue.clean(0, 'delayed');
+      
+      console.log('✅ Limpeza de jobs concluída');
+      
+      return { success: true, cleared: jobs.length };
+    } catch (e) {
+      console.error('❌ Erro na limpeza de jobs:', e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // ✅ MÉTODO PARA CANCELAR JOB ESPECÍFICO
+  async cancelJob(jobId) {
+    if (!queue) this.init();
+    
+    try {
+      const job = await queue.getJob(jobId);
+      if (!job) {
+        return { success: false, error: 'Job não encontrado' };
+      }
+      
+      const state = await job.getState();
+      
+      if (state === 'active') {
+        // Tentar parar job ativo
+        try {
+          await job.moveToFailed(new Error('Cancelado manualmente'), true);
+          console.log(`✅ Job ativo ${jobId} cancelado`);
+        } catch (e) {
+          // Se não conseguir mover para failed, remove diretamente
+          await job.remove();
+          console.log(`✅ Job ativo ${jobId} removido`);
+        }
+      } else {
+        // Para jobs não ativos, simplesmente remove
+        await job.remove();
+        console.log(`✅ Job ${jobId} removido (estado: ${state})`);
+      }
+      
+      return { success: true, message: `Job ${jobId} cancelado com sucesso` };
+    } catch (e) {
+      console.error(`❌ Erro ao cancelar job ${jobId}:`, e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
   /**
    * Cria job de aplicação/remoção em massa.
    * @param {object} opts
@@ -560,6 +707,15 @@ module.exports = {
    */
   async enqueueBulkApply(opts) {
     if (!queue) this.init();
+    
+    // ✅ VALIDAÇÃO ANTES DE CRIAR JOB
+    if (!opts?.promotion?.id || opts.promotion.id === 'undefined' || opts.promotion.id === 'null') {
+      throw new Error('promotion_id é obrigatório e não pode estar vazio');
+    }
+    
+    if (!opts?.mlCreds?.access_token) {
+      throw new Error('Credenciais ML são obrigatórias');
+    }
     
     const data = {
       ...opts,
@@ -575,8 +731,8 @@ module.exports = {
     const job = await queue.add(
       data,
       {
-        removeOnComplete: 10, // �� CORREÇÃO 7: Manter mais jobs completos
-        removeOnFail: false,
+        removeOnComplete: 5, // Manter menos jobs completos para reduzir overhead
+        removeOnFail: 3,     // Manter alguns jobs com falha para debug
         attempts: 1
       }
     );
@@ -585,7 +741,7 @@ module.exports = {
     return job?.id;
   },
 
-  // 🔎 Jobs para o painel (lista) - 🔧 CORREÇÃO 8: Melhorar normalização
+  // Jobs para o painel (lista)
   async listRecent(n = 25) {
     if (!queue) this.init();
     
@@ -603,7 +759,7 @@ module.exports = {
             const success = Number(counters.success ?? 0);
             const failed = Number(counters.failed ?? 0);
 
-            // �� CORREÇÃO 9: Progresso mais confiável
+            // Progresso mais confiável
             let progress = 0;
             if (total > 0) {
               progress = clampPct((processed / total) * 100);
@@ -613,14 +769,14 @@ module.exports = {
             }
 
             // título padrão
-            const title = d?.promotion?.id
+            const title = d?.promotion?.id && d?.promotion?.id !== 'undefined' && d?.promotion?.id !== 'null'
               ? `${d.action === 'remove' ? 'Removendo' : 'Aplicando'} ${d.promotion.type} ${d.promotion.id}`
-              : 'Job de promoção';
+              : 'Job de promoção (dados inválidos)';
 
-            // 🔧 CORREÇÃO 10: Label mais consistente
+            // Label mais consistente
             let stateLabel = d.stateLabel || state;
             if (state === 'active') {
-              stateLabel = total > 0 ? `active ${processed}/${total}` : `active ${processed}/?`;
+              stateLabel = total > 0 ? `processando ${processed}/${total}` : `processando ${processed}/?`;
             } else if (state === 'completed') {
               stateLabel = `concluído: ${success} ok, ${failed} erros`;
             } else if (state === 'waiting') {
@@ -643,7 +799,7 @@ module.exports = {
               created_at: new Date(j.timestamp).toISOString(),
               updated_at: new Date(j.processedOn || d.lastUpdate || j.timestamp).toISOString(),
               result,
-              label: title // 🔧 CORREÇÃO 11: Adicionar label para compatibilidade
+              label: title
             };
           } catch (e) {
             console.error(`[PromoJobsService] Erro ao processar job ${j.id}:`, e.message);
@@ -672,7 +828,7 @@ module.exports = {
     }
   },
 
-  // 🔎 Detalhe do job (para a barra acompanhar certinho) - 🔧 CORREÇÃO 12
+  // Detalhe do job
   async jobDetail(job_id) {
     if (!queue) this.init();
     
@@ -698,7 +854,7 @@ module.exports = {
 
       let stateLabel = d.stateLabel || state;
       if (state === 'active') {
-        stateLabel = total > 0 ? `active ${processed}/${total}` : `active ${processed}/?`;
+        stateLabel = total > 0 ? `processando ${processed}/${total}` : `processando ${processed}/?`;
       } else if (state === 'completed') {
         stateLabel = `concluído: ${success} ok, ${failed} erros`;
       }
@@ -721,7 +877,7 @@ module.exports = {
     }
   },
 
-  // 🔧 CORREÇÃO 13: Método para compatibilidade com rota existente
+  // Método para compatibilidade com rota existente
   async enqueueApplyMass(opts) {
     return { id: await this.enqueueBulkApply(opts) };
   }

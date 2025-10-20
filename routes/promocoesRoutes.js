@@ -2,6 +2,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const TokenService = require('../services/tokenService');
+const PromocoesController = require('../controllers/PromocoesController');
 
 // Serviços opcionais (se existirem)
 let PromoJobsService = null;
@@ -14,6 +15,10 @@ try { PromoBulkRemove = require('../services/promoBulkRemoveAdapter'); } catch {
 // Store de seleção (fase 2)
 let PromoSelectionStore = null;
 try { PromoSelectionStore = require('../services/promoSelectionStore'); } catch { PromoSelectionStore = null; }
+
+// ✅ IMPORTAR O CriarPromocaoController PARA ACESSAR SEUS JOBS
+let CriarPromocaoController = null;
+try { CriarPromocaoController = require('../controllers/CriarPromocaoController'); } catch { CriarPromocaoController = null; }
 
 const core = express.Router();
 
@@ -201,6 +206,7 @@ core.get('/api/promocoes/items/:itemId/offer-ids', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 /**
  * Itens de uma promoção (com enriquecimento de título/sku/price)
  * GET /api/promocoes/promotions/:promotionId/items
@@ -254,10 +260,9 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
 
     // Enriquecimento com /items (title/estoque/sku/price)
     const ids = results.map(r => r.id || r.item_id).filter(Boolean);
-    const pack = (arr, n) => { const out = []; for (let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; };
     const itemsDetails = {};
 
-    for (const group of pack(ids, 20)) {
+    for (const group of chunk(ids, 20)) {
       const urlItems = `https://api.mercadolibre.com/items?ids=${encodeURIComponent(group.join(','))}&attributes=${encodeURIComponent('id,title,available_quantity,seller_custom_field,price')}`;
       const ir = await authFetch(req, urlItems, {}, creds);
       if (!ir.ok) continue;
@@ -343,7 +348,6 @@ core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
   }
 });
 
-
 /**
  * APLICAR ITENS A UMA PROMOÇÃO (lote)
  * POST /api/promocoes/apply
@@ -420,6 +424,7 @@ core.post('/api/promocoes/apply', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 // APLICAR UM ITEM EM UMA CAMPANHA
 // POST /api/promocoes/items/:itemId/apply
 core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
@@ -497,14 +502,14 @@ core.post('/api/promocoes/promotions/:promotionId/apply-bulk', async (req, res) 
 
     // pega :promotionId da URL e usa como promotion_id internamente
     const { promotionId: promotion_id } = req.params || {};
-    const { promotion_type, filters: fIn = {}, options = {} } = req.body || {};
+    const { promotion_type, filters: fIn = {}, options = {}, price_policy } = req.body || {};
 
     if (!promotion_id || !promotion_type) {
       return res.status(400).json({ success: false, error: 'promotionId e promotion_type são obrigatórios' });
     }
 
     const t = String(promotion_type).toUpperCase();
-    const allowed = new Set(['DEAL','SELLER_CAMPAIGN','SMART','PRICE_MATCHING','PRICE_MATCHING_MELI_ALL','MARKETPLACE_CAMPAIGN']);
+    const allowed = new Set(['DEAL','SELLER_CAMPAIGN','SMART','PRICE_MATCHING','PRICE_MATCHING_MELI_ALL','MARKETPLACE_CAMPAIGN','PRICE_DISCOUNT','DOD']);
     if (!allowed.has(t)) {
       return res.status(400).json({ success: false, error: `promotion_type inválido: ${t}` });
     }
@@ -523,7 +528,7 @@ core.post('/api/promocoes/promotions/:promotionId/apply-bulk', async (req, res) 
       action: 'apply',
       promotion: { id: String(promotion_id), type: t },
       filters,
-      price_policy: 'min',
+      price_policy: price_policy || 'min',
       options: { dryRun: !!options.dryRun, expected_total: options.expected_total ?? null }
     });
 
@@ -533,7 +538,6 @@ core.post('/api/promocoes/promotions/:promotionId/apply-bulk', async (req, res) 
     return res.status(500).json({ success: false, error: e.message || String(e) });
   }
 });
-
 
 // === PREPARAR JOB EM MASSA (todas as páginas/filtrados) – caminho legado ===
 core.post('/api/promocoes/bulk/prepare', async (req, res) => {
@@ -575,13 +579,20 @@ core.post('/api/promocoes/bulk/prepare', async (req, res) => {
 });
 
 /** Jobs – barra lateral de progresso (lista + detalhe + remover em massa) */
+// ✅ CORRIGIDO: AGORA INCLUI JOBS DO CriarPromocaoController
 core.get('/api/promocoes/jobs', async (_req, res) => {
   try {
-    // coleta das duas fontes já existentes
+    // ✅ COLETA DE TODAS AS FONTES DE JOBS
     const ours = PromoBulkRemove?.listRecent ? PromoBulkRemove.listRecent(25) : [];
     let bull = [];
     if (PromoJobsService?.listRecent) {
       try { bull = await PromoJobsService.listRecent(25); } catch (_) {}
+    }
+    
+    // ✅ INCLUIR JOBS DO CriarPromocaoController
+    let criarJobs = [];
+    if (CriarPromocaoController?.getAllJobs) {
+      try { criarJobs = CriarPromocaoController.getAllJobs(); } catch (_) {}
     }
 
     // Normalizador super tolerante (cada fonte usa nomes diferentes)
@@ -600,7 +611,7 @@ core.get('/api/promocoes/jobs', async (_req, res) => {
 
       // progresso %
       let progress = Number(
-        j.progress?.percent ?? j.percent ?? j.percentage ?? j.stats?.percent ?? 0
+        j.progress?.percent ?? j.percent ?? j.percentage ?? j.stats?.percent ?? j.progress ?? 0
       );
       if (!progress && total > 0) {
         progress = Math.max(0, Math.min(100, Math.round((processed / total) * 100)));
@@ -608,13 +619,14 @@ core.get('/api/promocoes/jobs', async (_req, res) => {
       if (!Number.isFinite(progress)) progress = 0;
 
       // descrição amigável
-      const label = j.title || j.name || j.description || '';
+      const label = j.title || j.label || j.name || j.description || '';
       const updated_at = j.updated_at || j.ts || Date.now();
 
       return { id, state, processed, total, progress, label, updated_at };
     };
 
-    const merged = [...ours, ...bull]
+    // ✅ MESCLAR TODAS AS FONTES
+    const merged = [...ours, ...bull, ...criarJobs]
       .map(norm)
       .filter(Boolean)
       // mais recentes primeiro
@@ -626,6 +638,12 @@ core.get('/api/promocoes/jobs', async (_req, res) => {
     res.set('Expires', '0');
     res.set('Surrogate-Control', 'no-store');
 
+    // ✅ LOG CONTROLADO
+    const activeJobs = merged.filter(j => j.state === 'active' || j.state === 'processando').length;
+    if (activeJobs > 0) {
+      console.log(`📋 [/api/promocoes/jobs] Retornando ${merged.length} jobs (${activeJobs} ativos)`);
+    }
+
     return res.json({ ok: true, jobs: merged });
   } catch (e) {
     console.error('[/api/promocoes/jobs] erro:', e);
@@ -636,6 +654,17 @@ core.get('/api/promocoes/jobs', async (_req, res) => {
 core.get('/api/promocoes/jobs/:job_id', async (req, res) => {
   try {
     const id = String(req.params.job_id || '');
+    
+    // ✅ VERIFICAR TAMBÉM NO CriarPromocaoController
+    if (CriarPromocaoController?.status) {
+      try {
+        const criarJob = await CriarPromocaoController.status({ params: { jobId: id } }, { json: (data) => data });
+        if (criarJob && criarJob.success) {
+          return res.json(criarJob);
+        }
+      } catch (_) {}
+    }
+    
     const j = PromoBulkRemove?.jobDetail ? PromoBulkRemove.jobDetail(id) : null;
     if (j) return res.json(j);
 
@@ -650,6 +679,7 @@ core.get('/api/promocoes/jobs/:job_id', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 // Iniciar job de REMOÇÃO em massa (via seu service -> adapter)
 core.post('/api/promocoes/jobs/remove', async (req, res) => {
   try {
@@ -675,6 +705,51 @@ core.post('/api/promocoes/jobs/remove', async (req, res) => {
     return res.json({ ok: true, job_id: job.id, job });
   } catch (e) {
     console.error('[/api/promocoes/jobs/remove] erro:', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
+// ✅ ROTA PARA CANCELAR JOBS (INCLUINDO CriarPromocaoController)
+core.post('/api/promocoes/jobs/:jobId/cancel', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId) {
+      return res.status(400).json({ ok: false, error: 'jobId é obrigatório.' });
+    }
+
+    let canceled = false;
+    
+    // ✅ TENTAR CANCELAR NO CriarPromocaoController PRIMEIRO
+    if (CriarPromocaoController?.cancelJob) {
+      const result = CriarPromocaoController.cancelJob(jobId);
+      if (result && result.success) {
+        return res.json({ ok: true, message: result.message });
+      }
+    }
+    
+    // Tenta cancelar no PromoJobsService (se disponível e aplicável)
+    if (PromoJobsService?.cancelJob) {
+      const result = await PromoJobsService.cancelJob(jobId);
+      if (result && result.success) {
+        canceled = true;
+      }
+    }
+    
+    // Se PromoBulkRemove também suporta cancelamento e o job ainda não foi cancelado
+    if (!canceled && PromoBulkRemove?.cancelJob) {
+        const result = await PromoBulkRemove.cancelJob(jobId);
+        if (result && result.success) {
+            canceled = true;
+        }
+    }
+
+    if (canceled) {
+      return res.json({ ok: true, message: `Job ${jobId} cancelado com sucesso.` });
+    } else {
+      return res.status(404).json({ ok: false, error: `Job ${jobId} não encontrado ou não pôde ser cancelado.` });
+    }
+  } catch (e) {
+    console.error('[/api/promocoes/jobs/:jobId/cancel] erro:', e);
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
@@ -801,7 +876,7 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
 
       for (const it of rows) {
         const original = num(it.original_price);
-        if (!original || !(original > 0)) continue;
+                if (!original || !(original > 0)) continue;
 
         const { pct } = resolveDealFinalAndPct({
           original_price: original,
@@ -881,5 +956,9 @@ router.use('/api/promotions', (req, _res, next) => {
   req.url = '/api/promocoes' + req.url;
   next();
 }, core);
+
+// ✅ ROTAS DIRETAS (SEM PREFIXO /api/promocoes)
+router.get('/jobs', PromocoesController.jobs);
+router.post('/jobs/:jobId/cancel', PromocoesController.cancelJob);
 
 module.exports = router;

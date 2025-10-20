@@ -374,6 +374,92 @@ app.use((req, res) => {
   });
 });
 
+// ✅ ADICIONAR NO FINAL DO index.js (após todas as inicializações)
+
+// 🛑 LIMPEZA EMERGENCIAL DE JOBS PROBLEMÁTICOS
+setTimeout(async () => {
+  try {
+    console.log('🧹 Iniciando limpeza emergencial de jobs...');
+    
+    // 1. Limpar PromoJobsService (Bull/Redis)
+    try {
+      const PromoJobsService = require('./services/promoJobsService');
+      if (PromoJobsService && PromoJobsService.clearAllJobs) {
+        const result = await PromoJobsService.clearAllJobs();
+        console.log('✅ PromoJobsService limpo:', result);
+      }
+    } catch (e) {
+      console.log('⚠️ PromoJobsService não disponível ou erro:', e.message);
+    }
+    
+    // 2. Limpar CriarPromocaoController jobs em memória
+    try {
+      const CriarPromocaoController = require('./controllers/CriarPromocaoController');
+      if (CriarPromocaoController && CriarPromocaoController.clearCompletedJobs) {
+        const result = CriarPromocaoController.clearCompletedJobs();
+        console.log('✅ CriarPromocaoController limpo:', result);
+      }
+    } catch (e) {
+      console.log('⚠️ CriarPromocaoController não disponível ou erro:', e.message);
+    }
+    
+    console.log('✅ Limpeza emergencial concluída');
+    
+  } catch (e) {
+    console.error('❌ Erro na limpeza emergencial:', e);
+  }
+}, 3000); // 3 segundos após inicialização
+
+// �� PROTEÇÃO CONTRA LOOP INFINITO
+let loopDetectionCount = 0;
+const originalLog = console.log;
+
+console.log = function(...args) {
+  const message = args.join(' ');
+  
+  // Detectar mensagens repetitivas do PromoJobsService
+  if (message.includes('[PromoJobsService] Retornando') && message.includes('jobs')) {
+    loopDetectionCount++;
+    
+    // Se detectar mais de 20 mensagens iguais em pouco tempo
+    if (loopDetectionCount > 20) {
+      console.error('🚨 LOOP DETECTADO! Executando limpeza de emergência...');
+      
+      // Executar limpeza imediata
+      setTimeout(async () => {
+        try {
+          const PromoJobsService = require('./services/promoJobsService');
+          if (PromoJobsService && PromoJobsService.clearAllJobs) {
+            await PromoJobsService.clearAllJobs();
+            console.error('✅ Limpeza de emergência executada');
+          }
+        } catch (e) {
+          console.error('❌ Erro na limpeza de emergência:', e.message);
+        }
+        
+        // Reset contador
+        loopDetectionCount = 0;
+      }, 100);
+    }
+  } else {
+    // Reset contador se mensagem diferente
+    loopDetectionCount = 0;
+  }
+  
+  // Chamar console.log original
+  originalLog.apply(console, args);
+};
+
+// �� TIMEOUT DE SEGURANÇA (mata processo se loop persistir por muito tempo)
+setTimeout(() => {
+  if (loopDetectionCount > 10) {
+    console.error('🚨 Loop persistente detectado. Forçando saída do processo...');
+    process.exit(1);
+  }
+}, 30000); // 30 segundos
+
+console.log('🛡️ Sistema de proteção contra loops ativado');
+
 // ==========================================
 // INICIALIZAÇÃO
 // ==========================================

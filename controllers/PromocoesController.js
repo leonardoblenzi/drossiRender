@@ -3,6 +3,9 @@ const fetch = require('node-fetch');
 const TokenService = require('../services/tokenService');
 const config = require('../config/config');
 
+// ✅ ADICIONAR IMPORT DO CriarPromocaoController
+const CriarPromocaoController = require('./CriarPromocaoController');
+
 function U() {
   return {
     users_me:        (config?.urls?.users_me) || 'https://api.mercadolibre.com/users/me',
@@ -56,6 +59,54 @@ class PromocoesController {
     } catch (e) {
       const status = e?.status || 500;
       return res.status(status).json({ ok:false, error: e?.message || String(e) });
+    }
+  }
+
+  // ✅ GET /api/promocoes/jobs - Listar jobs ativos
+  static async jobs(req, res) {
+    try {
+      // Prepare authentication and get the account key
+      const state = await prepareAuth(res); 
+      const accountKey = state.key; // Use the account key derived from prepareAuth
+
+      // Buscar jobs do CriarPromocaoController
+      const allJobs = CriarPromocaoController.getAllJobs();
+      
+      // Filtrar apenas jobs da conta atual
+      const jobs = allJobs.filter(job => job.accountKey === accountKey);
+      
+      return res.json({
+        ok: true,
+        count: jobs.length,
+        jobs: jobs
+      });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  }
+
+  // ✅ POST /api/promocoes/jobs/:jobId/cancel - Cancelar job
+  static async cancelJob(req, res) {
+    try {
+      const { jobId } = req.params;
+      
+      if (!jobId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'jobId é obrigatório' 
+        });
+      }
+      
+      const result = CriarPromocaoController.cancelJob(jobId);
+      
+      if (result.success) {
+        return res.json(result);
+      } else {
+        // If the job is not found or cannot be cancelled (e.g., already completed/cancelled)
+        return res.status(404).json(result); 
+      }
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
   }
 

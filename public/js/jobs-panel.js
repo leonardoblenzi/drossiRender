@@ -108,7 +108,7 @@
     return pct >= 100 || /conclu/i.test(st) || /complete/i.test(st) || /finished/i.test(st);
   }
 
-  // Extrai "a/b" do state (ex.: “processando 7/51”)
+  // Extrai "a/b" do state (ex.: "processando 7/51")
   function parsePairFromState(state){
     const s = String(state || '');
     const m = s.match(/(\d+)\s*\/\s*(\d+)/);
@@ -124,7 +124,7 @@
     const pair = parsePairFromState(state);
     const meta = j.meta || (j.meta = { expected: null, pageDone: 0, lastPair: null, maxDen: 0 });
 
-    // expected_total “vence” qualquer outra estimativa
+    // expected_total "vence" qualquer outra estimativa
     if (Number.isFinite(j.expected_total) && j.expected_total > 0) {
       meta.expected = Math.max(Number(j.expected_total), meta.expected || 0);
     }
@@ -152,7 +152,7 @@
     if (pair && expected) {
       const done = Math.min(expected, meta.pageDone + pair.a);
       pct = clampPct((done / expected) * 100);
-      // monta texto “processando done/expected”
+      // monta texto "processando done/expected"
       const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
       const base = `processando ${done}/${expected}`;
       stateLabel = hasPctInState ? base : `${base}`;
@@ -167,7 +167,7 @@
       j.completed = (done >= expected);
     } else {
       // sem pares nem expected → mantém state e progress que já vieram
-      // evita duplicar “ – 12%” se o state já contém “%”
+      // evita duplicar " – 12%" se o state já contém "%"
       const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
       if (!hasPctInState && state) stateLabel = `${state} – ${pct}%`;
     }
@@ -248,45 +248,147 @@
 
   /* ========================= API: merge jobs do backend ========================= */
   function normalizeIncomingJob(j){
-  const id    = String(j.id || j.job_id || '');
-  const title = j.title || 'Processo';
+    const id    = String(j.id || j.job_id || '');
+    const title = j.title || 'Processo';
 
-  // tenta extrair progresso numérico
-  let pct = j.progress ?? j.pct;
-  const processed = Number(j.processed ?? j.done ?? j.ok ?? NaN);
-  const total     = Number(j.total ?? j.expected_total ?? NaN);
+    // tenta extrair progresso numérico
+    let pct = j.progress ?? j.pct;
+    const processed = Number(j.processed ?? j.done ?? j.ok ?? NaN);
+    const total     = Number(j.total ?? j.expected_total ?? NaN);
 
-  if (!Number.isFinite(pct) && Number.isFinite(processed) && Number.isFinite(total) && total > 0) {
-    pct = Math.round((processed / total) * 100);
+    if (!Number.isFinite(pct) && Number.isFinite(processed) && Number.isFinite(total) && total > 0) {
+      pct = Math.round((processed / total) * 100);
+    }
+    const progress = clampPct(pct ?? 0);
+
+    // monta um "state" amigável se vierem contadores
+    let state = j.state || j.status || '';
+    const success = Number(j.success ?? j.sucessos ?? j.applied ?? NaN);
+    const errors  = Number(j.errors  ?? j.fails    ?? j.erros   ?? NaN);
+
+    // monta "processando x/y — zz%  (✓a · ⚠b)" se dados existirem
+    if (Number.isFinite(processed) && Number.isFinite(total)) {
+      const parts = [`processando ${processed}/${total} — ${progress}%`];
+      const badges = [];
+      if (Number.isFinite(success)) badges.push(`✓${success}`);
+      if (Number.isFinite(errors))  badges.push(`⚠${errors}`);
+      if (badges.length) parts.push(`(${badges.join(' · ')})`);
+      state = parts.join('  ');
+    }
+
+    const accountKey   = j.account?.key   || j.accountKey   || null;
+    const accountLabel = j.account?.label || j.accountLabel || null;
+    const badges = normalizeBadges(j.badges, j.badge, accountKey, accountLabel);
+
+    const completed = ('completed' in j)
+      ? !!j.completed
+      : guessCompleted(progress, state);
+
+    return { id, title, progress, state, badges, completed };
   }
-  const progress = clampPct(pct ?? 0);
 
-  // monta um "state" amigável se vierem contadores
-  let state = j.state || j.status || '';
-  const success = Number(j.success ?? j.sucessos ?? j.applied ?? NaN);
-  const errors  = Number(j.errors  ?? j.fails    ?? j.erros   ?? NaN);
+  // ✅ SISTEMA DE POLLING CONTROLADO
+  let pollInterval = null;
+  let pollErrorCount = 0;
+  let lastPollTime = 0;
+  const POLL_INTERVAL_MS = 10000; // 10 segundos
+  const MAX_POLL_ERRORS = 3;
+  const MIN_POLL_DELAY = 3000; // Mínimo 3s entre polls
 
-  // monta "processando x/y — zz%  (✓a · ⚠b)" se dados existirem
-  if (Number.isFinite(processed) && Number.isFinite(total)) {
-    const parts = [`processando ${processed}/${total} — ${progress}%`];
-    const badges = [];
-    if (Number.isFinite(success)) badges.push(`✓${success}`);
-    if (Number.isFinite(errors))  badges.push(`⚠${errors}`);
-    if (badges.length) parts.push(`(${badges.join(' · ')})`);
-    state = parts.join('  ');
+  async function pollApiJobs() {
+    const now = Date.now();
+    
+    // ✅ PROTEÇÃO: Evitar polls muito frequentes
+    if (now - lastPollTime < MIN_POLL_DELAY) {
+      console.log('🛡️ [JobsPanel] Poll muito frequente, aguardando...');
+      return;
+    }
+    
+    lastPollTime = now;
+    
+    try {
+      const response = await fetch(`/api/promocoes/jobs?_=${now}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+        credentials: 'same-origin',
+        signal: AbortSignal.timeout(8000) // Timeout de 8s
+      });
+
+      if (response.status === 304) {
+        render(); // Re-renderiza o que já temos
+        pollErrorCount = 0;
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json().catch(() => ({}));
+      const apiJobs = data?.jobs || [];
+      
+      mergeApiJobs(apiJobs);
+      pollErrorCount = 0;
+      
+      // ✅ PARAR POLLING SE NÃO HÁ JOBS ATIVOS
+      const hasActiveJobs = apiJobs.some(job => 
+        job.state && !/(conclu|complete|failed|erro)/i.test(job.state)
+      );
+      
+      const hasLocalActiveJobs = Object.values(cache || {}).some(job => 
+        !job.dismissed && !job.completed
+      );
+      
+      if (!hasActiveJobs && !hasLocalActiveJobs) {
+        console.log('📋 [JobsPanel] Nenhum job ativo, pausando polling...');
+        stopPolling();
+      }
+      
+    } catch (error) {
+      pollErrorCount++;
+      console.warn(`⚠️ [JobsPanel] Erro no polling (${pollErrorCount}/${MAX_POLL_ERRORS}):`, error.message);
+      
+      // ✅ PARAR POLLING APÓS MUITOS ERROS
+      if (pollErrorCount >= MAX_POLL_ERRORS) {
+        console.error('❌ [JobsPanel] Muitos erros no polling, parando...');
+        stopPolling();
+      }
+      
+      render(); // Renderiza o que já temos
+    }
   }
 
-  const accountKey   = j.account?.key   || j.accountKey   || null;
-  const accountLabel = j.account?.label || j.accountLabel || null;
-  const badges = normalizeBadges(j.badges, j.badge, accountKey, accountLabel);
+  // ✅ CONTROLE DO POLLING
+  function startPolling() {
+    if (pollInterval) return; // Já está rodando
+    
+    console.log('▶️ [JobsPanel] Iniciando polling...');
+    pollErrorCount = 0;
+    pollApiJobs(); // Poll imediato
+    pollInterval = setInterval(pollApiJobs, POLL_INTERVAL_MS);
+  }
 
-  const completed = ('completed' in j)
-    ? !!j.completed
-    : guessCompleted(progress, state);
+  function stopPolling() {
+    if (pollInterval) {
+      console.log('⏹️ [JobsPanel] Parando polling...');
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }
 
-  return { id, title, progress, state, badges, completed };
-}
-
+  // ✅ INICIAR POLLING APENAS QUANDO NECESSÁRIO
+  function ensurePolling() {
+    loadIfNeeded();
+    const hasActiveJobs = Object.values(cache || {}).some(job => 
+      !job.dismissed && !job.completed
+    );
+    
+    if (hasActiveJobs && !pollInterval) {
+      startPolling();
+    } else if (!hasActiveJobs && pollInterval) {
+      setTimeout(stopPolling, 15000); // Para após 15s sem jobs ativos
+    }
+  }
 
   function mergeApiJobs(list){
     loadIfNeeded();
@@ -315,6 +417,9 @@
       normalizeProgressAndState(cache[inc.id]);
     });
     cleanup(); save(); render();
+    
+    // ✅ GARANTIR QUE POLLING CONTINUE SE HÁ JOBS ATIVOS
+    ensurePolling();
   }
 
   /* =================================== UI ====================================== */
@@ -355,7 +460,7 @@
     root.querySelector('#jpToggle')?.addEventListener('click', () => {
       ui.collapsed = !ui.collapsed; saveUI(); render();
     });
-    // “Fechar” apenas minimiza (painel sempre presente)
+    // "Fechar" apenas minimiza (painel sempre presente)
     root.querySelector('#jpClose')?.addEventListener('click', () => {
       ui.collapsed = true; saveUI(); render();
     });
@@ -365,14 +470,39 @@
     });
   }
 
-  function show(){ const r = ensurePanel(); if (r) r.classList.remove('hidden'); }
-  function hide(){ const r = ensurePanel(); if (r) r.classList.add('hidden'); }
+  function show(){ 
+    const r = ensurePanel(); 
+    if (r) r.classList.remove('hidden'); 
+    ensurePolling(); // Iniciar polling quando mostrar painel
+  }
+  
+  function hide(){ 
+    const r = ensurePanel(); 
+    if (r) r.classList.add('hidden'); 
+    stopPolling(); // Parar polling quando esconder painel
+  }
 
+  // ✅ INICIALIZAÇÃO CONTROLADA
   document.addEventListener('DOMContentLoaded', () => {
     loadUI();
     loadIfNeeded();
     show();    // sempre visível
     render();
+    ensurePolling(); // Só inicia polling se necessário
+  });
+
+  // ✅ LIMPEZA AO SAIR DA PÁGINA
+  window.addEventListener('beforeunload', () => {
+    stopPolling();
+  });
+
+  // ✅ VISIBILIDADE DA PÁGINA (pausa polling quando não visível)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stopPolling();
+    } else {
+      ensurePolling();
+    }
   });
 
   /* =============================== Exports ===================================== */
@@ -383,14 +513,19 @@
     dismiss,
     listActiveIds,
     mergeApiJobs, // << novo: mescla jobs vindos do backend (ex.: /api/promocoes/jobs)
-    show, hide
+    show, 
+    hide,
+    // ✅ NOVOS MÉTODOS PARA CONTROLE EXTERNO
+    startPolling,
+    stopPolling,
+    ensurePolling
   };
 
   // Shim para código que usa "PromoJobs" (ex.: criar-promocao.js)
   if (!window.PromoJobs) {
     window.PromoJobs = {
       noteLocalJobStart(title, ctx = {}) {
-        return addLocalJob({
+        const jobId = addLocalJob({
           title,
           accountKey: ctx.accountKey,
           accountLabel: ctx.accountLabel,
@@ -398,6 +533,8 @@
           badge: ctx.badge,
           expected_total: ctx.expected_total
         });
+        ensurePolling(); // Garantir que polling está ativo
+        return jobId;
       },
       linkLocalToServer(localId, serverId) {
         return replaceId(localId, serverId);

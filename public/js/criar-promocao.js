@@ -2,6 +2,42 @@
 // ===================== Bootstrap =====================
 console.log('🚀 criar-promocao.js carregado');
 
+/* ======================== LIMPEZA DE JOBS PROBLEMÁTICOS ======================== */
+
+// 🛑 Parar todos os jobs que estão piscando
+console.log('🛑 Limpando jobs problemáticos...');
+
+// Tentar limpar jobs via API
+setTimeout(async () => {
+    try {
+        const response = await fetch('/api/promocoes/jobs', { 
+            credentials: 'same-origin' 
+        });
+        const data = await response.json();
+        
+        if (data?.jobs && Array.isArray(data.jobs)) {
+            console.log('📋 Jobs ativos encontrados:', data.jobs.length);
+            
+            // Cancelar jobs problemáticos
+            for (const job of data.jobs) {
+                if (job.state === 'active' || job.state === 'queued') {
+                    console.log('🛑 Tentando cancelar job:', job.id);
+                    try {
+                        await fetch(`/api/promocoes/jobs/${job.id}/cancel`, {
+                            method: 'POST',
+                            credentials: 'same-origin'
+                        });
+                    } catch (e) {
+                        console.warn('⚠️ Não foi possível cancelar job:', job.id);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('⚠️ Não foi possível limpar jobs:', e);
+    }
+}, 1000);
+
 // =====================================================
 // ============ Helpers de HTTP e caminhos =============
 // =====================================================
@@ -67,7 +103,7 @@ const offerIdsPaths = (mlb) => ([
 
 const PAGE_SIZE = 50;
 const $  = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s)); // Corrigido para $$
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 function esc(s) {
   return (s == null ? '' : String(s).replace(/[&<>"']/g, c => ({
@@ -140,10 +176,6 @@ const HUD = {
 // ================ Jobs Watcher (poll) ================
 // =====================================================
 
-// =====================================================
-// ================ Jobs Watcher (poll) ================
-// =====================================================
-
 const JobsWatcher = (function(){
   let timer = null;
   let watchingId = null; // foco de atenção (opcional)
@@ -205,9 +237,7 @@ const JobsWatcher = (function(){
         console.log(`🎯 Job ${j.id}: ${stateText} (${pct}%)`);
       }
     }
-  }
-
-  async function poll(){
+  }  async function poll(){
     try {
       const r = await fetch('/api/promocoes/jobs', { credentials: 'same-origin' });
       const data = await r.json().catch(()=>({}));
@@ -247,11 +277,6 @@ const JobsWatcher = (function(){
 
   return { start, stop, watch, isRunning, poll };
 })();
-
-// =====================================================
-// ================= Painel de Debug ===================
-// (Seção PromoDebug removida integralmente)
-// =====================================================
 
 // =====================================================
 // =================== Utils diversos ==================
@@ -298,6 +323,7 @@ function dedupeByMLB(items, statusFilter /* 'started' | 'scheduled' | 'pending' 
   }
   return arr;
 }
+
 // =====================================================
 // ============ Hidratação de candidatos DEAL ==========
 // =====================================================
@@ -497,15 +523,13 @@ function resolveDealFinalAndPctFront(raw) {
 
   const pct = Math.max(0, Math.min(100, ((orig - final) / orig) * 100));
   return { final: Number(final.toFixed(2)), pct: Number(pct.toFixed(2)), estimated, source };
-}
-
-// =====================================================
+}// =====================================================
 // ========= Escolha segura de deal price (UI) =========
 // =====================================================
 
 /**
  * safeDealPrice — usa a mesma heurística do resolve* para
- * garantir que “Novo preço” mostre um valor coerente.
+ * garantir que "Novo preço" mostre um valor coerente.
  */
 function safeDealPrice(it, original) {
   const typeUp = (state.selectedCard?.type || '').toUpperCase();
@@ -649,6 +673,7 @@ document.addEventListener('keydown', async (ev) => {
     atualizarFaixaSelecaoCampanha();
   }
 });
+
 /* ======================== Busca por MLB (cards do item) ======================== */
 
 const ITEM_PROMO_TYPES = new Set([
@@ -700,7 +725,7 @@ async function carregarCards(){
     else renderCards();
   } catch (e) {
     const authMsg = (e?.cause?.status === 401 || e?.cause?.status === 403)
-      ? 'Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em “Trocar Conta” e reconecte.'
+      ? 'Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em "Trocar Conta" e reconecte.'
       : 'Não foi possível carregar promoções (ver console).';
     console.error('[/users] erro ao carregar cards:', e, e?.cause);
     $cards.innerHTML = `<div class="card"><h3>Falha</h3><pre class="muted">${esc(authMsg)}</pre></div>`;
@@ -757,7 +782,6 @@ function renderCards(){
 
 function destacarCardSelecionado(){
   const $cards = elCards();
-  // ✅ CORREÇÃO: usar querySelectorAll diretamente no elemento
   $cards.querySelectorAll('div.card').forEach(n => n.classList.remove('card--active'));
   const list = (state.cardsFilteredIds ? state.cards.filter(c => state.cardsFilteredIds.has(c.id)) : state.cards);
   const idx = list.findIndex(c => c.id === state.selectedCard?.id);
@@ -789,9 +813,7 @@ async function filtrarCardsPorMLB(mlb){
     state.cardsFilteredIds = null;
     renderCards();
   }
-}
-
-/* ======================== Seleção de card / Tabela ======================== */
+}/* ======================== Seleção de card / Tabela ======================== */
 
 async function selecionarCard(card){
   state.selectedCard = {
@@ -926,7 +948,7 @@ async function carregarItensPagina(pageNumber, reset=false){
   } catch (e) {
     const isAuth = (e?.cause?.status === 401 || e?.cause?.status === 403);
     const authMsg = isAuth
-      ? 'Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em “Trocar Conta” e reconecte.'
+      ? 'Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em "Trocar Conta" e reconecte.'
       : 'Falha ao listar itens (ver console).';
 
     console.error('[carregarItensPagina] erro:', e, e?.cause);
@@ -941,6 +963,7 @@ async function carregarItensPagina(pageNumber, reset=false){
     atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
   }
 }
+
 function renderTabela(items){
   const $body = elTbody();
   if (!items?.length) {
@@ -1050,7 +1073,7 @@ function updateSelectedCampaignName(){
   if (!el) return;
   if (state.selectedCard) {
     const name = state.selectedCard.name || state.selectedCard.id;
-    el.textContent = `Campanha: “${name}”`;
+    el.textContent = `Campanha: "${name}"`;
     el.title = name;
   }
   else {
@@ -1090,9 +1113,7 @@ function renderPaginacao(){
   html += btn(Math.min(pages, cur + 1), '›', cur === pages);
 
   $pag.innerHTML = html;
-}
-
-/* ======================== Busca por MLB: item único ======================== */
+}/* ======================== Busca por MLB: item único ======================== */
 
 async function montarItemRapido(mlb){
   // 1) Busca todas as promoções do item e localiza a campanha selecionada
@@ -1142,7 +1163,7 @@ async function montarItemRapido(mlb){
     // campos candidatos para DEAL/SELLER
     min_discounted_price:      toNum(match.min_discounted_price ?? offer.min_discounted_price ?? null),
     suggested_discounted_price:toNum(match.suggested_discounted_price ?? offer.suggested_discounted_price ?? null),
-    max_discounted_price:      toNum(match.max_discounted_price ?? offer.max_discounted_price ?? null), // Adicionado max_discounted_price
+    max_discounted_price:      toNum(match.max_discounted_price ?? offer.max_discounted_price ?? null),
     
     // rebate/percentuais
     meli_percentage:   toNum(match.meli_percentage ?? offer.meli_percentage ?? null),
@@ -1223,6 +1244,55 @@ async function buscarItemNaCampanha(mlb){
   }
   return null;
 }
+
+async function carregarSomenteMLBSelecionado() {
+  const $body = elTbody();
+  if (!state.selectedCard) {
+    $body.innerHTML = `<tr><td colspan="12" class="muted">Selecione uma campanha.</td></tr>`;
+    return;
+  }
+  const mlb = (state.mlbFilter || '').trim().toUpperCase();
+  if (!mlb) {
+    await carregarItensPagina(1, true);
+    return;
+  }
+
+  try {
+    state.loading = true;
+    renderPaginacao();
+    $body.innerHTML = `<tr><td colspan="12" class="muted">Carregando item ${esc(mlb)}…</td></tr>`;
+
+    // monta rapidamente a linha usando as mesmas regras de cálculo do grid
+    const it = await montarItemRapido(mlb);
+    if (!it) {
+      $body.innerHTML = `<tr><td colspan="12" class="muted">Item ${esc(mlb)} não localizado para esta campanha.</td></tr>`;
+      state.items = [];
+      state.paging = { total: 0, limit: PAGE_SIZE, tokensByPage:{1:null}, currentPage:1, lastPageKnown:1 };
+      renderPaginacao();
+      return;
+    }
+
+    // guarda e renderiza somente ele
+    state.items = [it];
+    state.paging.total = 1;
+    state.paging.currentPage = 1;
+    state.paging.tokensByPage = { 1: null };
+    renderTabela(state.items);
+    renderPaginacao();
+    applyRebateHeaderTooltip();
+
+    // tentar "hidratar" sugestões se o item for DEAL candidate seco
+    await hydrateDealCandidateSuggestions(state.items);
+  } catch (e) {
+    console.error('[carregarSomenteMLBSelecionado] erro:', e);
+    $body.innerHTML = `<tr><td colspan="12" class="muted">Falha ao carregar ${esc(mlb)} (ver console).</td></tr>`;
+  } finally {
+    state.loading = false;
+    renderPaginacao();
+    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+  }
+}
+
 /* ======================== Offer/Candidate helpers ======================== */
 
 function isCandidateId (id) { return /^CANDIDATE-[A-Z0-9-]+$/i.test(String(id || '')); }
@@ -1301,9 +1371,7 @@ function calcDealPriceFromItem(it) {
   if (!Number.isNaN(deal) && deal != null) return round2(deal);
   if (orig != null && d != null) return round2(orig * (1 - d / 100));
   return null;
-}
-
-/* --- aplicarUnico (orig) --- mantido para botões da UI (opera no item já visível) */
+}/* --- aplicarUnico (orig) --- mantido para botões da UI (opera no item já visível) */
 async function aplicarUnico(mlb, opts = {}) {
   const silent = !!opts.silent;
   if (!state.selectedCard) { if (!silent) alert('Selecione uma campanha.'); return false; }
@@ -1628,8 +1696,7 @@ async function coletarTodosIdsFiltrados() {
   }
 
   return [...new Set(ids)];
-}
-/* --- Remoção em massa (abre HUD e atualiza contadores) --- */
+}/* --- Remoção em massa (abre HUD e atualiza contadores) --- */
 async function removerEmMassaSelecionados() {
   if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
 
@@ -1717,7 +1784,7 @@ async function aplicarTodosFiltrados() {
   const buildCampaignName = () => {
     const n1 = state.selectedCard?.name || '';
     const n2 = (document.getElementById('campName')?.textContent || '')
-      .replace(/^Campanha:\s*[“"]?/, '').replace(/[”"]?$/, '').trim();
+      .replace(/^Campanha:\s*[""]?/, '').replace(/[""]?$/, '').trim();
     const n3 = state.cards.find?.(c => c.id === state.selectedCard?.id)?.name || '';
     return n1 || n2 || n3 || String(state.selectedCard?.id || 'Campanha');
   };
@@ -1858,94 +1925,14 @@ async function aplicarTodosFiltrados() {
   }
 }
 
-
-window.aplicarLoteSelecionados = async function(){
-  const sel = getSelecionados();
-  if (!sel.length) return alert('Selecione ao menos 1 item');
-  HUD.open(sel.length, 'Aplicação (selecionados)');
-  for (const mlb of sel) { await aplicarUnico(mlb, { silent:true }); }
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
-};
-
 /* --- Navegação e helpers --- */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){
-  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked); // Uso de $$
+  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked);
   if (window.PromoBulk) { window.PromoBulk.onHeaderToggle(!!master.checked); }
   atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
 }
-function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); } // Uso de $$
 function removerUnicoDaCampanha(mlb){ alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ''}`); }
-
-window.goPage = goPage;
-window.toggleTodos = toggleTodos;
-window.aplicarLoteSelecionados = aplicarLoteSelecionados;
-window.removerUnicoDaCampanha = removerUnicoDaCampanha;
-window.aplicarUnico = aplicarUnico;
-window.removerEmMassaSelecionados = removerEmMassaSelecionados;
-window.aplicarTodosFiltrados = aplicarTodosFiltrados;
-
-/* ======================== Boot ======================== */
-
-document.addEventListener('DOMContentLoaded', async () => {
-  hideLeadingRebateColumnIfPresent();
-  updateSelectedCampaignName();
-  HUD.reset(); // inicializa HUD da sessão
-  JobsWatcher.start(); // começa a observar progresso de jobs
-  // PromoDebug.setEnabled(true); // Removido
-  // PromoDebug.log('Boot OK. Carregando cards...'); // Removido
-  await carregarCards();
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção após o boot
-});
-/* ======================== Modo busca unitária (apenas 1 MLB) ======================== */
-
-async function carregarSomenteMLBSelecionado() {
-  const $body = elTbody();
-  if (!state.selectedCard) {
-    $body.innerHTML = `<tr><td colspan="12" class="muted">Selecione uma campanha.</td></tr>`;
-    return;
-  }
-  const mlb = (state.mlbFilter || '').trim().toUpperCase();
-  if (!mlb) {
-    await carregarItensPagina(1, true);
-    return;
-  }
-
-  try {
-    state.loading = true;
-    renderPaginacao();
-    $body.innerHTML = `<tr><td colspan="12" class="muted">Carregando item ${esc(mlb)}…</td></tr>`;
-
-    // monta rapidamente a linha usando as mesmas regras de cálculo do grid
-    const it = await montarItemRapido(mlb);
-    if (!it) {
-      $body.innerHTML = `<tr><td colspan="12" class="muted">Item ${esc(mlb)} não localizado para esta campanha.</td></tr>`;
-      state.items = [];
-      state.paging = { total: 0, limit: PAGE_SIZE, tokensByPage:{1:null}, currentPage:1, lastPageKnown:1 };
-      renderPaginacao();
-      return;
-    }
-
-    // guarda e renderiza somente ele
-    state.items = [it];
-    state.paging.total = 1;
-    state.paging.currentPage = 1;
-    state.paging.tokensByPage = { 1: null };
-    renderTabela(state.items);
-    renderPaginacao();
-    applyRebateHeaderTooltip();
-
-    // tentar “hidratar” sugestões se o item for DEAL candidate seco
-    await hydrateDealCandidateSuggestions(state.items);
-  } catch (e) {
-    console.error('[carregarSomenteMLBSelecionado] erro:', e);
-    $body.innerHTML = `<tr><td colspan="12" class="muted">Falha ao carregar ${esc(mlb)} (ver console).</td></tr>`;
-  } finally {
-    state.loading = false;
-    renderPaginacao();
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
-  }
-}
 
 // cole perto dos outros helpers de UI
 async function atualizarFaixaSelecaoCampanha() {
@@ -1982,13 +1969,309 @@ async function atualizarFaixaSelecaoCampanha() {
   } catch (_) {
     // silencioso
   }
+}/* ======================== SISTEMA DE SELEÇÃO CORRIGIDO ======================== */
+
+// 🎯 Função de seleção SIMPLES e DIRETA
+function selecionarTodaCampanhaFiltradosSimples() {
+    console.log('🚀 INICIANDO seleção simples...');
+    
+    const btn = document.getElementById('selAllCampaignBtn');
+    if (!btn) {
+        console.error('❌ Botão não encontrado!');
+        return;
+    }
+
+    const isSelectingAll = btn.textContent.includes('Selecionar');
+    console.log('🎯 Modo:', isSelectingAll ? 'SELECIONAR' : 'DESSELECIONAR');
+    
+    // 🔍 Buscar TODOS os checkboxes visíveis
+    const allCheckboxes = document.querySelectorAll('#tbody input[type="checkbox"][data-mlb]');
+    console.log('📊 Total checkboxes encontrados:', allCheckboxes.length);
+    
+    let processedCount = 0;
+    
+    // ✅ Processar TODOS (sem filtro de visibilidade complicado)
+    allCheckboxes.forEach(checkbox => {
+        const row = checkbox.closest('tr');
+        if (!row) return;
+        
+        // Verificar se a linha está visível
+        const isVisible = row.offsetParent !== null && 
+                         !row.hidden && 
+                         row.style.display !== 'none' &&
+                         !row.classList.contains('d-none');
+        
+        if (isVisible) {
+            if (isSelectingAll) {
+                checkbox.checked = true;
+            } else {
+                checkbox.checked = false;
+            }
+            processedCount++;
+            console.log('✅ Processado:', checkbox.dataset.mlb, checkbox.checked);
+        }
+    });
+    
+    console.log(`📊 Total processados: ${processedCount}`);
+    
+    // 🔄 Atualizar botão
+    if (isSelectingAll) {
+        btn.textContent = 'Desselecionar toda a campanha';
+        btn.classList.remove('ghost');
+        btn.classList.add('danger');
+    } else {
+        btn.textContent = 'Selecionar toda a campanha (filtrados)';
+        btn.classList.remove('danger');
+        btn.classList.add('ghost');
+    }
+    
+    // 🔄 Forçar atualização dos contadores
+    atualizarContadorSelecionadosSimples();
+    atualizarBotoesSelecionadosSimples();
+    atualizarFaixaSelecaoCampanha();
+    
+    console.log('✅ Seleção concluída!');
 }
 
+// 📊 Contador simples
+function atualizarContadorSelecionadosSimples() {
+    const checkedBoxes = document.querySelectorAll('#tbody input[type="checkbox"][data-mlb]:checked');
+    const selMsg = document.getElementById('selMsg');
+    
+    if (selMsg) {
+        selMsg.textContent = `${checkedBoxes.length} anúncios selecionados nesta página.`;
+    }
+    
+    const selectionBar = document.getElementById('selectionBar');
+    if (selectionBar) {
+        if (checkedBoxes.length > 0) {
+            selectionBar.classList.remove('hidden');
+        } else {
+            selectionBar.classList.add('hidden');
+        }
+    }
+    
+    console.log('📊 Contador atualizado:', checkedBoxes.length);
+}
+
+// 🔘 Botões simples
+function atualizarBotoesSelecionadosSimples() {
+    const checkedBoxes = document.querySelectorAll('#tbody input[type="checkbox"][data-mlb]:checked');
+    const selApplyBtn = document.getElementById('selApplyBtn');
+    const selRemoveBtn = document.getElementById('selRemoveBtn');
+    
+    if (selApplyBtn) {
+        selApplyBtn.disabled = checkedBoxes.length === 0;
+        selApplyBtn.textContent = checkedBoxes.length > 0 
+            ? `Aplicar a todos (${checkedBoxes.length})` 
+            : 'Aplicar a todos';
+    }
+    
+    if (selRemoveBtn) {
+        selRemoveBtn.disabled = checkedBoxes.length === 0;
+        selRemoveBtn.textContent = checkedBoxes.length > 0 
+            ? `Remover todos (${checkedBoxes.length})` 
+            : 'Remover todos';
+    }
+}
+
+// 📋 getSelecionados simples
+function getSelecionadosSimples() {
+    const checkedBoxes = document.querySelectorAll('#tbody input[type="checkbox"][data-mlb]:checked');
+    return Array.from(checkedBoxes).map(cb => cb.dataset.mlb);
+}
+
+/* ======================== APLICAR EVENT LISTENERS DIRETOS ======================== */
+
+function aplicarEventListenersSimples() {
+    console.log('🔧 Aplicando event listeners simples...');
+    
+    // 🎯 Botão principal
+    const selAllBtn = document.getElementById('selAllCampaignBtn');
+    if (selAllBtn) {
+        // Remover todos os event listeners existentes
+        selAllBtn.onclick = null;
+        selAllBtn.removeAttribute('onclick');
+        
+        // Adicionar novo event listener
+        selAllBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('🎯 CLIQUE no botão detectado!');
+            selecionarTodaCampanhaFiltradosSimples();
+        });
+        
+        console.log('✅ Event listener aplicado no botão principal');
+    } else {
+        console.error('❌ Botão selAllCampaignBtn não encontrado!');
+    }
+    
+    // 🎯 Botão aplicar
+    const selApplyBtn = document.getElementById('selApplyBtn');
+    if (selApplyBtn) {
+        selApplyBtn.onclick = null;
+        selApplyBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('🎯 Aplicar clicado!');
+            aplicarLoteSelecionadosSimples();
+        });
+    }
+    
+    // 🎯 Botão remover
+    const selRemoveBtn = document.getElementById('selRemoveBtn');
+    if (selRemoveBtn) {
+        selRemoveBtn.onclick = null;
+        selRemoveBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('🗑️ Remover clicado!');
+            removerEmMassaSelecionadosSimples();
+        });
+    }
+    
+    // 🎯 Checkboxes individuais
+    const tbody = document.getElementById('tbody');
+    if (tbody) {
+        tbody.addEventListener('change', function(e) {
+            if (e.target.matches('input[type="checkbox"][data-mlb]')) {
+                console.log('📋 Checkbox alterado:', e.target.dataset.mlb);
+                setTimeout(() => {
+                    atualizarContadorSelecionadosSimples();
+                    atualizarBotoesSelecionadosSimples();
+                    atualizarFaixaSelecaoCampanha();
+                }, 10);
+            }
+        });
+    }
+}
+
+/* ======================== FUNÇÕES SIMPLIFICADAS ======================== */
+
+async function aplicarLoteSelecionadosSimples() {
+    const sel = getSelecionadosSimples();
+    if (!sel.length) return alert('Selecione ao menos 1 item');
+    
+    console.log('🚀 Aplicando em lote:', sel.length, 'itens');
+    HUD.open(sel.length, 'Aplicação (selecionados)');
+    
+    for (const mlb of sel) {
+        await aplicarUnico(mlb, { silent: true });
+    }
+    
+    atualizarFaixaSelecaoCampanha();
+    console.log('✅ Aplicação em lote concluída');
+}
+
+async function removerEmMassaSelecionadosSimples() {
+    if (!state.selectedCard) { 
+        alert('Selecione uma campanha.'); 
+        return; 
+    }
+
+    let itens = getSelecionadosSimples();
+    if (!itens.length) {
+        const ok = confirm('Nenhum item marcado. Deseja remover TODOS os itens filtrados da campanha?');
+        if (!ok) return;
+        itens = await coletarTodosIdsFiltrados();
+    }
+    
+    if (!itens.length) { 
+        alert('Nenhum item para remover.'); 
+        return; 
+    }
+
+    console.log('🗑️ Removendo em massa:', itens.length, 'itens');
+
+    try {
+        const r = await fetch('/api/promocoes/jobs/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ items: itens, delay_ms: 250 })
+        });
+        
+        const resp = await r.json().catch(() => ({}));
+        
+        if (!r.ok || !resp.ok) {
+            console.error('❌ Falha ao iniciar remoção em massa', r.status, resp);
+            alert('Falha ao iniciar remoção em massa.');
+            return;
+        }
+        
+        alert(`Remoção em massa iniciada para ${itens.length} item(ns).`);
+        
+    } catch (e) {
+        console.error('❌ Erro removerEmMassaSelecionados:', e);
+        alert('Erro ao iniciar remoção em massa.');
+    } finally {
+        atualizarFaixaSelecaoCampanha();
+    }
+}
+
+/* ======================== SOBRESCREVER FUNÇÕES GLOBAIS ======================== */
+
+// Substituir getSelecionados
+function getSelecionados() {
+    return getSelecionadosSimples();
+}
+
+// Substituir aplicarLoteSelecionados
+async function aplicarLoteSelecionados() {
+    return await aplicarLoteSelecionadosSimples();
+}
+
+/* ======================== INICIALIZAÇÃO MÚLTIPLA ======================== */
+
+function tentarInicializar() {
+    const btn = document.getElementById('selAllCampaignBtn');
+    if (btn) {
+        aplicarEventListenersSimples();
+        console.log('✅ Inicialização bem-sucedida!');
+        return true;
+    }
+    console.warn('⚠️ Botão ainda não encontrado, tentando novamente...');
+    return false;
+}
+
+// Tentar várias vezes
+setTimeout(tentarInicializar, 100);
+setTimeout(tentarInicializar, 500);
+setTimeout(tentarInicializar, 1000);
+setTimeout(tentarInicializar, 2000);
+
+// Também tentar quando DOM estiver pronto
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(tentarInicializar, 100);
+    });
+} else {
+    tentarInicializar();
+}
+
+/* ======================== EXPORTS E WINDOW GLOBALS ======================== */
+
+window.goPage = goPage;
+window.toggleTodos = toggleTodos;
+window.aplicarLoteSelecionados = aplicarLoteSelecionados;
+window.removerEmMassaSelecionados = removerEmMassaSelecionados;
+window.aplicarTodosFiltrados = aplicarTodosFiltrados;
+window.aplicarUnico = aplicarUnico;
+window.removerUnicoDaCampanha = removerUnicoDaCampanha;
+window.getSelecionados = getSelecionados;
+
+/* ======================== Boot ======================== */
+
+document.addEventListener('DOMContentLoaded', async () => {
+  hideLeadingRebateColumnIfPresent();
+  updateSelectedCampaignName();
+  HUD.reset(); // inicializa HUD da sessão
+  JobsWatcher.start(); // começa a observar progresso de jobs
+  await carregarCards();
+  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção após o boot
+});
 
 /* ======================== Exports de utilidade no window ======================== */
 
 window.__PromoState = state;
-// window.__PromoDebug = PromoDebug; // Removido
 window.__JobsWatcher = JobsWatcher;
 
 /* ======================== Shims opcionais (evita erros se painel não existir) ======================== */
@@ -1997,40 +2280,36 @@ if (!window.JobsPanel) {
   window.JobsPanel = {
     addLocalJob(info){
       const id = `local-${Date.now()}`;
-      console.log(`JobsPanel shim: addLocalJob ${id} "${info?.title||''}"`); // Usado console.log
+      console.log(`JobsPanel shim: addLocalJob ${id} "${info?.title||''}"`);
       return id;
     },
     updateLocalJob(id, data){
-      console.log(`JobsPanel shim: update ${id} → ${JSON.stringify(data)}`); // Usado console.log
+      console.log(`JobsPanel shim: update ${id} → ${JSON.stringify(data)}`);
     },
     replaceId(oldId, newId){
-      console.log(`JobsPanel shim: replace ${oldId} → ${newId}`); // Usado console.log
+      console.log(`JobsPanel shim: replace ${oldId} → ${newId}`);
     }
   };
 }
 
 if (!window.PromoBulk) {
   window.PromoBulk = {
-    setContext(ctx){ console.log(`PromoBulk shim: context → ${JSON.stringify(ctx)}`); }, // Usado console.log
-    onHeaderToggle(all){ console.log(`PromoBulk shim: header toggle = ${all}`); } // Usado console.log
+    setContext(ctx){ console.log(`PromoBulk shim: context → ${JSON.stringify(ctx)}`); },
+    onHeaderToggle(all){ console.log(`PromoBulk shim: header toggle = ${all}`); }
   };
 }
-
-/* ======================== Util: botão de copiar logs (opcional) ======================== */
-
-// (Seção addCopyLogsButton removida integralmente)
 
 /* ======================== Guard rails para erros não-capturados ======================== */
 
 window.addEventListener('unhandledrejection', (ev) => {
   try {
-    console.error(`Promise rejeitada: ${ev.reason?.message || ev.reason || 'erro'}`); // Usado console.error
+    console.error(`Promise rejeitada: ${ev.reason?.message || ev.reason || 'erro'}`);
   } catch {}
 });
 
 window.addEventListener('error', (ev) => {
   try {
-    console.error(`Erro JS: ${ev.message} @ ${ev.filename}:${ev.lineno}`); // Usado console.error
+    console.error(`Erro JS: ${ev.message} @ ${ev.filename}:${ev.lineno}`);
   } catch {}
 });
 
@@ -2052,29 +2331,25 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-/* ======================== Experimentos / flags (mantido para toggles rápidos) ======================== */
+/* ======================== Flags de controle ======================== */
 
 const Flags = {
-  dealPricePriceDeltaEnabled: true, // considerar price como ΔR$ quando candidate-like e sem sugestões
+  dealPricePriceDeltaEnabled: true,
   jobsWatcherEnabled: true,
-  // debugPanelEnabled: true, // Removido
 };
 
-console.log('Flags ativas: ' + JSON.stringify(Flags)); // Usado console.log
+console.log('🔧 Sistema de correção SIMPLES carregado');
+console.log('Flags ativas:', JSON.stringify(Flags));
 
-// 🔧 CORREÇÃO: Inicialização melhorada do JobsWatcher
-window.__JobsWatcher = JobsWatcher;
-
-// Auto-iniciar se a flag estiver ativa
+// Auto-iniciar JobsWatcher se a flag estiver ativa
 if (Flags.jobsWatcherEnabled) {
   setTimeout(() => {
-    JobsWatcher.start();
-    console.log('JobsWatcher auto-iniciado:', {
-      isRunning: JobsWatcher.isRunning(),
-      flagEnabled: Flags.jobsWatcherEnabled
-    });
-  }, 1000); // Delay para garantir que tudo esteja carregado
+    if (!JobsWatcher.isRunning()) {
+      JobsWatcher.start();
+      console.log('JobsWatcher auto-iniciado:', {
+        isRunning: JobsWatcher.isRunning(),
+        flagEnabled: Flags.jobsWatcherEnabled
+      });
+    }
+  }, 1000);
 }
-
-/* ======================== Estilos mínimos para o painel (fallback) ======================== */
-// (Seção injectDebugStyles removida integralmente)
