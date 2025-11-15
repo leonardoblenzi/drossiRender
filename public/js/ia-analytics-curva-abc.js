@@ -80,6 +80,13 @@
   // =========================================================
   // Helpers
   // =========================================================
+  // mantém apenas itens com vendas no período
+    function keepOnlySold(row) {
+      return Number(row?.units || 0) > 0; // ajuste aqui caso queira outra regra
+    }
+
+
+
   // fetch com timeout (polyfill robusto)
   async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
     const ctrl = new AbortController();
@@ -313,6 +320,8 @@
     }
   }
 
+  
+
   // ===== Renderização da Tabela
  // Substitua sua função renderTable por esta:
 function renderTable(rows, page, total, limit) {
@@ -414,6 +423,8 @@ async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
 
     let rows = j.data.slice();
 
+    // FILTRO: somente itens com vendas > 0
+    rows = rows.filter(keepOnlySold);
     // ordenações consistentes
     if (state.sort === 'share') {
       const T = state.totals || {};
@@ -485,75 +496,107 @@ async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
     loadItems(curve, p);
   }
 
-  // ===== Busca paginada (com progresso + retry + fallback sem ADS)
-  async function fetchAllPages(onProgress, opts = {}) {
-    const {
-      limit = 150,         // menos itens/página = respostas mais rápidas/estáveis
-      withAds = true,
-      timeoutMs = 90000,   // 90s — evita "signal timed out" em lotes grandes
-      maxRetries = 3
-    } = opts;
+// ===== Busca paginada com total real e opção "strictAds"
+async function fetchAllPages(onProgress, opts = {}) {
+  const {
+    limit = 120,          // menor para aliviar o endpoint de ADS
+    withAds = true,
+    timeoutMs = 120000,   // 120s no export
+    maxRetries = 3,
+    strictAds = false     // <-- NOVO: se true, não cai para sem ADS
+  } = opts;
 
-    const fetchItemsPage = async (page, tryWithAds) => {
-      const base = getFilters({
-        curve: state.curveTab || 'ALL',
-        page,
-        limit,
-        include_ads: tryWithAds ? '1' : '0'
-      });
-      const params = new URLSearchParams(base).toString();
-      const url = `/api/analytics/abc-ml/items?${params}`;
+  const fetchItemsPage = async (page, tryWithAds) => {
+    const base = getFilters({
+      curve: state.curveTab || 'ALL',
+      page,
+      limit,
+      include_ads: tryWithAds ? '1' : '0',
+      include_visits: '1'
+    });
+    const params = new URLSearchParams(base).toString();
+    const url = `/api/analytics/abc-ml/items?${params}`;
 
-      let lastErr;
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const r = await fetchWithTimeout(url, { credentials: 'same-origin' }, timeoutMs);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.json();
-        } catch (e) {
-          lastErr = e;
-          await new Promise(res => setTimeout(res, 400 * attempt)); // backoff
-        }
-      }
-      throw lastErr || new Error('Falha ao buscar página');
-    };
-
-    let page = 1, all = [], totalPages = 1;
-
-    do {
+    let lastErr;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const j = await fetchItemsPage(page, withAds);
-        all = all.concat(j.data || []);
-        totalPages = Math.max(1, Math.ceil((j.total || 0) / (j.limit || limit)));
-        typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: true });
-        page++;
-      } catch (e1) {
-        logProgress(`Página ${page}: timeout/erro com ADS — tentando sem ADS…`, 'warn');
-        try {
-          const j2 = await fetchItemsPage(page, false);
-          all = all.concat(j2.data || []);
-          totalPages = Math.max(1, Math.ceil((j2.total || 0) / (j2.limit || limit)));
-          typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: false });
-          page++;
-        } catch (e2) {
-          throw new Error(`Falha ao buscar a página ${page}: ${(e2 && e2.message) || e2}`);
-        }
+        const r = await fetchWithTimeout(url, { credentials: 'same-origin' }, timeoutMs);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+      } catch (e) {
+        lastErr = e;
+        await new Promise(res => setTimeout(res, 400 * attempt));
       }
-    } while (page <= totalPages);
+    }
+    throw lastErr || new Error('Falha ao buscar página');
+  };
 
-    return all;
+  const all = [];
+
+  // 1) página 1 primeiro (para saber total real)
+  let first, totalPages, usedAdsForFirst = withAds;
+  try {
+    first = await fetchItemsPage(1, withAds);
+  } catch (e1) {
+    if (strictAds) {
+      throw new Error('Página 1 falhou com ADS (strictAds ativo).');
+    }
+    logProgress?.('Página 1: timeout/erro com ADS — tentando sem ADS…', 'warn');
+    first = await fetchItemsPage(1, false);
+    usedAdsForFirst = false;
   }
 
- // ===== Export CSV (com FAB de progresso no canto)
+  const firstLimit = Number(first?.limit || limit) || limit;
+  const firstTotal = Number(first?.total || 0);
+  totalPages = Math.max(1, Math.ceil(firstTotal / firstLimit));
+
+  typeof onProgress === 'function' &&
+    onProgress({ page: 0, totalPages, withAds: usedAdsForFirst });
+
+  if (Array.isArray(first?.data)) all.push(...first.data);
+
+  // 2) páginas 2..N
+  for (let page = 2; page <= totalPages; page++) {
+    try {
+      const j = await fetchItemsPage(page, withAds);
+      if (Array.isArray(j?.data)) all.push(...j.data);
+      typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: true });
+    } catch (e1) {
+      if (strictAds) {
+        throw new Error(`Página ${page} falhou com ADS (strictAds ativo).`);
+      }
+      logProgress?.(`Página ${page}: timeout/erro com ADS — tentando sem ADS…`, 'warn');
+      const j2 = await fetchItemsPage(page, false);
+      if (Array.isArray(j2?.data)) all.push(...j2.data);
+      typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: false });
+    }
+  }
+
+  return all;
+}
+
+
+
 async function exportCSV() {
+  // helper: não quebra se o FAB antigo estiver no cache
+  const safeProgress = (cur, tot, opts) =>
+    (progressFab && typeof progressFab.progress === 'function')
+      ? progressFab.progress(cur, tot, opts)
+      : null;
+
   try {
     setLoading(true);
     progressFab.show('Carregando dados para exportação…');
 
-    const allRows = await fetchAllPages(); // sua função atual
+    // Busca todas as páginas com ADS obrigatório (garante métricas no CSV)
+    const allRows = await fetchAllPages(
+      ({ page, totalPages, withAds }) => safeProgress(page, totalPages, { withAds }),
+      { limit: 120, withAds: true, timeoutMs: 120000, strictAds: true }
+    );
 
     progressFab.message('Gerando CSV…');
 
+    // Ordenação consistente com a tela
     const rowsForCsv = allRows.slice();
     if (state.sort === 'share' || state.metric === 'revenue') {
       rowsForCsv.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
@@ -561,18 +604,23 @@ async function exportCSV() {
       rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
     }
 
-    const uTotal = rowsForCsv.reduce((s, r) => s + (r.units || 0), 0);
-    const rTotal = rowsForCsv.reduce((s, r) => s + (r.revenue_cents || 0), 0);
+    // (opcional) filtra itens sem venda para não inflar contagem
+    const rowsFiltered = rowsForCsv.filter(r => Number(r.units || 0) > 0);
+
+    // Totais para calcular %
+    const uTotal = rowsFiltered.reduce((s, r) => s + (r.units || 0), 0);
+    const rTotal = rowsFiltered.reduce((s, r) => s + (r.revenue_cents || 0), 0);
 
     const head = [
       'Índice','MLB','Título',
       'Unidades','Unid. (%)','Valor','FATURAMENTO %',
       'PROMO','% APLICADA',
-      'ADS','Cliques','Impr.','Invest.','ACOS','Receita Ads',
+      'ADS','Cliq.','Impr.','Visit.','Conv.',
+      'Invest.','ACOS','Receita Ads',
       'Vendas 7D','Vendas 15D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
     ];
 
-    const rows = rowsForCsv.map(r => {
+    const rows = rowsFiltered.map(r => {
       const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
       const revShare  = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
 
@@ -591,6 +639,9 @@ async function exportCSV() {
       const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
       const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
 
+      const visits = Number(r.visits || 0);
+      const conv   = visits > 0 ? (Number(r.units || 0) / visits) : null;
+
       return [
         r.curve || '-',
         r.mlb || '',
@@ -607,6 +658,9 @@ async function exportCSV() {
         statusText,
         clicks,
         imps,
+        visits,
+        conv != null ? (conv * 100).toFixed(2).replace('.', ',') + '%' : '—',
+
         (spendC / 100).toFixed(2).replace('.', ','),
         acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
         (aRevC / 100).toFixed(2).replace('.', ','),
@@ -629,8 +683,10 @@ async function exportCSV() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'curva_abc.csv';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
 
     progressFab.message('Concluído!');
     progressFab.done(true);
@@ -643,6 +699,9 @@ async function exportCSV() {
     setLoading(false);
   }
 }
+
+
+
 
 
   // ===== Bind
@@ -709,9 +768,9 @@ async function exportCSV() {
     if (btnCsv) btnCsv.addEventListener('click', exportCSV);
   }
 
-  // === FAB de progresso (canto inferior direito) ===
+// === FAB de progresso (canto inferior direito) — sempre com "progress" ===
 const progressFab = (() => {
-  let root, icon, msgEl;
+  let root, icon, msgEl, pctEl;
 
   function ensure() {
     if (root) return root;
@@ -723,6 +782,7 @@ const progressFab = (() => {
         <div style="display:flex;flex-direction:column;gap:2px">
           <div class="rf-title">Processando relatório</div>
           <div id="rfMsg" class="rf-msg">Preparando…</div>
+          <div id="rfPct" class="rf-pct" aria-live="polite"></div>
         </div>
         <button id="rfClose" class="rf-close" title="Fechar" type="button">×</button>
       </div>
@@ -730,6 +790,7 @@ const progressFab = (() => {
     document.body.appendChild(root);
     icon  = root.querySelector('#rfIcon');
     msgEl = root.querySelector('#rfMsg');
+    pctEl = root.querySelector('#rfPct');
     root.querySelector('#rfClose').onclick = hide;
     return root;
   }
@@ -739,6 +800,7 @@ const progressFab = (() => {
     root.style.display = 'block';
     icon.className = 'rf-spinner';
     msgEl.textContent = message;
+    pctEl.textContent = '';
   }
 
   function message(m) {
@@ -746,10 +808,19 @@ const progressFab = (() => {
     msgEl.textContent = m;
   }
 
+  // NOVO: sempre presente
+  function progress(current, total, opts = {}) {
+    ensure();
+    const safeTotal = Math.max(1, Number(total || 1));
+    const cur = Math.max(0, Math.min(Number(current || 0), safeTotal));
+    const pct = Math.floor((cur / safeTotal) * 100);
+    const hint = opts.withAds === false ? ' • (sem ADS nesta página)' : '';
+    pctEl.textContent = `${cur}/${safeTotal} (${pct}%)${hint}`;
+  }
+
   function done(ok = true) {
     ensure();
     icon.className = ok ? 'rf-check' : 'rf-check err';
-    // some de leve em 2.2s
     setTimeout(hide, 2200);
   }
 
@@ -757,7 +828,7 @@ const progressFab = (() => {
     if (root) root.style.display = 'none';
   }
 
-  return { show, message, done, hide };
+  return { show, message, progress, done, hide };
 })();
 
 
