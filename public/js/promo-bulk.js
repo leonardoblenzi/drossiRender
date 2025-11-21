@@ -1,239 +1,121 @@
-(function () {
-  /* =========================================================================
-   * Bulk de promoções – seleção, ações em massa e painel de processos
-   * ========================================================================= */
+// promo-bulk.js
+// Controle de seleção em massa + integração com JobsPanel + criação de jobs locais
+//
+// Depende de:
+//   - criar-promocao.js expor window.aplicarUnico(mlb, {silent})
+//   - (opcional) remover em massa via /api/promocoes/jobs/remove
+//
+// API exposta:
+//   window.PromoBulk = {
+//     setContext({ promotion_id, promotion_type, filtroParticipacao, maxDesc, mlbFilter }),
+//     onHeaderToggle(checked),
+//     setAccountContext({ key, label })
+//   };
 
+(function () {
   const $  = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const esc = (s)=> (s==null?'':String(s));
-
-  // ----- Conta atual (cache) -----
-  const AccountCtx = (function(){
-    let cached = null, pending = null, override = null;
-
-    function set(acc){
-      if (!acc) { override = null; return; }
-      override = { key: (acc.key||null), label: acc.label || acc.key || '' };
-    }
-
-    async function get(){
-      if (override) return override;
-      if (cached) return cached;
-      if (pending) return pending;
-      pending = (async () => {
-        try {
-          const r = await fetch('/api/account/current', { cache:'no-store', credentials:'same-origin' });
-          const j = await r.json().catch(()=> ({}));
-          const key   = j.accountKey || j.key || j.account || null;
-          const label = j.label || j.nickname || key || '';
-          cached = { key, label };
-        } catch {
-          cached = { key:null, label:'' };
-        } finally { pending = null; }
-        return cached;
-      })();
-      return pending;
-    }
-    return { get, set };
-  })();
 
   const ui = {
-    wrap:   null,
+    wrap: null,
     btnSel: null,
     btnApp: null,
     btnRem: null,
-    chkAllPages: null,
     selBar: null,
     selMsg: null,
     selAllCampaignBtn: null,
     selApplyBtn: null,
     selRemoveBtn: null,
-    jobsPanel: document.getElementById('bulkJobsPanel') // painel da lateral (se existir)
+    delayInput: null,
+    dryRunToggle: null,
   };
 
   const ctx = {
     promotion_id: null,
     promotion_type: null,
+    filtros: { status: 'all', maxDesc: null, mlb: null },
     headerChecked: false,
-    filtros: { status:'all', maxDesc:null, mlb:null },
-    global: { token:null, total:0, ids:null, selectedAll:false, prepared:false },
-    _autoTimer: null,
-    _lastKey: ''
+
+    // seleção global (toda campanha filtrada)
+    global: {
+      selectedAll: false,
+      token: null,
+      total: 0,
+      ids: null, // <-- usado no fallback local
+    },
+
+    account: {
+      key: null,
+      label: null,
+    },
+
+    // novo estado de "preparando seleção"
+    isPreparingSelection: false,
   };
 
-  /* ============================ Jobs: histórico ============================= */
+  /* ====================== Mensagem de "seleção preparada" ====================== */
 
-  const JOBS_KEY = '__promo_jobs_v1__';
-  const JOB_TTL = 24 * 60 * 60 * 1000;
-  let jobsCache = loadJobs();
+  function showPreparedMessage(total) {
+    const selBar = document.getElementById('selectionBar');
+    const selMsg = document.getElementById('selMsg');
+    if (!selBar || !selMsg) return;
 
-  function loadJobs(){
-    try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '{}'); }
-    catch { return {}; }
-  }
-  function saveJobs(){ localStorage.setItem(JOBS_KEY, JSON.stringify(jobsCache)); }
-  function gcJobs(){
-    const now = Date.now();
-    for (const id in jobsCache) {
-      const j = jobsCache[id];
-      if (j.dismissed || (now - (j.updated || 0)) > JOB_TTL) delete jobsCache[id];
-    }
-  }
-  function normalizeJob(j){
-    const id = String(j.id || j.key || `${j.title || 'Processo'}|${j.created_at || ''}`);
-    const progress = Number(j.progress || 0);
-    const state = j.state || '';
-    const title = j.title || 'Processo';
-    const isDoneState = /conclu|complete|failed/i.test(state);
-    const completed = progress >= 100 || isDoneState;
-    const now = Date.now();
-    const prev = jobsCache[id] || {};
-    jobsCache[id] = {
-      id, title, progress, state, completed,
-      // mantém badge de conta se já houver (do placeholder)
-      account: prev.account || j.account || null,
-      started: prev.started || now,
-      updated: now,
-      dismissed: !!prev.dismissed
-    };
-  }
-  function recordJobFromApi(list){
-    (list || []).forEach(normalizeJob);
-    gcJobs(); saveJobs();
+    selBar.classList.remove('hidden');
+    const original = selMsg.textContent;
+
+    selMsg.textContent =
+      `Seleção preparada: ${total} anúncio${total === 1 ? '' : 's'} ` +
+      `filtrado${total === 1 ? '' : 's'} na campanha.`;
+
+    // volta ao texto anterior depois de alguns segundos
+    setTimeout(() => {
+      selMsg.textContent = original;
+    }, 4000);
   }
 
-  // placeholder com conta (local, id aleatório)
-  async function recordPlaceholder(title){
-    const id = `ph|${Date.now()}|${Math.random().toString(36).slice(2)}`;
-    const acc = await AccountCtx.get();
-    jobsCache[id] = {
-      id, title, progress: 0, state: 'iniciando…',
-      account: { key: acc.key, label: acc.label },
-      completed: false, started: Date.now(), updated: Date.now(),
-      dismissed: false
-    };
-    saveJobs();
-    return id;
+  /* ====================== Helpers ====================== */
+
+  function countVisible() {
+    return $$('#tbody input[type="checkbox"][data-mlb]').length;
   }
 
-  // placeholder vinculado ao job_id do servidor
-  async function recordServerPlaceholder(jobId, title){
-    const acc = await AccountCtx.get();
-    normalizeJob({
-      id: String(jobId),
-      title,
-      progress: 0,
-      state: 'iniciando…',
-      account: { key: acc.key, label: acc.label }
-    });
-    saveJobs(); showJobsPanel(); renderJobsPanel();
-    setTimeout(pollJobs, 800);
+  function countSelected() {
+    return $$('#tbody input[type="checkbox"][data-mlb]:checked').length;
   }
 
-  function updateLocalJobProgress(id, progress, state){
-    const j = jobsCache[id];
-    if (!j) return;
-    const pct = Math.max(0, Math.min(100, Number(progress || 0)));
-    j.progress  = pct;
-    if (state) j.state = state;
-    j.completed = pct >= 100 || /conclu|complete|failed/i.test(j.state || '');
-    j.updated   = Date.now();
-    saveJobs();
-    renderJobsPanel();
-  }
-  function dismissJob(id){
-    if (jobsCache[id]) { jobsCache[id].dismissed = true; saveJobs(); renderJobsPanel(); }
-  }
-  function jobsForRender(){
-    return Object.values(jobsCache)
-      .filter(j => !j.dismissed)
-      .sort((a,b) => b.updated - a.updated);
+  function getSelectedMLBs() {
+    return $$('#tbody input[type="checkbox"][data-mlb]:checked').map((x) => x.dataset.mlb);
   }
 
-  /* =========================== Painel de processos ========================== */
-
-  function showJobsPanel(){
-    if (ui.jobsPanel) ui.jobsPanel.classList.remove('hidden');
-  }
-  function hideJobsPanel(){
-    if (ui.jobsPanel) ui.jobsPanel.classList.add('hidden');
+  function getAllPageMLBs() {
+    return $$('#tbody input[type="checkbox"][data-mlb]').map((x) => x.dataset.mlb);
   }
 
-  // badge HTML para a conta
-  function renderAccountBadge(acc){
-    if (!acc || (!acc.key && !acc.label)) return '';
-    const cls = acc.key === 'drossi' ? 'badge-drossi'
-             : acc.key === 'diplany' ? 'badge-diplany'
-             : acc.key === 'rossidecor' ? 'badge-rossidecor'
-             : 'badge-generic';
-    const txt = acc.label || acc.key || '';
-    return ` <span class="job-badge ${cls}">${esc(txt)}</span>`;
-  }
-
-  function renderJobsPanel(){
-    if (!ui.jobsPanel) return;
-
-    const list = jobsForRender();
-    const rows = list.map(j => {
-      const pct   = Math.max(0, Math.min(100, Number(j.progress || 0)));
-      const state = j.state || '';
-      const title = j.title || 'Processo';
-      const done  = !!j.completed;
-      const hasPctInState = /(^|[^0-9])\d{1,3}\s*%/.test(state);
-      const stateHtml = hasPctInState ? esc(state) : (state ? `${esc(state)} – ${pct}%` : `${pct}%`);
-
-      return `<div class="job-row ${done ? 'done' : ''}">
-        <button class="btn ghost icon job-dismiss" data-id="${esc(j.id)}" title="Remover">×</button>
-        <div class="job-title">${esc(title)}${renderAccountBadge(j.account)}</div>
-        <div class="job-state">${stateHtml}</div>
-        <div class="job-bar"><div class="job-bar-fill" style="width:${pct}%"></div></div>
-      </div>`;
-    }).join('');
-
-    const isCollapsed = ui.jobsPanel.classList.contains('collapsed');
-    ui.jobsPanel.innerHTML = `
-      <div class="job-head">
-        <strong>Processos</strong>
-        <div class="head-actions">
-          <button class="btn ghost icon" id="bulkJobsToggle" title="${isCollapsed ? 'Maximizar' : 'Minimizar'}">
-            ${isCollapsed ? '▢' : '–'}
-          </button>
-          <button class="btn ghost icon" id="bulkJobsClose" title="Fechar">×</button>
-        </div>
-      </div>
-      <div class="job-list"${isCollapsed ? ' style="display:none"' : ''}>
-        ${rows || '<div class="muted">Sem processos.</div>'}
-      </div>`;
-
-    ui.jobsPanel.querySelector('#bulkJobsClose')?.addEventListener('click', hideJobsPanel);
-    ui.jobsPanel.querySelector('#bulkJobsToggle')?.addEventListener('click', () => {
-      ui.jobsPanel.classList.toggle('collapsed');
-      renderJobsPanel();
-    });
-    ui.jobsPanel.querySelectorAll('.job-dismiss').forEach(btn => {
-      btn.addEventListener('click', (e) => dismissJob(e.currentTarget.dataset.id));
-    });
-  }
-
-  /* ========================== Helpers de UI da página ======================= */
-
-  function getCampanhaNome(){
+  function getCampanhaNome() {
     return (document.getElementById('campName')?.textContent || 'Campanha').trim();
   }
 
-  function ensureUI(){
-    if (!ui.wrap) {
-      ui.wrap     = document.getElementById('bulkControls');
-      ui.btnSel   = document.getElementById('bulkSelectAllBtn');
-      ui.btnApp   = document.getElementById('bulkApplyAllBtn');
-      ui.btnRem   = document.getElementById('bulkRemoveAllBtn');
-      ui.chkAllPages = document.getElementById('bulkAllPages');
+  function getDelayMs() {
+    if (!ui.delayInput) return 900;
+    const v = Number(String(ui.delayInput.value || '').replace(',', '.'));
+    if (Number.isNaN(v) || v < 0) return 900;
+    return v;
+  }
 
-      if (ui.wrap) {
-        if (ui.btnSel) ui.btnSel.addEventListener('click', onSelectAllClick);
-        if (ui.btnApp) ui.btnApp.style.display = 'none';
-        if (ui.btnRem) ui.btnRem.style.display = 'none';
-      }
+  function getDryRun() {
+    return !!(ui.dryRunToggle && ui.dryRunToggle.checked);
+  }
+
+  function ensureUI() {
+    if (!ui.wrap) {
+      ui.wrap   = document.getElementById('bulkControls');
+      ui.btnSel = document.getElementById('bulkSelectAllBtn');
+      ui.btnApp = document.getElementById('bulkApplyAllBtn');
+      ui.btnRem = document.getElementById('bulkRemoveAllBtn');
+
+      if (ui.btnSel) ui.btnSel.addEventListener('click', onSelectAllPage);
+      if (ui.btnApp) ui.btnApp.addEventListener('click', onApplyPageBtn);
+      if (ui.btnRem) ui.btnRem.addEventListener('click', onRemovePageBtn);
     }
 
     if (!ui.selBar) {
@@ -242,6 +124,8 @@
       ui.selAllCampaignBtn = document.getElementById('selAllCampaignBtn');
       ui.selApplyBtn       = document.getElementById('selApplyBtn');
       ui.selRemoveBtn      = document.getElementById('selRemoveBtn');
+      ui.delayInput        = document.getElementById('bulkDelayMs');
+      ui.dryRunToggle      = document.getElementById('dryRunToggle');
 
       if (ui.selAllCampaignBtn) ui.selAllCampaignBtn.addEventListener('click', onSelectWholeCampaign);
       if (ui.selApplyBtn)       ui.selApplyBtn.addEventListener('click', onApplyClick);
@@ -249,46 +133,114 @@
     }
   }
 
-  function countVisible(){
-    return $$('#tbody input[type="checkbox"][data-mlb]').length;
-  }
-  function countSelected(){
-    return $$('#tbody input[type="checkbox"][data-mlb]:checked').length;
-  }
-  function getSelectedMLBs(){
-    return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(x => x.dataset.mlb);
+  /* ============ Controle de loading da seleção por campanha ============ */
+
+  function setPreparingSelection(isOn) {
+    ensureUI();
+    ctx.isPreparingSelection = !!isOn;
+
+    // desabilita botões da barra de seleção
+    if (ui.selAllCampaignBtn) {
+      ui.selAllCampaignBtn.disabled = isOn;
+      if (isOn) {
+        ui.selAllCampaignBtn.classList.add('is-loading');
+      } else {
+        ui.selAllCampaignBtn.classList.remove('is-loading');
+      }
+    }
+    if (ui.selApplyBtn)  ui.selApplyBtn.disabled  = isOn;
+    if (ui.selRemoveBtn) ui.selRemoveBtn.disabled = isOn;
+
+    // desabilita checkboxes da tabela (header + linhas)
+    $$('#tbody input[type="checkbox"][data-mlb]').forEach((ch) => {
+      ch.disabled = isOn;
+    });
+    const headerChk =
+      document.querySelector('input[type="checkbox"][data-role="select-all"]') ||
+      document.querySelector('#chkSelectAll');
+    if (headerChk) headerChk.disabled = isOn;
+
+    // mensagem amigável na faixa
+    if (ui.selBar && ui.selMsg) {
+      if (isOn) {
+        ui.selBar.classList.remove('hidden');
+        ui.selBar.classList.add('is-loading');
+        ui.selMsg.textContent =
+          'Preparando seleção da campanha (coletando itens filtrados)… ' +
+          'Em campanhas grandes isso pode levar alguns segundos.';
+      } else {
+        ui.selBar.classList.remove('is-loading');
+        // o texto normal será recalculado pelo updateSelectionBar()
+        updateSelectionBar();
+      }
+    }
   }
 
-  function renderTopControls(){
+  /* ====================== Jobs helpers ====================== */
+
+  function noteLocalJobStart(title) {
+    try {
+      const id = window.JobsPanel?.addLocalJob?.({
+        title,
+        accountKey: ctx.account.key,
+        accountLabel: ctx.account.label,
+      });
+      window.JobsPanel?.show?.();
+      return id || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function updateLocalJobProgress(id, progress, state) {
+    if (!id || !window.JobsPanel?.updateLocalJob) return;
+    window.JobsPanel.updateLocalJob(id, { progress, state });
+  }
+
+  /* ====================== Render / UI ====================== */
+
+  function renderTopControls() {
     ensureUI();
     if (!ui.wrap || !ui.btnSel) return;
 
-    const totalVisiveis = countVisible();
-    if (!ctx.headerChecked || totalVisiveis === 0) {
+    const total = countVisible();
+    if (!ctx.headerChecked || total === 0) {
       ui.wrap.classList.add('hidden');
     } else {
       ui.wrap.classList.remove('hidden');
-      ui.btnSel.textContent = `Selecionar todos (${totalVisiveis} exibidos)`;
+      ui.btnSel.textContent = `Selecionar todos (${total} exibidos)`;
+      ui.btnApp.disabled = false;
+      ui.btnRem.disabled = false;
     }
   }
-  function updateSelectionBar(){
+
+  function updateSelectionBar() {
     ensureUI();
     if (!ui.selBar || !ui.selMsg) return;
 
-    const pageSel = countSelected();
-    const isGlobal = !!ctx.global.selectedAll;
+    // se está preparando seleção, não mexe no texto/labels aqui
+    if (ctx.isPreparingSelection) {
+      ui.selBar.classList.remove('hidden');
+      return;
+    }
+
+    const pageSel   = countSelected();
+    const isGlobal  = !!ctx.global.selectedAll;
     const globTotal = Number(ctx.global.total || 0);
 
     let msg = '';
     if (pageSel > 0) {
-      msg = `${pageSel} ${pageSel === 1 ? 'anúncio' : 'anúncios'} selecionado${pageSel>1?'s':''} nesta página`;
+      msg =
+        `${pageSel} anúncio${pageSel > 1 ? 's' : ''} ` +
+        `selecionado${pageSel > 1 ? 's' : ''} nesta página`;
     }
     if (isGlobal) {
-      const tail = `(filtrados)`;
+      const tail = '(filtrados na campanha)';
       msg = msg
-        ? `${msg} • toda a campanha: ${globTotal} selecionado${globTotal===1?'':'s'} ${tail}`
-        : `Toda a campanha: ${globTotal} selecionado${globTotal===1?'':'s'} ${tail}`;
+        ? `${msg} • toda a campanha: ${globTotal} selecionado${globTotal === 1 ? '' : 's'} ${tail}`
+        : `Toda a campanha: ${globTotal} selecionado${globTotal === 1 ? '' : 's'} ${tail}`;
     }
+
     ui.selMsg.textContent = msg || 'Nenhum item selecionado.';
 
     if (pageSel > 0 || isGlobal) ui.selBar.classList.remove('hidden');
@@ -297,429 +249,464 @@
     if (ui.selAllCampaignBtn) {
       if (isGlobal) {
         ui.selAllCampaignBtn.textContent = `Selecionando toda a campanha (${globTotal} filtrados)`;
-        ui.selAllCampaignBtn.classList.add('warn');
+        ui.selAllCampaignBtn.classList.add('danger');
       } else {
-        ui.selAllCampaignBtn.textContent = 'Selecionar toda a campanha';
-        ui.selAllCampaignBtn.classList.remove('warn');
+        ui.selAllCampaignBtn.textContent = 'Selecionar toda a campanha (filtrados)';
+        ui.selAllCampaignBtn.classList.remove('danger');
       }
     }
 
-    const nothing = (pageSel === 0 && !isGlobal);
+    const nothing = pageSel === 0 && !isGlobal;
     if (ui.selApplyBtn)  ui.selApplyBtn.disabled  = nothing;
     if (ui.selRemoveBtn) ui.selRemoveBtn.disabled = nothing;
   }
 
-  function render(){
+  function render() {
     renderTopControls();
     updateSelectionBar();
   }
 
-  function onSelectAllClick(){
-    $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = true);
+  /* ====================== Seleções ====================== */
+
+  function onSelectAllPage() {
+    $$('#tbody input[type="checkbox"][data-mlb]').forEach((ch) => {
+      ch.checked = true;
+    });
     render();
   }
 
-  /* ========================== Seleção de campanha =========================== */
-
-  function mapStatusForPrepare(v){
-    if (v === 'started' || v === 'candidate') return v;
+  // Helper para mapear status interno -> status da API de seleção
+  function mapStatusForPrepare(v) {
+    if (v === 'started' || v === 'candidate' || v === 'scheduled') return v;
     if (v === 'yes')  return 'started';
     if (v === 'non')  return 'candidate';
-    return null; // 'all'
+    if (v === 'prog') return 'scheduled';
+    return null; // all
   }
 
-  function buildBulkFilters(){
-    const status = mapStatusForPrepare(ctx.filtros.status);
-    const maxDesc = (ctx.filtros.maxDesc == null || ctx.filtros.maxDesc === '') ? null : Number(ctx.filtros.maxDesc);
-    const mlb = (ctx.filtros.mlb || null);
+  // Fallback local se /selection/prepare não existir ou retornar total suspeito
+  // - tenta window.coletarTodosIdsFiltrados()
+  // - se não existir, usa MLBs da página atual
+  async function fallbackLocalSelection() {
+    const selBar = document.getElementById('selectionBar');
+    const selMsg = document.getElementById('selMsg');
+    if (selBar && selMsg) {
+      selBar.classList.remove('hidden');
+      selMsg.textContent = 'Preparando seleção da campanha (coletando itens filtrados)…';
+    }
 
-    const f = {};
-    if (status) f.status = status; // 'started' | 'candidate'
-    if (maxDesc != null) f.discount_max = maxDesc; // o backend aceita discount_max ou maxDesc
-    if (mlb) f.query_mlb = mlb; // o backend aceita query_mlb ou mlb
-    return f;
+    // 1) Se houver helper global, usa ele
+    if (typeof window.coletarTodosIdsFiltrados === 'function') {
+      try {
+        const ids = await window.coletarTodosIdsFiltrados();
+        if (Array.isArray(ids) && ids.length) {
+          return { token: null, total: ids.length, ids };
+        }
+      } catch (e) {
+        console.warn('coletarTodosIdsFiltrados falhou:', e);
+      }
+    }
+
+    // 2) Último recurso: só o que está na página atual
+    const ids = getAllPageMLBs();
+    if (ids.length) {
+      alert('Endpoint /selection/prepare indisponível ou sem retorno válido. Usando fallback local com os itens atualmente exibidos.');
+      return { token: null, total: ids.length, ids };
+    }
+
+    alert('Não foi possível preparar a seleção da campanha (nem endpoint nem fallback local).');
+    return null;
   }
 
-  function getDryRun(){
-    const el = document.getElementById('dryRunToggle');
-    return !!(el && el.checked);
-  }
-
-  async function prepareWholeCampaign(){
+   async function prepareWholeCampaign() {
     if (!ctx.promotion_id || !ctx.promotion_type) {
-      alert('Selecione uma campanha.');
+      alert('Selecione uma campanha antes de usar a seleção da campanha toda.');
       return null;
     }
+
     try {
+      const maxDesc =
+        ctx.filtros.maxDesc == null || ctx.filtros.maxDesc === ''
+          ? null
+          : Number(ctx.filtros.maxDesc);
+
       const body = {
         promotion_id: ctx.promotion_id,
         promotion_type: ctx.promotion_type,
-        status: mapStatusForPrepare(ctx.filtros.status),
-        mlb: (ctx.filtros.mlb || null),
-        percent_max: (ctx.filtros.maxDesc == null || ctx.filtros.maxDesc === '') ? null : Number(ctx.filtros.maxDesc)
+        status: mapStatusForPrepare(ctx.filtros.status), // 'started' | 'candidate' | 'scheduled' | null
+        mlb: ctx.filtros.mlb || null,
+
+        // 🔹 Envia nos dois campos para bater com qualquer implementação do back
+        percent_max: maxDesc,
+        discount_max: maxDesc,
       };
+
       const r = await fetch('/api/promocoes/selection/prepare', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body), credentials: 'same-origin'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
       });
-      if (r.status === 404) throw new Error('endpoint-not-found');
-      const js = await r.json().catch(()=> ({}));
-      if (!r.ok || js?.ok === false) throw new Error('prepare-failed');
-      return { token: js.token, total: Number(js.total || 0), ids: null };
-    } catch {
-      try {
-        const getAll = window.coletarTodosIdsFiltrados;
-        if (typeof getAll !== 'function') throw new Error('fallback-missing');
-        const ids = await getAll();
-        return { token: null, total: ids.length, ids };
-      } catch {
-        alert('Não foi possível preparar a seleção da campanha.');
-        return null;
+
+      // Se o endpoint não existe (404/405), ativa fallback local
+      if (r.status === 404 || r.status === 405) {
+        console.warn('selection/prepare não encontrado, usando fallback local.');
+        return await fallbackLocalSelection();
       }
+
+      const js = await r.json().catch(() => ({}));
+      if (!r.ok || js.ok === false) {
+        console.warn('selection/prepare respondeu erro, usando fallback local.', js);
+        return await fallbackLocalSelection();
+      }
+
+      const total = Number(js.total || 0);
+
+      // Se veio total=0 mas a tela tem itens visíveis, consideramos suspeito e caímos no fallback
+      if (total === 0 && countVisible() > 0) {
+        console.warn(
+          'selection/prepare retornou total=0 com itens visíveis. Usando fallback local.'
+        );
+        const fb = await fallbackLocalSelection();
+        if (fb) return fb;
+      }
+
+      return {
+        token: js.token || null,
+        total,
+        ids: null,
+      };
+    } catch (e) {
+      console.error('prepareWholeCampaign falhou, usando fallback local:', e);
+      return await fallbackLocalSelection();
     }
   }
 
-  async function onSelectWholeCampaign(){
-    if (ctx.global.selectedAll) {
-      ctx.global = { token:null, total:0, ids:null, selectedAll:false, prepared:false };
-      render(); return;
-    }
-    const prep = await prepareWholeCampaign();
-    if (!prep) return;
-    ctx.global.token = prep.token;
-    ctx.global.total = prep.total;
-    ctx.global.ids   = prep.ids;
-    ctx.global.selectedAll = true;
-    ctx.global.prepared    = true;
-    render();
-  }
 
-  async function autoPrepare(){
-    if (!ctx.promotion_id) return;
-    const prep = await prepareWholeCampaign();
-    if (!prep) return;
-    ctx.global.token = prep.token;
-    ctx.global.total = prep.total;
-    ctx.global.ids   = prep.ids;
-    ctx.global.prepared = true;
-    updateSelectionBar();
-  }
-  function scheduleAutoPrepare(){
-    const key = [
-      ctx.promotion_id, ctx.promotion_type,
-      ctx.filtros.status, ctx.filtros.maxDesc, ctx.filtros.mlb
-    ].join('|');
-    if (ctx._lastKey === key) return;
-    ctx._lastKey = key;
-    clearTimeout(ctx._autoTimer);
-    ctx._autoTimer = setTimeout(() => autoPrepare().catch(()=>{}), 800);
-  }
-
-  /* =========================== Fila local (1 a 1) =========================== */
-
-  const DEFAULT_DELAY_MS = 900;
-  const sleep = (ms) => new Promise(res => setTimeout(res, ms));
-
-  async function noteLocalJobStart(title){
-    const id = await recordPlaceholder(title);
-    showJobsPanel();
-    renderJobsPanel();
-    setTimeout(pollJobs, 1000);
-    return id;
-  }
-
-  async function applyQueue(ids, delayMs = DEFAULT_DELAY_MS){
-    if (!Array.isArray(ids) || !ids.length) return;
-
-    const delayInput = document.getElementById('bulkDelayMs');
-    if (delayInput) {
-      const v = Number(String(delayInput.value || '').replace(',','.'));
-      if (!Number.isNaN(v) && v >= 0) delayMs = v;
-    }
-
-    const camp = getCampanhaNome();
-    const jobId  = await noteLocalJobStart(`Aplicação (fila) – ${camp} (${ids.length} itens)`);
-
-    let done = 0, ok = 0, err = 0;
-    showJobsPanel();
-
-    if (typeof window.aplicarUnico !== 'function') {
-      alert('Função aplicarUnico não encontrada.');
-      updateLocalJobProgress(jobId, 0, 'erro ao iniciar');
+  async function onSelectWholeCampaign() {
+    // se já estava em modo "toda campanha", o clique desliga
+    if (ctx.global.selectedAll && !ctx.isPreparingSelection) {
+      ctx.global.selectedAll = false;
+      ctx.global.token = null;
+      ctx.global.total = 0;
+      ctx.global.ids   = null;
+      render();
       return;
     }
 
-    for (const id of ids) {
-      try {
-        const res = await window.aplicarUnico(id, { silent: true });
-        if (res) ok++; else err++;
-      } catch {
-        err++;
-      }
-      done++;
-      const pct = Math.round((done / ids.length) * 100);
-      updateLocalJobProgress(jobId, pct, `processando ${done}/${ids.length}…`);
-      if (delayMs > 0 && done < ids.length) await sleep(delayMs);
+    // evita duplo clique enquanto prepara
+    if (ctx.isPreparingSelection) return;
+
+    setPreparingSelection(true);
+    let prep = null;
+
+    try {
+      prep = await prepareWholeCampaign();
+    } finally {
+      setPreparingSelection(false);
     }
 
-    updateLocalJobProgress(jobId, 100, `concluído: ${ok} ok, ${err} erros`);
+    if (!prep) return;
+
+    ctx.global.selectedAll = true;
+    ctx.global.token = prep.token;
+    ctx.global.total = prep.total;
+    ctx.global.ids   = prep.ids || null;
+
+    render();
+    showPreparedMessage(ctx.global.total);
   }
 
-  /* ====================== Ações (aplicar / remover todos) =================== */
+  /* ====================== Fila local (apply 1 a 1) ====================== */
 
-  async function onApplyClick(){
-    // Bloqueio explícito para PRICE_MATCHING_MELI_ALL (manual indisponível)
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+  async function applyQueue(ids) {
+    if (!Array.isArray(ids) || !ids.length) return;
+
     if (String(ctx.promotion_type || '').toUpperCase() === 'PRICE_MATCHING_MELI_ALL') {
       alert('Esta campanha (PRICE_MATCHING_MELI_ALL) é 100% gerida pelo ML. Aplicação manual indisponível.');
       return;
     }
 
-    // Prioriza APPLY-BULK (backend varre todas as páginas com os filtros)
-    if (ctx.global.selectedAll && ctx.promotion_id && ctx.promotion_type) {
+    const delayMs = getDelayMs();
+    const camp = getCampanhaNome();
+    const jobId = noteLocalJobStart(`Aplicação – ${camp} (${ids.length} itens)`);
+
+    let done = 0;
+    let ok = 0;
+    let err = 0;
+
+    if (typeof window.aplicarUnico !== 'function') {
+      alert('Função aplicarUnico não encontrada (criar-promocao.js).');
+      if (jobId) updateLocalJobProgress(jobId, 0, 'erro ao iniciar');
+      return;
+    }
+
+    for (const mlb of ids) {
+      try {
+        const res = await window.aplicarUnico(mlb, { silent: true });
+        if (res) ok++;
+        else err++;
+      } catch (e) {
+        console.warn('Falha ao aplicar item', mlb, e);
+        err++;
+      }
+      done++;
+      const pct = Math.round((done / ids.length) * 100);
+      if (jobId) {
+        updateLocalJobProgress(jobId, pct, `processando ${done}/${ids.length}…`);
+      }
+      if (delayMs > 0 && done < ids.length) {
+        await sleep(delayMs);
+      }
+    }
+
+    if (jobId) {
+      updateLocalJobProgress(
+        jobId,
+        100,
+        `concluído: ${ok} ok, ${err} erro${err === 1 ? '' : 's'}`
+      );
+    }
+  }
+
+  /* ====================== Ações (Aplicar / Remover) ====================== */
+
+  async function onApplyClick() {
+    // Cenário 1: toda campanha via token -> tenta job massivo
+    if (ctx.global.selectedAll && ctx.global.token) {
       try {
         const body = {
-          promotion_type: ctx.promotion_type,
-          filters: buildBulkFilters(),
-          options: { dryRun: getDryRun() }
+          token: ctx.global.token,
+          action: 'apply',
+          values: {
+            dryRun: getDryRun(),
+          },
         };
-        const url = `/api/promocoes/promotions/${encodeURIComponent(ctx.promotion_id)}/apply-bulk`;
-        let r = await fetch(url, {
+        const r = await fetch('/api/promocoes/jobs/apply-mass', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
         });
-
-        // Se o endpoint novo não existir / falhar, cai para os caminhos antigos
-        if (r.status === 404 || r.status === 405) throw new Error('apply-bulk-not-found');
-
-        const js = await r.json().catch(()=> ({}));
-        if (r.ok && (js?.success || js?.ok)) {
-          const camp = getCampanhaNome();
-          const qtd  = Number(ctx.global.total || 0);
-          // cria placeholder com o job_id real do servidor (melhor UX)
-          if (js.job_id) {
-            await recordServerPlaceholder(js.job_id, `Aplicação – ${camp} (${qtd} itens)`);
-          } else {
-            await noteLocalJobStart(`Aplicação – ${camp} (${qtd} itens)`);
-          }
-          showJobsPanel();
-          pollJobs();
-          return;
+        const js = await r.json().catch(() => ({}));
+        if (!r.ok || js.ok === false) {
+          throw new Error(js.error || `HTTP ${r.status}`);
         }
 
-        // 400 típico etc -> cai para fallback
-        throw new Error(js?.error || 'apply-bulk-failed');
-      } catch {
-        // Fallback #1: seleção por token (rota fase 2)
-        try {
-          if (ctx.global.token) {
-            const r2 = await fetch('/api/promocoes/jobs/apply-mass', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token: ctx.global.token, action: 'apply', values: {} }),
-              credentials: 'same-origin'
-            });
-            const js2 = await r2.json().catch(()=> ({}));
-            if (r2.ok && js2?.ok !== false) {
-              const camp = getCampanhaNome();
-              const qtd  = Number(ctx.global.total || 0);
-              await noteLocalJobStart(`Aplicação – ${camp} (${qtd} itens)`);
-              showJobsPanel();
-              pollJobs();
-              return;
-            }
-          }
-        } catch {}
-
-        // Fallback #2: aplicar localmente 1 a 1
-        let ids = Array.isArray(ctx.global.ids) ? ctx.global.ids : null;
-        if (!ids || !ids.length) {
-          const getAll = window.coletarTodosIdsFiltrados;
-          if (typeof getAll === 'function') ids = await getAll();
-        }
-        if (!ids || !ids.length) {
-          alert('Não foi possível iniciar a aplicação em massa.');
-          return;
-        }
-        await applyQueue(ids, DEFAULT_DELAY_MS);
+        const camp = getCampanhaNome();
+        const qtd = Number(ctx.global.total || 0);
+        noteLocalJobStart(`Aplicação (job) – ${camp} (${qtd} itens)`);
+        window.JobsPanel?.show?.();
+        window.__JobsWatcher?.start?.();
         return;
+      } catch (e) {
+        console.error('apply-mass falhou, usando fallback de IDs locais se disponível:', e);
       }
     }
 
-    // Caso não esteja em "toda campanha": usa os selecionados da página
+    // Cenário 2: toda campanha via ids em memória (fallback local)
     if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
-      await applyQueue(ctx.global.ids, DEFAULT_DELAY_MS);
+      await applyQueue(ctx.global.ids);
+      render();
       return;
     }
 
+    // Cenário 3: apenas selecionados da página
     const mlbs = getSelectedMLBs();
-    if (!mlbs.length) return;
-
-    await applyQueue(mlbs, DEFAULT_DELAY_MS);
+    if (!mlbs.length) {
+      alert('Selecione ao menos um item na tabela.');
+      return;
+    }
+    await applyQueue(mlbs);
     render();
   }
 
-  async function onRemoveClick(){
+  async function onRemoveClick() {
+    // Cenário 1: toda campanha via token
     if (ctx.global.selectedAll && ctx.global.token) {
       try {
-        let r = await fetch('/api/promocoes/jobs/apply-mass', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: ctx.global.token, action: 'remove' }),
-          credentials: 'same-origin'
+        const body = {
+          token: ctx.global.token,
+          action: 'remove',
+        };
+        const r = await fetch('/api/promocoes/jobs/apply-mass', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
         });
-
-        if (r.status === 404 || !r.ok) {
-          const body = {
-            action: 'remove',
-            promotion_id: ctx.promotion_id,
-            promotion_type: ctx.promotion_type,
-            filters: {
-              status: ctx.filtros.status,
-              maxDesc: ctx.filtros.maxDesc,
-              mlb: ctx.filtros.mlb || null
-            }
-          };
-          r = await fetch('/api/promocoes/bulk/prepare', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body), credentials: 'same-origin'
-          });
-        }
-
-        const js = await r.json().catch(()=> ({}));
-        if (!r.ok || js?.ok === false) {
-          alert('Falha ao iniciar remoção em massa.');
-          return;
+        const js = await r.json().catch(() => ({}));
+        if (!r.ok || js.ok === false) {
+          throw new Error(js.error || `HTTP ${r.status}`);
         }
 
         const camp = getCampanhaNome();
-        const qtd  = Number(ctx.global.total || 0);
-        await noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
-
-        showJobsPanel();
-        pollJobs();
+        const qtd = Number(ctx.global.total || 0);
+        noteLocalJobStart(`Remoção (job) – ${camp} (${qtd} itens)`);
+        window.JobsPanel?.show?.();
+        window.__JobsWatcher?.start?.();
         return;
-      } catch {
-        alert('Erro ao iniciar remoção em massa.');
-        return;
+      } catch (e) {
+        console.error('apply-mass/remove falhou, tentando fallback de IDs locais se houver:', e);
       }
     }
 
+    // Cenário 2: ids locais (fallback da campanha inteira)
     if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
       try {
         const r = await fetch('/api/promocoes/jobs/remove', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ items: ctx.global.ids, delay_ms: 250 }),
-          credentials: 'same-origin'
         });
-        const js = await r.json().catch(()=> ({}));
-        if (!r.ok || js?.ok === false) {
-          alert('Falha ao iniciar remoção em massa (filtrados).');
-          return;
+        const js = await r.json().catch(() => ({}));
+        if (!r.ok || js.ok === false) {
+          throw new Error(js.error || `HTTP ${r.status}`);
         }
 
         const camp = getCampanhaNome();
-        const qtd  = Number(ctx.global.ids.length || 0);
-        await noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
-
-        showJobsPanel();
-        pollJobs();
-      } catch {
-        alert('Erro ao iniciar remoção (filtrados).');
+        const qtd = ctx.global.ids.length;
+        noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
+        window.JobsPanel?.show?.();
+        window.__JobsWatcher?.start?.();
+        return;
+      } catch (e) {
+        console.error('Erro ao iniciar remoção em massa com IDs locais:', e);
+        alert('Erro ao iniciar remoção em massa da campanha (fallback local).');
+        return;
       }
+    }
+
+    // Cenário 3: apenas selecionados da página
+    const mlbs = getSelectedMLBs();
+    if (!mlbs.length) {
+      alert('Selecione ao menos um item na tabela.');
       return;
     }
 
-    const mlbs = getSelectedMLBs();
-    if (!mlbs.length) return;
-
     try {
       const r = await fetch('/api/promocoes/jobs/remove', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ items: mlbs, delay_ms: 250 }),
-        credentials: 'same-origin'
       });
-      const js = await r.json().catch(()=> ({}));
-      if (!r.ok || js?.ok === false) {
-        alert('Falha ao iniciar remoção em massa (selecionados).');
-        return;
+      const js = await r.json().catch(() => ({}));
+      if (!r.ok || js.ok === false) {
+        throw new Error(js.error || `HTTP ${r.status}`);
       }
 
       const camp = getCampanhaNome();
-      const qtd  = Number(mlbs.length || 0);
-      await noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
-
-      showJobsPanel();
-      pollJobs();
-    } catch {
-      alert('Erro ao iniciar remoção (selecionados).');
+      const qtd = mlbs.length;
+      noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
+      window.JobsPanel?.show?.();
+      window.__JobsWatcher?.start?.();
+    } catch (e) {
+      console.error('Erro ao iniciar remoção em massa (selecionados):', e);
+      alert('Erro ao iniciar remoção em massa dos selecionados.');
     }
   }
 
-  /* ============================== Jobs: polling ============================= */
-
-// SUBSTITUA a pollJobs() atual por esta:
-async function pollJobs(){
-  try {
-    const r = await fetch(`/api/promocoes/jobs?_=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' },
-      credentials: 'same-origin'
-    });
-
-    // Se o servidor ainda devolver 304, apenas re-renderiza o que já temos
-    if (r.status === 304) { renderJobsPanel(); return; }
-    if (!r.ok) { renderJobsPanel(); return; }
-
-    const data = await r.json().catch(()=>({}));
-    const apiJobs = (data?.jobs || []);
-    recordJobFromApi(apiJobs);
-    renderJobsPanel();
-  } catch {
-    renderJobsPanel();
+  // Botões da barra superior: "Aplicar a todos" / "Remover todos" da PÁGINA atual
+  async function onApplyPageBtn() {
+    const mlbs = getAllPageMLBs();
+    if (!mlbs.length) {
+      alert('Nenhum item na página atual.');
+      return;
+    }
+    await applyQueue(mlbs);
+    render();
   }
-}
 
-// (o setInterval pode permanecer igual; se quiser mais fluido, use 2000ms)
-setInterval(pollJobs, 5000);
+  async function onRemovePageBtn() {
+    const mlbs = getAllPageMLBs();
+    if (!mlbs.length) {
+      alert('Nenhum item na página atual.');
+      return;
+    }
 
-  /* ============================= API pública (UI) =========================== */
+    try {
+      const r = await fetch('/api/promocoes/jobs/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ items: mlbs, delay_ms: 250 }),
+      });
+      const js = await r.json().catch(() => ({}));
+      if (!r.ok || js.ok === false) {
+        throw new Error(js.error || `HTTP ${r.status}`);
+      }
+
+      const camp = getCampanhaNome();
+      const qtd = mlbs.length;
+      noteLocalJobStart(`Remoção – ${camp} (${qtd} itens)`);
+      window.JobsPanel?.show?.();
+      window.__JobsWatcher?.start?.();
+    } catch (e) {
+      console.error('Erro ao iniciar remoção da página:', e);
+      alert('Erro ao iniciar remoção em massa da página.');
+    }
+  }
+
+  /* ====================== API Pública ====================== */
 
   window.PromoBulk = {
-    setContext({ promotion_id, promotion_type, filtroParticipacao, maxDesc, mlbFilter }){
-      ctx.promotion_id   = promotion_id;
+    setContext({ promotion_id, promotion_type, filtroParticipacao, maxDesc, mlbFilter }) {
+      ctx.promotion_id = promotion_id;
       ctx.promotion_type = promotion_type;
 
-      ctx.filtros.status = (filtroParticipacao === 'yes') ? 'started'
-                          : (filtroParticipacao === 'non') ? 'candidate' : 'all';
-      ctx.filtros.maxDesc = (maxDesc == null || maxDesc === '') ? null : Number(maxDesc);
+      // mapeia filtro da tela -> estado interno amigável para mapStatusForPrepare
+      ctx.filtros.status =
+        filtroParticipacao === 'yes'
+          ? 'yes'
+          : filtroParticipacao === 'non'
+          ? 'non'
+          : filtroParticipacao === 'prog'
+          ? 'prog'
+          : 'all';
+
+      ctx.filtros.maxDesc =
+        maxDesc == null || maxDesc === '' ? null : Number(maxDesc);
       ctx.filtros.mlb = (mlbFilter || '').trim() || null;
 
-      if (ctx.global.selectedAll) {
-        ctx.global = { token:null, total:0, ids:null, selectedAll:false, prepared:false };
-      }
-      scheduleAutoPrepare();
+      // se os filtros mudam, cancelamos seleção global
+      ctx.global.selectedAll = false;
+      ctx.global.token = null;
+      ctx.global.total = 0;
+      ctx.global.ids   = null;
+
       render();
     },
-    onHeaderToggle(checked){
-      ctx.headerChecked = !!checked; render();
+
+    onHeaderToggle(checked) {
+      ctx.headerChecked = !!checked;
+      render();
     },
-    // permite ao wrapper do HTML injetar a conta atual para os jobs
-    setAccountContext(acc){
-      AccountCtx.set(acc);
-    }
+
+    setAccountContext(acc) {
+      ctx.account.key = acc?.key || null;
+      ctx.account.label = acc?.label || null;
+    },
   };
 
+  // Atualiza seleção quando os checkboxes da tabela mudarem
   document.addEventListener('change', (ev) => {
-    if (ev.target?.matches?.('#tbody input[type="checkbox"][data-mlb]')) render();
+    if (ev.target?.matches?.('#tbody input[type="checkbox"][data-mlb]')) {
+      render();
+    }
   });
-  const tbody = document.getElementById('tbody');
-  if (tbody) {
-    const obs = new MutationObserver(render);
-    obs.observe(tbody, { childList: true, subtree: false });
-  }
 
+  // Re-render ao trocar linhas da tabela
   document.addEventListener('DOMContentLoaded', () => {
-    ensureUI(); render(); pollJobs();
+    ensureUI();
+    render();
+    const tbody = document.getElementById('tbody');
+    if (tbody && 'MutationObserver' in window) {
+      const obs = new MutationObserver(() => render());
+      obs.observe(tbody, { childList: true, subtree: false });
+    }
   });
-
 })();

@@ -1,107 +1,96 @@
 // services/promoSelectionStore.js
+// Store simples em memória para seleções de promoções (pode ser trocado por Redis depois)
+
 const crypto = require('crypto');
-const IORedis = require('ioredis');
 
-const TTL_SECONDS = Number(process.env.PROMO_SELECTION_TTL_SECONDS || 15 * 60);
+const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1h
 
-function makeRedis() {
-  if (process.env.REDIS_URL) {
-    // Suporta redis:// e rediss://
-    return new IORedis(process.env.REDIS_URL);
-  }
-  
-  const host = process.env.REDIS_HOST || '127.0.0.1';
-  const port = Number(process.env.REDIS_PORT || 6379);
-  const password = process.env.REDIS_PASSWORD || undefined;
-  
-  const config = { host, port };
-  if (password) config.password = password;
-  
-  return new IORedis(config);
-}
+const _selections = new Map();
 
-const redis = makeRedis();
-redis.on('error', (e) => {
-  console.error('[PromoSelectionStore] Redis error:', e?.message || e);
-});
+/**
+ * Cria um token e salva a seleção na memória.
+ *
+ * @param {Object} params
+ * @param {string} params.accountKey
+ * @param {string} params.promotionId
+ * @param {string} params.promotionType
+ * @param {Object} params.filters   // { status, mlb, percent_max, ... }
+ * @param {string[]} params.items   // array de MLBs
+ */
+function createSelection({ accountKey, promotionId, promotionType, filters, items }) {
+  const token = crypto.randomBytes(16).toString('hex');
 
-function keySel(token)  { return `promo:sel:${token}`; }
-function keyMeta(token) { return `promo:sel:${token}:meta`; }
+  const arr = Array.isArray(items) ? [...items] : [];
 
-function genToken() {
-  return crypto.randomBytes(16).toString('hex'); // 32 chars
-}
+  const record = {
+    token,
+    accountKey: accountKey || null,
+    promotionId: String(promotionId || ''),
+    promotionType: String(promotionType || ''),
+    filters: filters || {},
+    items: arr,
+    total: arr.length,              // 👈 campo novo
+    createdAt: Date.now(),
+    expiresAt: Date.now() + DEFAULT_TTL_MS,
+  };
 
-function safeParse(jsonStr, fallback = null) {
-  try { return JSON.parse(jsonStr); } catch { return fallback; }
+  _selections.set(token, record);
+  return record;
 }
 
 /**
- * Salva uma seleção e devolve { token, total }.
- * Armazena:
- *  - keySel(token): { accountKey, data, created_at, v }
- *  - keyMeta(token): { total }
+ * Recupera uma seleção por token, opcionalmente validando a conta.
  */
-async function saveSelection({ accountKey, data, total }) {
-  const token = genToken();
-  const payload = { accountKey: accountKey ?? null, data: data ?? {}, created_at: Date.now(), v: 1 };
-  const meta = { total: Number(total || 0) };
+function getSelection(token, { accountKey } = {}) {
+  const rec = _selections.get(String(token || ''));
+  if (!rec) return null;
 
-  // MULTI para garantir atomicidade
-  const m = redis.multi();
-  m.set(keySel(token), JSON.stringify(payload), 'EX', TTL_SECONDS);
-  m.set(keyMeta(token), JSON.stringify(meta), 'EX', TTL_SECONDS);
-  await m.exec();
+  // expirada
+  if (rec.expiresAt && rec.expiresAt < Date.now()) {
+    _selections.delete(token);
+    return null;
+  }
 
-  return { token, total: meta.total };
+  if (accountKey && rec.accountKey && rec.accountKey !== accountKey) {
+    // seleção de outra conta → não retorna
+    return null;
+  }
+
+  return rec;
 }
 
-async function getSelection(token) {
-  const raw = await redis.get(keySel(token));
-  if (!raw) return null;
-  return safeParse(raw, null);
+/**
+ * Atualiza o TTL (p. ex. quando um job começa a rodar).
+ */
+function touch(token, extraMs = DEFAULT_TTL_MS) {
+  const rec = _selections.get(String(token || ''));
+  if (!rec) return;
+  rec.expiresAt = Date.now() + extraMs;
 }
 
-async function getMeta(token) {
-  const raw = await redis.get(keyMeta(token));
-  return raw ? safeParse(raw, {}) : {};
+/**
+ * Remove uma seleção explicitamente.
+ */
+function remove(token) {
+  _selections.delete(String(token || ''));
 }
 
-/** Faz merge em meta e renova TTL. */
-async function updateMeta(token, patch) {
-  const cur = await getMeta(token);
-  const meta = { ...(cur || {}), ...(patch || {}) };
-  await redis.set(keyMeta(token), JSON.stringify(meta), 'EX', TTL_SECONDS);
-  return meta;
-}
-
-/** Renova TTL das chaves da seleção (útil durante um fluxo longo). */
-async function touch(token) {
-  const k1 = keySel(token);
-  const k2 = keyMeta(token);
-  // Usa PEXPIRE para não precisar reler valores
-  const m = redis.multi();
-  m.expire(k1, TTL_SECONDS);
-  m.expire(k2, TTL_SECONDS);
-  await m.exec();
-}
-
-/** Apaga a seleção. */
-async function destroy(token) {
-  await redis.del(keySel(token), keyMeta(token));
-}
-
-/** Encerramento limpo (útil em testes) */
-async function close() {
-  try { await redis.quit(); } catch { /* noop */ }
+/**
+ * Limpa seleções expiradas (pode ser chamado em interval).
+ */
+function cleanupExpired() {
+  const now = Date.now();
+  for (const [tk, rec] of _selections.entries()) {
+    if (rec.expiresAt && rec.expiresAt < now) {
+      _selections.delete(tk);
+    }
+  }
 }
 
 module.exports = {
-  saveSelection,
+  createSelection,
   getSelection,
-  getMeta,
-  updateMeta,
   touch,
-  destroy,
-  close,
+  remove,
+  cleanupExpired,
 };

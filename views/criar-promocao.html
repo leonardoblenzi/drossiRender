@@ -7,23 +7,18 @@
 
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
   <link rel="stylesheet" href="/css/promo-jobs.css">
-  <link rel="stylesheet" href="/css/criar-promocao.css?v=2">
+  <link rel="stylesheet" href="/css/criar-promocao.css?v=3">
 
-  <!-- (opcional) cores das pills por conta, caso ainda não estejam no promo-jobs.css -->
   <style>
+    /* pills por conta – caso não estejam em outro css */
     .jobs-panel .pill{display:inline-block;padding:.18rem .55rem;border-radius:999px;font-weight:700;font-size:.78rem}
     .jobs-panel .pill.drossi{background:#e8f0ff;color:#1d4ed8}
     .jobs-panel .pill.diplany{background:#e6fffb;color:#0e7490}
     .jobs-panel .pill.rossidecor{background:#ffe9e7;color:#a11a1a}
-
-    /* pequenos ajustes visuais para as opções extras na seleção */
-    .selection-bar .inline-options{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .selection-bar .inline-options label{display:flex;align-items:center;gap:6px;font-size:.9rem;color:#444}
-    .selection-bar .inline-options input[type="number"]{width:90px}
   </style>
 </head>
 <body>
-  <!-- TOPO -->
+  <!-- TOPO FIXO -->
   <header class="account-bar">
     <div class="account-bar__left">
       <span class="logo">🎯</span>
@@ -43,18 +38,20 @@
   <div class="wrap">
     <h2>Central de Promoções</h2>
 
-    <!-- Barra de busca -->
+    <!-- Barra de busca MLB -->
     <section id="promo-toolbar" class="promo-toolbar">
       <label for="mlbFilter" class="block-label">Buscar item (MLB)</label>
       <div class="inline">
-        <input id="mlbFilter" type="text" placeholder="MLB1234567890" />
-        <button id="btnFiltrarItem" class="btn">Buscar</button>
-        <button id="btnLimparItem" class="btn ghost">Limpar</button>
+        <input id="mlbFilter" type="text" placeholder="MLB1234567890"/>
+        <button id="btnFiltrarItem" class="btn" type="button">Buscar</button>
+        <button id="btnLimparItem" class="btn ghost" type="button">Limpar</button>
       </div>
-      <small class="muted">Ao buscar, mostro apenas as campanhas que oferecem promoção para esse item.</small>
+      <small class="muted">
+        Ao buscar, mostro apenas as campanhas que oferecem promoção para esse item.
+      </small>
     </section>
 
-    <!-- Cards -->
+    <!-- Cards de campanhas -->
     <div class="cards" id="cards">
       <div class="card">
         <h3>Carregando promoções…</h3>
@@ -62,49 +59,76 @@
       </div>
     </div>
 
-    <!-- Cabeçalho da campanha + filtros -->
+    <!-- Cabeçalho da campanha + filtros + barra de seleção -->
     <div class="mostrar-bar">
+      <!-- Nome da campanha -->
       <div class="camp-header">
-        <div id="campName" class="camp-name" title="— selecione um card —">— selecione um card —</div>
+        <div id="campName" class="camp-name" title="— selecione um card —">
+          — selecione um card —
+        </div>
       </div>
 
+      <!-- Filtros -->
       <div class="controls-line">
         <div class="lado-esquerdo">
-          <div id="bulkControls" class="bulk-controls hidden">
-            <button id="bulkSelectAllBtn" class="btn ghost"></button>
-            <button id="bulkApplyAllBtn"  class="btn success" disabled>Aplicar a todos</button>
-            <button id="bulkRemoveAllBtn" class="btn danger" disabled>Remover todos</button>
+          <div class="radios-line">
+            <label>
+              <input type="radio" name="filtro" value="all" checked>
+              Todos
+            </label>
+            <label>
+              <input type="radio" name="filtro" value="non">
+              Não participantes
+            </label>
+            <label>
+              <input type="radio" name="filtro" value="yes">
+              Participantes
+            </label>
+            <label>
+              <input type="radio" name="filtro" value="prog">
+              Programados
+            </label>
           </div>
         </div>
 
         <div class="lado-direito">
-          <div class="radios-line">
-            <label><input type="radio" name="filtro" value="all" checked> Todos</label>
-            <label><input type="radio" name="filtro" value="non"> Não participantes</label>
-            <label><input type="radio" name="filtro" value="yes"> Participantes</label>
-            <label><input type="radio" name="filtro" value="scheduled">Programados</label></label>
-          </div>
           <div class="filters-inline">
             <label for="maxDescTableInput">Desc. máx. (%)</label>
-            <input id="maxDescTableInput" type="number" min="0" max="99" step="0.01" placeholder="Ex: 15" />
-            <button id="btnMaxDescTable" class="btn">Aplicar</button>
-            <button id="btnLimparMaxDescTable" class="btn ghost">Limpar</button>
+            <input id="maxDescTableInput" type="number" min="0" max="99" step="0.01" placeholder="Ex: 15"/>
+            <button id="btnMaxDescTable" class="btn" type="button">Aplicar</button>
+            <button id="btnLimparMaxDescTable" class="btn ghost" type="button">Limpar</button>
           </div>
         </div>
       </div>
 
-      <!-- Linha 2: barra de seleção -->
+      <!-- Barra única de seleção -->
       <div id="selectionBar" class="selection-bar hidden">
-        <div id="selMsg">0 anúncios selecionados nesta página.</div>
-        <div class="actions" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-          <button id="selAllCampaignBtn" class="btn ghost" type="button">Selecionar toda a campanha (filtrados)</button>
-          <button id="selApplyBtn" class="btn success" type="button" disabled>Aplicar a todos</button>
-          <button id="selRemoveBtn" class="btn danger" type="button" disabled>Remover todos</button>
+        <div class="selection-main">
+          <div id="selMsg" class="selection-text">
+            Nenhum item selecionado.
+          </div>
+          <div id="selHint" class="selection-hint muted">
+            Use o checkbox da tabela para selecionar a página atual
+            ou clique em <strong>“Selecionar toda a campanha (filtrados)”</strong>.
+          </div>
+        </div>
 
-          <!-- Opções de processamento (usadas por promo-bulk.js) -->
+        <div class="selection-actions">
+          <button id="selAllCampaignBtn" class="btn ghost" type="button">
+            Selecionar toda a campanha (filtrados)
+          </button>
+          <button id="selApplyBtn" class="btn success" type="button" disabled>
+            Aplicar
+          </button>
+          <button id="selRemoveBtn" class="btn danger" type="button" disabled>
+            Remover
+          </button>
+
+          <!-- Opções avançadas -->
           <div class="inline-options">
             <label title="Simula a aplicação sem enviar ao ML">
-              <input id="dryRunToggle" type="checkbox"> Simular (dry-run)
+              <input id="dryRunToggle" type="checkbox">
+              Simular (dry-run)
             </label>
             <label>
               Delay (ms)
@@ -142,13 +166,17 @@
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="12" class="muted">Sem itens. Clique em um card de promoção.</td></tr>
+          <tr>
+            <td colspan="12" class="muted">
+              Sem itens. Clique em um card de promoção.
+            </td>
+          </tr>
         </tbody>
       </table>
       <div id="paginacao" class="pagination" aria-label="Paginação"></div>
     </div>
 
-    <!-- Progresso (legacy; pode ser usado por outras telas) -->
+    <!-- Progresso legado (HUD simples) -->
     <div class="progress-wrap">
       <div id="progressText" class="muted" aria-live="polite">Aguardando…</div>
       <div class="progress" aria-hidden="true">
@@ -158,50 +186,32 @@
     </div>
   </div>
 
-  <!-- Painel HUD dedicado (evita conflito com o jobs panel) -->
+  <!-- Painel HUD dedicado (se quiser usar separado do jobs-panel principal) -->
   <div id="hudPanel" class="jobs-panel hidden"></div>
 
-  <!-- Painel de Jobs: visível SEMPRE -->
+  <!-- Painel de Jobs: visível sempre -->
   <div id="bulkJobsPanel" class="jobs-panel"></div>
 
   <!-- Scripts -->
-  <script src="/js/jobs-panel.js" defer></script>  <!-- precisa estar antes para o wrapper -->
+  <script src="/js/jobs-panel.js" defer></script>
   <script src="/js/account-bar.js" defer></script>
   <script src="/js/criar-promocao.js" defer></script>
   <script src="/js/promo-bulk.js" defer></script>
 
-  <!-- Wrapper p/ injetar conta nos jobs e manter o painel sempre visível -->
+  <!-- Wrapper para injetar conta nos jobs -->
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
       try {
-        // força painel aberto
         window.JobsPanel && window.JobsPanel.show?.();
 
-        // pega a conta atual (usa o helper da account-bar)
         const acc = await (window.AccountBar?.ensure?.() ?? Promise.resolve(window.__ACCOUNT__));
         const ctx = {
-          key: (acc?.key || '').toLowerCase(),      // ex.: drossi, diplany, rossidecor
-          label: acc?.label || acc?.key || ''       // ex.: "DRossi Interiores"
+          key: (acc?.key || '').toLowerCase(),
+          label: acc?.label || acc?.key || ''
         };
 
-        // se o PromoBulk oferecer API de contexto, usa direto
         if (window.PromoBulk?.setAccountContext) {
           window.PromoBulk.setAccountContext(ctx);
-        } else {
-          // senão, envolvemos os métodos mais comuns para injetar as props
-          const inject = (name) => {
-            if (!window.PromoBulk || !window.PromoBulk[name] || window.PromoBulk[name].__wrapped) return;
-            const orig = window.PromoBulk[name];
-            window.PromoBulk[name] = function(args = {}) {
-              if (args && typeof args === 'object') {
-                args.accountKey = args.accountKey || ctx.key;
-                args.accountLabel = args.accountLabel || ctx.label;
-              }
-              return orig.apply(this, [args]);
-            };
-            window.PromoBulk[name].__wrapped = true;
-          };
-          ['enqueue', 'enqueueApply', 'enqueueRemove'].forEach(inject);
         }
       } catch (e) {
         // silencioso

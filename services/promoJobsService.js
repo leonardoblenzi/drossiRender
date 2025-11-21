@@ -256,7 +256,6 @@ async function precountEligible({ mlCreds, promotion_id, promotion_type, status,
 
   return { total, benefitsGlobal };
 }
-
 /* ----------------------------- Aplicar o item ----------------------------- */
 
 async function applyItem({ mlCreds, promotion_id, promotion_type, item, policy = 'min', dryRun = false }) {
@@ -463,7 +462,7 @@ async function runBulkJob(job, done) {
         processed++; failed++;
       }
 
-      // �� CORREÇÃO 5: Atualizar progresso e dados a cada item processado
+      // 🔧 CORREÇÃO 5: Atualizar progresso e dados a cada item processado
       const denom = (total && total > 0) ? total : Math.max(processed, 1);
       const pct = clampPct((processed / denom) * 100);
       
@@ -493,7 +492,6 @@ async function runBulkJob(job, done) {
     if (!page.next) break;
     token = page.next;
   }
-
   // 🔧 CORREÇÃO 6: Finalização com dados completos
   const summary = {
     id: job.id,
@@ -524,6 +522,8 @@ async function runBulkJob(job, done) {
 
   done(null, summary);
 }
+
+
 
 /* ------------------------------ API do serviço ---------------------------- */
 
@@ -575,7 +575,7 @@ module.exports = {
     const job = await queue.add(
       data,
       {
-        removeOnComplete: 10, // �� CORREÇÃO 7: Manter mais jobs completos
+        removeOnComplete: 10, // 🔧 CORREÇÃO 7: Manter mais jobs completos
         removeOnFail: false,
         attempts: 1
       }
@@ -603,7 +603,7 @@ module.exports = {
             const success = Number(counters.success ?? 0);
             const failed = Number(counters.failed ?? 0);
 
-            // �� CORREÇÃO 9: Progresso mais confiável
+            // 🔧 CORREÇÃO 9: Progresso mais confiável
             let progress = 0;
             if (total > 0) {
               progress = clampPct((processed / total) * 100);

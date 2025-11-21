@@ -101,7 +101,7 @@ function resolveDealFinalAndPct(raw) {
   }
 
   // 4) fallback opcional com % do ML (quando não há sugestões e price==0)
-  if (!final && isCandLike && noSuggestions && (!isFinite(px) || px === 0) && ALLOW_ML_PCT_FALLBACK && isFinite(mlPct) && isPlausiblePct(mlPct)) {
+  if (!final && isCandLike && noSuggestions && (!isFinite(px) || px === 0) && ALLOW_ML_PCT_FALLBACK && isPlausiblePct(mlPct)) {
     const est = orig * (1 - mlPct / 100);
     if (isPlausibleFinal(est)) final = est;
   }
@@ -201,6 +201,7 @@ core.get('/api/promocoes/items/:itemId/offer-ids', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 /**
  * Itens de uma promoção (com enriquecimento de título/sku/price)
  * GET /api/promocoes/promotions/:promotionId/items
@@ -212,7 +213,7 @@ core.get('/api/promocoes/items/:itemId/offer-ids', async (req, res) => {
  * - Traz min_discounted_price / suggested_discounted_price / max_discounted_price
  * - Calcula discount_percentage quando não vier do ML:
  *    • se houver deal_price (started), usa deal_price/original_price
- *    • senão, usa candidato do ML (min -> suggested -> max) para estimar o %
+ *    • senão, usa candidato do ML (min -> suggested -> max) para estimar o %  
  */
 core.get('/api/promocoes/promotions/:promotionId/items', async (req, res) => {
   try {
@@ -420,6 +421,7 @@ core.post('/api/promocoes/apply', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 // APLICAR UM ITEM EM UMA CAMPANHA
 // POST /api/promocoes/items/:itemId/apply
 core.post('/api/promocoes/items/:itemId/apply', async (req, res) => {
@@ -598,7 +600,7 @@ core.get('/api/promocoes/jobs', async (_req, res) => {
         j.total ?? j.expected_total ?? j.count ?? j.stats?.total ?? j.progress?.total ?? 0
       ) || 0;
 
-      // progresso %
+      // progresso %  
       let progress = Number(
         j.progress?.percent ?? j.percent ?? j.percentage ?? j.stats?.percent ?? 0
       );
@@ -650,6 +652,7 @@ core.get('/api/promocoes/jobs/:job_id', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
 // Iniciar job de REMOÇÃO em massa (via seu service -> adapter)
 core.post('/api/promocoes/jobs/remove', async (req, res) => {
   try {
@@ -679,191 +682,273 @@ core.post('/api/promocoes/jobs/remove', async (req, res) => {
   }
 });
 
+
 /**
- * Prepara seleção global (conta quantos itens a partir dos filtros) e devolve token.
- * Body: { promotion_id, promotion_type, status, percent_min, percent_max }
+ * Seleção robusta + tokenizada da campanha inteira
+ * Body: { promotion_id, promotion_type, status, mlb, percent_max }
+ *
+ * Usada pelo botão "Selecionar toda a campanha (filtrados)" no front.
+ */
+/**
+ * Prepara seleção global da campanha inteira, armazena os IDs em memória
+ * e devolve um token para ser usado depois em /jobs/apply-mass.
+ *
+ * Body: {
+ *   promotion_id,
+ *   promotion_type,
+ *   status,       // 'started' | 'candidate' | 'scheduled' | null
+ *   mlb,          // opcional, string
+ *   percent_max   // opcional, número (% desc. máx.)
+ * }
+ */
+
+/**
+ * Prepara seleção global (todas as páginas / filtrados) e devolve um token.
+ * Body: { promotion_id, promotion_type, status, mlb, percent_max }
+ */
+
+/**
+ * Prepara seleção global (conta todos os itens filtrados) e devolve um token.
+ * Body: { promotion_id, promotion_type, status, mlb, percent_max }
  */
 core.post('/api/promocoes/selection/prepare', async (req, res) => {
   try {
-    if (!PromoSelectionStore?.saveSelection) {
-      return res.status(503).json({ ok: false, error: 'PromoSelectionStore indisponível' });
+    const {
+      promotion_id,
+      promotion_type,
+      status,        // 'started' | 'candidate' | 'scheduled' | null
+      mlb,           // opcional, string MLB123...
+      percent_max,   // opcional, número (desconto máx. %)
+    } = req.body || {};
+
+    if (!promotion_id || !promotion_type) {
+      return res.status(400).json({
+        ok: false,
+        error: 'promotion_id e promotion_type são obrigatórios.',
+      });
     }
+
+    // credenciais e conta já estão em res.locals, igual nas outras rotas
     const creds = res.locals.mlCreds || {};
     const accountKey = String(res.locals.accountKey || 'default');
-    
-    // 🔧 AJUSTE: aceitar os nomes que o front-end envia
-    const { 
-      promotion_id, 
-      promotion_type, 
-      status, 
-      mlb,                    // ← NOVO: filtro por MLB específico
-      percent_max,            // ← JÁ EXISTE
-      percent_min             // ← MANTÉM (opcional)
-    } = req.body || {};
-    
-    if (!promotion_id || !promotion_type) {
-      return res.status(400).json({ ok:false, error:'promotion_id e promotion_type são obrigatórios' });
-    }
 
-    const isDealLike = (t) => ['DEAL','SELLER_CAMPAIGN','PRICE_DISCOUNT','DOD'].includes(String(t||'').toUpperCase());
+    // 🚫 ML não aceita limit >= 100 → usamos 50 (seguro)
+    const ML_LIMIT = 50;
 
-    // 🔧 AJUSTE: aplicar filtro MLB se fornecido
-    if (mlb) {
-      const mlbUpper = String(mlb).toUpperCase();
-      // Busca direta do item específico na campanha
-      const qsItem = new URLSearchParams();
-      qsItem.set('promotion_type', String(promotion_type));
-      if (status) qsItem.set('status', String(status));
-      qsItem.set('limit', '50');
-      qsItem.set('app_version','v2');
-      
-      let found = false;
-      let next = null;
-      
-      for (let guard=0; guard<200; guard++) {
-        const qs = new URLSearchParams(qsItem);
-        if (next) qs.set('search_after', String(next));
-        const url = `https://api.mercadolibre.com/seller-promotions/promotions/${encodeURIComponent(promotion_id)}/items?${qs.toString()}`;
-        const r = await authFetch(req, url, {}, creds);
-        if (!r.ok) break;
+    let searchAfter = null;
+    const ids = [];
+    let page = 0;
 
-        const j = await r.json().catch(()=>({}));
-        const rows = Array.isArray(j.results)? j.results : [];
-        
-        const item = rows.find(it => String(it.id || '').toUpperCase() === mlbUpper);
-        if (item) {
-          const original = Number(item.original_price || 0);
-          if (original > 0) {
-            const { pct } = resolveDealFinalAndPct({
-              original_price: original,
-              status: item.status,
-              deal_price: item.deal_price ?? item.new_price,
-              min_discounted_price: item.min_discounted_price,
-              suggested_discounted_price: item.suggested_discounted_price,
-              max_discounted_price: item.max_discounted_price,
-              price: item.price
-            });
+    while (true) {
+      page += 1;
+      if (page > 500) break; // trava de segurança absurda
 
-            const usePct = isDealLike(promotion_type)
-              ? (pct != null ? pct : null)
-              : (item.discount_percentage != null ? Number(item.discount_percentage) : null);
+      const base = `https://api.mercadolibre.com/seller-promotions/promotions/${encodeURIComponent(
+        promotion_id
+      )}/items`;
 
-            // Aplica filtros de percentual
-            if (percent_min != null && (usePct == null || usePct < percent_min)) {
-              return res.json({ ok: true, token: null, total: 0 });
-            }
-            if (percent_max != null && (usePct == null || usePct > percent_max)) {
-              return res.json({ ok: true, token: null, total: 0 });
-            }
-            
-            found = true;
-          }
-          break;
+      const params = new URLSearchParams();
+      params.set('promotion_type', String(promotion_type).toUpperCase());
+      params.set('limit', String(ML_LIMIT));
+      params.set('app_version', 'v2');
+
+      if (status) params.set('status', String(status));
+      if (searchAfter) params.set('search_after', String(searchAfter));
+      if (mlb) params.set('q', String(mlb)); // filtro por MLB (quando suportado)
+
+      const url = `${base}?${params.toString()}`;
+
+      // usa o mesmo authFetch que o resto do arquivo (renova token se 401)
+      const r = await authFetch(req, url, {}, creds);
+
+      if (!r.ok) {
+        // loga o corpo do erro do ML pra debug
+        const txt = await r.text().catch(() => '');
+        let ml_body;
+        try {
+          ml_body = txt ? JSON.parse(txt) : null;
+        } catch {
+          ml_body = { raw: txt };
         }
 
-        const paging = j?.paging || {};
-        next = paging.searchAfter ?? paging.next_token ?? paging.search_after ?? null;
-        if (!next || rows.length === 0) break;
-      }
-      
-      const total = found ? 1 : 0;
-      const { token } = await PromoSelectionStore.saveSelection({
-        accountKey,
-        data: { promotion_id, promotion_type, status, mlb, percent_min, percent_max },
-        total
-      });
-      
-      return res.json({ ok: true, token, total });
-    }
+        console.error('Erro ao consultar itens da promoção no ML:', r.status, ml_body);
 
-    // 🔧 RESTO DO CÓDIGO PERMANECE IGUAL (paginação normal para todos os itens)
-    let total = 0;
-    let next = null;
-    const qsBase = new URLSearchParams();
-    qsBase.set('promotion_type', String(promotion_type));
-    if (status) qsBase.set('status', String(status));
-    qsBase.set('limit', '50');
-    qsBase.set('app_version','v2');
-
-    const num = (v) => (v==null?null:Number(v));
-    const min = num(percent_min); 
-    const max = num(percent_max);
-
-    for (let guard=0; guard<500; guard++) {
-      const qs = new URLSearchParams(qsBase);
-      if (next) qs.set('search_after', String(next));
-      const url = `https://api.mercadolibre.com/seller-promotions/promotions/${encodeURIComponent(promotion_id)}/items?${qs.toString()}`;
-      const r = await authFetch(req, url, {}, creds);
-      if (!r.ok) break;
-
-      const j = await r.json().catch(()=>({}));
-      const rows = Array.isArray(j.results)? j.results : [];
-
-      for (const it of rows) {
-        const original = num(it.original_price);
-        if (!original || !(original > 0)) continue;
-
-        const { pct } = resolveDealFinalAndPct({
-          original_price: original,
-          status: it.status,
-          deal_price: it.deal_price ?? it.new_price,
-          min_discounted_price: it.min_discounted_price,
-          suggested_discounted_price: it.suggested_discounted_price,
-          max_discounted_price: it.max_discounted_price,
-          price: it.price
+        return res.status(502).json({
+          ok: false,
+          error: 'Falha ao consultar itens da promoção no ML.',
+          status: r.status,
+          ml_body,
+          url,
         });
-
-        const usePct = isDealLike(promotion_type)
-          ? (pct != null ? pct : null)
-          : (it.discount_percentage != null ? Number(it.discount_percentage) : null);
-
-        if (min!=null && (usePct==null || usePct < min)) continue;
-        if (max!=null && (usePct==null || usePct > max)) continue;
-        total++;
       }
 
-      const paging = j?.paging || {};
-      next = paging.searchAfter ?? paging.next_token ?? paging.search_after ?? null;
-      if (!next || rows.length === 0) break;
+      const js = await r.json().catch(() => ({}));
+      const results = Array.isArray(js.results) ? js.results : [];
+      if (!results.length) break;
+
+      // aplica filtro de desconto e MLB aqui mesmo (caso a API traga a mais)
+      for (const it of results) {
+        const id = String(it.id || it.item_id || '').trim();
+        if (!id) continue;
+
+        // filtro de desconto máx. (%)
+        if (
+          percent_max != null &&
+          percent_max !== '' &&
+          Number.isFinite(Number(percent_max))
+        ) {
+          const pct = Number(it.discount_percentage || 0);
+          if (pct > Number(percent_max)) continue;
+        }
+
+        // filtro extra por MLB (garantia)
+        if (mlb && id !== mlb) continue;
+
+        ids.push(id);
+      }
+
+      // paginação: tenta pegar qualquer campo que o ML mande
+      const paging = js.paging || {};
+      searchAfter =
+        paging.search_after ||
+        paging.searchAfter ||
+        paging.next_token ||
+        null;
+
+      if (!searchAfter) break;
     }
 
-    const { token } = await PromoSelectionStore.saveSelection({
+    // Se não tiver store avançada, devolve só a lista/contagem (fallback)
+    if (!PromoSelectionStore || typeof PromoSelectionStore.saveSelection !== 'function') {
+      return res.json({
+        ok: true,
+        token: null,
+        total: ids.length,
+        meta: {
+          accountKey,
+          promotionId: promotion_id,
+          promotionType: promotion_type,
+          filters: {
+            status: status || null,
+            mlb: mlb || null,
+            percent_max:
+              percent_max == null || percent_max === ''
+                ? null
+                : Number(percent_max),
+          },
+        },
+        ids, // opcional: lista inteira já pronta
+      });
+    }
+
+    // Versão com store/token (para usar depois em /jobs/apply-mass)
+    const { token, total, meta } = await PromoSelectionStore.saveSelection({
       accountKey,
-      data: { promotion_id, promotion_type, status, mlb, percent_min, percent_max },
-      total
+      userId: req.user?.id || null,
+      promotionId: promotion_id,
+      promotionType: promotion_type,
+      filters: {
+        status: status || null,
+        mlb: mlb || null,
+        percent_max:
+          percent_max == null || percent_max === ''
+            ? null
+            : Number(percent_max),
+      },
+      ids,
+      meta: {
+        createdAt: Date.now(),
+      },
     });
 
-    return res.json({ ok:true, token, total });
+    return res.json({
+      ok: true,
+      token,
+      total,
+      meta,
+    });
   } catch (e) {
-    console.error('[/api/promocoes/selection/prepare] erro:', e);
-    return res.status(500).json({ ok:false, error: e.message || String(e) });
+    console.error('Erro em /api/promocoes/selection/prepare:', e);
+    return res.status(500).json({
+      ok: false,
+      error: 'Erro interno ao preparar seleção.',
+    });
   }
 });
+
+
+
+
+
+
+
+
 
 /**
  * Dispara job em massa (apply/remove) a partir do token da seleção preparada.
- * Body: { token, action: "apply"|"remove", values?: {...} }
+ * Body: { token, action: "apply"|"remove", values?: { dryRun?: boolean } }
  */
 core.post('/api/promocoes/jobs/apply-mass', async (req, res) => {
   try {
-    if (!PromoJobsService?.enqueueApplyMass) {
-      return res.status(503).json({ ok:false, error:'PromoJobsService indisponível' });
+    if (!PromoJobsService || typeof PromoJobsService.enqueueBulkApply !== 'function') {
+      return res.status(503).json({ ok: false, error: 'PromoJobsService indisponível.' });
     }
-    const accountKey = String(res.locals.accountKey || 'default');
-    const { token, action, values } = req.body || {};
-    if (!token || !action) return res.status(400).json({ ok:false, error:'token e action são obrigatórios' });
+    if (!PromoSelectionStore || typeof PromoSelectionStore.getSelection !== 'function') {
+      return res.status(503).json({ ok: false, error: 'PromoSelectionStore indisponível.' });
+    }
 
-    const meta = await PromoSelectionStore?.getMeta?.(token);
-    const job = await PromoJobsService.enqueueApplyMass({
-      token, action, values: values||{}, accountKey,
-      expected_total: meta?.total || 0
+    const { token, action = 'apply', values = {} } = req.body || {};
+    if (!token) {
+      return res.status(400).json({ ok: false, error: 'token é obrigatório.' });
+    }
+
+    const accountKey = String(res.locals.accountKey || 'default');
+    const selection = PromoSelectionStore.getSelection(token, { accountKey });
+
+    if (!selection) {
+      return res.status(404).json({ ok: false, error: 'Seleção não encontrada ou expirada.' });
+    }
+
+    const creds = res.locals.mlCreds || {};
+    const promotionId = selection.promotionId;
+    const promotionType = selection.promotionType;
+    const fSel = selection.filters || {};
+
+    // adapta filtros para o formato do PromoJobsService
+    const filters = {
+      status: fSel.status || null,
+      maxDesc: fSel.percent_max != null ? Number(fSel.percent_max) : null,
+      mlb: fSel.mlb || null,
+    };
+
+    const options = {
+      dryRun: !!values.dryRun,
+      expected_total: Array.isArray(selection.items) ? selection.items.length : 0,
+    };
+
+    PromoJobsService.init?.();
+
+    const jobId = await PromoJobsService.enqueueBulkApply({
+      mlCreds: creds,
+      accountKey,
+      action,
+      promotion: { id: String(promotionId), type: String(promotionType).toUpperCase() },
+      filters,
+      price_policy: 'min',
+      options,
     });
-    return res.json({ ok:true, job_id: job?.id || null });
+
+    // renova TTL da seleção enquanto o job é criado
+    PromoSelectionStore.touch?.(token);
+
+    return res.json({ ok: true, job_id: jobId });
   } catch (e) {
     console.error('[/api/promocoes/jobs/apply-mass] erro:', e);
-    return res.status(500).json({ ok:false, error: e.message || String(e) });
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
+
+
 
 // ---- Montagem do router com aliases funcionais (shim)
 const router = express.Router();

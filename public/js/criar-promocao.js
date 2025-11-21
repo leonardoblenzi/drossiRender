@@ -67,11 +67,15 @@ const offerIdsPaths = (mlb) => ([
 
 const PAGE_SIZE = 50;
 const $  = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s)); // Corrigido para $$
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 function esc(s) {
   return (s == null ? '' : String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
   }[c])));
 }
 
@@ -117,7 +121,7 @@ const state = {
   // Sessão de aplicação (para HUD / JobsPanel)
   applySession: {
     started: false,
-    totalHint: null, // se soubermos o total antes de iniciar
+    totalHint: null,
     processed: 0,
     added: 0,
     changed: 0,
@@ -133,12 +137,12 @@ const state = {
 // Mantido propositalmente como no-op para não quebrar chamadas.
 // O progresso visual é feito via JobsPanel.
 const HUD = {
-  open(){}, bump(){}, tickProcessed(){}, reset(){}, render(){},
+  open(){},
+  bump(){},
+  tickProcessed(){},
+  reset(){},
+  render(){},
 };
-
-// =====================================================
-// ================ Jobs Watcher (poll) ================
-// =====================================================
 
 // =====================================================
 // ================ Jobs Watcher (poll) ================
@@ -146,112 +150,47 @@ const HUD = {
 
 const JobsWatcher = (function(){
   let timer = null;
-  let watchingId = null; // foco de atenção (opcional)
-  const PERIOD_MS = 2000;
-
-  function updateUIFromList(list){
-    if (!Array.isArray(list)) return;
-    for (const j of list) {
-      // monta state + progress robusto
-      const processed = Number(j.processed ?? 0) || 0;
-      const total     = Number(j.total ?? 0) || 0;
-
-      // se o back não mandar "progress", calculamos por processed/total
-      let pct = Number(j.progress);
-      if (!Number.isFinite(pct) || pct <= 0) {
-        pct = (total > 0) ? Math.round((processed / total) * 100) : 0;
-      }
-      pct = Math.max(0, Math.min(100, pct));
-
-      const stateText = total > 0
-        ? `${j.state} ${processed}/${total}`
-        : String(j.state || 'queued');
-
-      // 🔧 CORREÇÃO: Verificar se job já existe localmente
-      if (window.JobsPanel?.updateLocalJob) {
-        const existingIds = window.JobsPanel.listActiveIds?.() || [];
-        const existingId = existingIds.find(id => 
-          id.includes(j.id) || id.includes(`server|${j.id}`)
-        );
-        
-        if (existingId) {
-          // Atualizar job existente
-          window.JobsPanel.updateLocalJob(existingId, {
-            state: stateText,
-            progress: pct
-          });
-        } else {
-          // Criar novo job local para job do servidor
-          const localId = window.JobsPanel.addLocalJob?.({
-            title: j.label || `Job ${j.id}`,
-            accountKey: 'server',
-            accountLabel: 'Servidor'
-          });
-          
-          if (localId) {
-            window.JobsPanel.updateLocalJob(localId, {
-              state: stateText,
-              progress: pct
-            });
-            
-            // Mapear para futuras atualizações
-            window.JobsPanel.replaceId?.(localId, `server|${j.id}|${localId.split('|')[2] || Date.now()}`);
-          }
-        }
-      }
-
-      // log opcional do job focado
-      if (watchingId && String(j.id) === String(watchingId)) {
-        console.log(`🎯 Job ${j.id}: ${stateText} (${pct}%)`);
-      }
-    }
-  }
+  const PERIOD_MS = 3000;
 
   async function poll(){
     try {
-      const r = await fetch('/api/promocoes/jobs', { credentials: 'same-origin' });
+      const r = await fetch('/api/promocoes/jobs', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+
+      if (!r.ok) return;
+
       const data = await r.json().catch(()=>({}));
-      if (r.ok && data?.jobs) {
-        updateUIFromList(data.jobs);
+      const list = data?.jobs || [];
+
+      if (window.JobsPanel?.mergeApiJobs && Array.isArray(list)) {
+        window.JobsPanel.mergeApiJobs(list);
       }
-    } catch(e){
-      // silencioso - mas log para debug se necessário
-      // console.warn('JobsWatcher poll error:', e);
+    } catch (e) {
+      // silencioso
     }
   }
 
   function start(){
     if (timer) return;
-    console.log('🚀 JobsWatcher iniciando...');
     timer = setInterval(poll, PERIOD_MS);
-    poll(); // primeira chamada imediata
+    poll();
   }
 
   function stop(){
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-      console.log('⏹️ JobsWatcher parado');
-    }
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
   }
 
-  function watch(id){
-    watchingId = id ? String(id) : null;
-    start();
+  function isRunning(){
+    return !!timer;
   }
 
-  // 🔧 CORREÇÃO: Adicionar método para verificar se está rodando
-  function isRunning() {
-    return timer !== null;
-  }
-
-  return { start, stop, watch, isRunning, poll };
+  return { start, stop, isRunning, poll };
 })();
-
-// =====================================================
-// ================= Painel de Debug ===================
-// (Seção PromoDebug removida integralmente)
-// =====================================================
 
 // =====================================================
 // =================== Utils diversos ==================
@@ -298,6 +237,7 @@ function dedupeByMLB(items, statusFilter /* 'started' | 'scheduled' | 'pending' 
   }
   return arr;
 }
+
 // =====================================================
 // ============ Hidratação de candidatos DEAL ==========
 // =====================================================
@@ -431,8 +371,7 @@ function computeDescPct(it, benefitsGlobal) {
 // =====================================================
 
 /**
- * Heurística única (espelha o back) para resolver preço final e %
- * em DEAL/SELLER. Corrige o caso em que "price" vem como DESCONTO EM R$.
+ * Heurística única (espelha o back) para resolver preço final e % em DEAL/SELLER.
  */
 function resolveDealFinalAndPctFront(raw) {
   const orig  = Number(raw.original_price ?? raw.originalPrice ?? raw.price ?? 0);
@@ -614,6 +553,7 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  // Esses dois IDs são opcionais, mantidos por compatibilidade
   if (t.closest?.('#btnRemoverTodos')) {
     ev.preventDefault();
     await removerEmMassaSelecionados().catch(err => console.error(err));
@@ -621,7 +561,6 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  // 🔥 Aplicar em massa todos os filtrados (todas as páginas)
   if (t.closest?.('#btnAplicarTodos')) {
     ev.preventDefault();
     await aplicarTodosFiltrados().catch(err => console.error(err));
@@ -649,6 +588,7 @@ document.addEventListener('keydown', async (ev) => {
     atualizarFaixaSelecaoCampanha();
   }
 });
+
 /* ======================== Busca por MLB (cards do item) ======================== */
 
 const ITEM_PROMO_TYPES = new Set([
@@ -705,7 +645,7 @@ async function carregarCards(){
     console.error('[/users] erro ao carregar cards:', e, e?.cause);
     $cards.innerHTML = `<div class="card"><h3>Falha</h3><pre class="muted">${esc(authMsg)}</pre></div>`;
   } finally {
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar banner após carregamento inicial dos cards
+    atualizarFaixaSelecaoCampanha();
   }
 }
 
@@ -757,7 +697,6 @@ function renderCards(){
 
 function destacarCardSelecionado(){
   const $cards = elCards();
-  // ✅ CORREÇÃO: usar querySelectorAll diretamente no elemento
   $cards.querySelectorAll('div.card').forEach(n => n.classList.remove('card--active'));
   const list = (state.cardsFilteredIds ? state.cards.filter(c => state.cardsFilteredIds.has(c.id)) : state.cards);
   const idx = list.findIndex(c => c.id === state.selectedCard?.id);
@@ -823,7 +762,6 @@ async function selecionarCard(card){
   } else {
     await carregarItensPagina(1, true);
   }
-  // A chamada para atualizarFaixaSelecaoCampanha já ocorre no finally de carregarItensPagina/carregarSomenteMLBSelecionado
 }
 
 function qsBuild(params){
@@ -938,9 +876,10 @@ async function carregarItensPagina(pageNumber, reset=false){
   } finally {
     state.loading = false;
     renderPaginacao();
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+    atualizarFaixaSelecaoCampanha();
   }
 }
+
 function renderTabela(items){
   const $body = elTbody();
   if (!items?.length) {
@@ -1092,7 +1031,7 @@ function renderPaginacao(){
   $pag.innerHTML = html;
 }
 
-/* ======================== Busca por MLB: item único ======================== */
+/* ======================== Busca unitária por MLB ======================== */
 
 async function montarItemRapido(mlb){
   // 1) Busca todas as promoções do item e localiza a campanha selecionada
@@ -1142,8 +1081,8 @@ async function montarItemRapido(mlb){
     // campos candidatos para DEAL/SELLER
     min_discounted_price:      toNum(match.min_discounted_price ?? offer.min_discounted_price ?? null),
     suggested_discounted_price:toNum(match.suggested_discounted_price ?? offer.suggested_discounted_price ?? null),
-    max_discounted_price:      toNum(match.max_discounted_price ?? offer.max_discounted_price ?? null), // Adicionado max_discounted_price
-    
+    max_discounted_price:      toNum(match.max_discounted_price ?? offer.max_discounted_price ?? null),
+
     // rebate/percentuais
     meli_percentage:   toNum(match.meli_percentage ?? offer.meli_percentage ?? null),
     seller_percentage: toNum(match.seller_percentage ?? offer.seller_percentage ?? null),
@@ -1223,6 +1162,95 @@ async function buscarItemNaCampanha(mlb){
   }
   return null;
 }
+
+ 
+// =====================================================
+// ========== Coletar TODOS os ids filtrados ===========
+// ========== para seleção da campanha inteira =========
+// =====================================================
+
+async function coletarTodosIdsFiltrados() {
+  // precisa ter uma campanha selecionada
+  if (!state.selectedCard) {
+    console.warn('[coletarTodosIdsFiltrados] Nenhuma campanha selecionada.');
+    return [];
+  }
+
+  const idsSet = new Set();
+
+  // mesmo mapeamento que a tabela usa
+  const statusParam = filtroToStatusParam(); // 'started' | 'candidate' | 'scheduled' | ''
+  const mlbUp = (state.mlbFilter || '').trim().toUpperCase() || null;
+  const maxDesc =
+    state.maxDesc == null || state.maxDesc === ''
+      ? null
+      : Number(state.maxDesc);
+
+  const PAGE_LIMIT = 50; // seguro pro ML (limit < 100)
+  let searchAfter = null;
+
+  try {
+    // segurança: no máximo 500 páginas
+    for (let page = 0; page < 500; page++) {
+      const qs = qsBuild({
+        limit: PAGE_LIMIT,
+        ...(statusParam ? { status: statusParam } : {}),
+        ...(searchAfter ? { search_after: searchAfter } : {}),
+      });
+
+      const data = await getJSONAny(
+        itemsPaths(state.selectedCard.id, state.selectedCard.type, qs)
+      );
+
+      if (data?.promotion_benefits) {
+        state.promotionBenefits = data.promotion_benefits;
+      }
+
+      let items = Array.isArray(data.results) ? data.results : [];
+
+      // normaliza status e remove duplicados por MLB
+      items = items.map((x) => ({ ...x, status: normalizeStatus(x.status) }));
+      items = dedupeByMLB(items, statusParam || '');
+
+      const benefitsGlobal =
+        state.promotionBenefits || state.selectedCard?.benefits || null;
+
+      for (const it of items) {
+        const id = String(it.id || '').trim();
+        if (!id) continue;
+
+        // filtro por MLB (se a barra de busca está preenchida)
+        if (mlbUp && id.toUpperCase() !== mlbUp) continue;
+
+        // filtro por desconto máximo (%), igual ao da tabela
+        if (maxDesc != null) {
+          const descPct = computeDescPct(it, benefitsGlobal);
+          if (descPct == null || Number(descPct) > maxDesc) continue;
+        }
+
+        idsSet.add(id);
+      }
+
+      // paginação
+      searchAfter = data?.paging?.searchAfter || null;
+      if (!searchAfter) break;
+    }
+  } catch (e) {
+    console.error('[coletarTodosIdsFiltrados] erro ao paginar itens:', e);
+  }
+
+  const arr = Array.from(idsSet);
+  console.log(
+    `[coletarTodosIdsFiltrados] total coletado com filtros atuais: ${arr.length}`
+  );
+  return arr;
+}
+
+// expõe no escopo global para o promo-bulk.js usar como fallback
+window.coletarTodosIdsFiltrados = coletarTodosIdsFiltrados;
+
+
+
 /* ======================== Offer/Candidate helpers ======================== */
 
 function isCandidateId (id) { return /^CANDIDATE-[A-Z0-9-]+$/i.test(String(id || '')); }
@@ -1512,7 +1540,7 @@ async function aplicarUnicoRemote(mlb, opts = {}) {
       if (!candidateId || !offerId) {
         const found = await buscarOfferIdCandidate(mlb);
         candidateId = candidateId || found.candidateId;
-        offerId = offerId || found.offerId;
+        offerId     = offerId || found.offerId;
       }
 
       if (!candidateId && !offerId) {
@@ -1582,53 +1610,7 @@ async function aplicarUnicoRemote(mlb, opts = {}) {
   }
 }
 
-async function coletarTodosIdsFiltrados() {
-  if (!state.selectedCard) return [];
-  const statusFlag = filtroToStatusParam();
-  const shouldSendStatus = !!(statusFlag && statusFlag !== '__pending__');
-  const ids = [];
 
-  if (state.mlbFilter) {
-    const mlb = state.mlbFilter.toUpperCase();
-    const item = await montarItemRapido(mlb).catch(()=>null);
-    if (!item) return [];
-    if (state.maxDesc != null) {
-      const descPct = computeDescPct(item, state.promotionBenefits || state.selectedCard?.benefits || null);
-      if (descPct == null || descPct > Number(state.maxDesc)) return [];
-    }
-    return [mlb];
-  }
-
-  let token = null;
-  for (let guard=0; guard<500; guard++) {
-    const qsObj = { limit: 50 };
-    if (shouldSendStatus) qsObj.status = statusFlag;
-    if (token) qsObj.search_after = token;
-
-    const data = await getJSONAny(itemsPaths(state.selectedCard.id, state.selectedCard.type, qsBuild(qsObj)));
-    let items = Array.isArray(data.results) ? data.results : [];
-
-    items = items.map(x => ({ ...x, status: normalizeStatus(x.status) }));
-    if (statusFlag === '__pending__') {
-      items = items.filter(x => normalizeStatus(x.status) === 'pending');
-    }
-
-    for (const x of items) {
-      let keep = true;
-      if (state.maxDesc != null) {
-        const descPct = computeDescPct(x, state.promotionBenefits || state.selectedCard?.benefits || null);
-        if (descPct == null || Number(descPct) > Number(state.maxDesc)) keep = false;
-      }
-      if (keep && x.id) ids.push(String(x.id));
-    }
-
-    const p = data?.paging || {};
-    token = p.searchAfter ?? p.next_token ?? p.search_after ?? null;
-    if (!token || items.length === 0) break;
-  }
-
-  return [...new Set(ids)];
-}
 /* --- Remoção em massa (abre HUD e atualiza contadores) --- */
 async function removerEmMassaSelecionados() {
   if (!state.selectedCard) { alert('Selecione uma campanha.'); return; }
@@ -1670,7 +1652,7 @@ async function removerEmMassaSelecionados() {
     HUD.render();
     alert('Erro ao iniciar remoção em massa.');
   } finally {
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+    atualizarFaixaSelecaoCampanha();
   }
 }
 
@@ -1738,6 +1720,7 @@ async function aplicarTodosFiltrados() {
         state: `queued 0/${expected_total}`, progress: 0
       });
     }
+    window.JobsPanel?.show?.();
   } catch { /* opcional */ }
 
   // 4) Dispara o job no backend (passa expected_total quando conhecido)
@@ -1770,6 +1753,7 @@ async function aplicarTodosFiltrados() {
           ...(expected_total != null ? { state: `active 0/${expected_total}`, progress: 0 } : {})
         });
       }
+
       // garantir que o watcher esteja ativo
       JobsWatcher.start?.();
       alert('Aplicação em massa iniciada. Acompanhe o progresso no painel de processos.');
@@ -1854,49 +1838,35 @@ async function aplicarTodosFiltrados() {
     HUD.render();
     alert('Erro ao iniciar aplicação em massa.');
   } finally {
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+    atualizarFaixaSelecaoCampanha();
   }
 }
-
 
 window.aplicarLoteSelecionados = async function(){
   const sel = getSelecionados();
   if (!sel.length) return alert('Selecione ao menos 1 item');
   HUD.open(sel.length, 'Aplicação (selecionados)');
   for (const mlb of sel) { await aplicarUnico(mlb, { silent:true }); }
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+  atualizarFaixaSelecaoCampanha();
 };
 
 /* --- Navegação e helpers --- */
 async function goPage(n){ if (!n || n===state.paging.currentPage) return; await carregarItensPagina(n,false); }
 function toggleTodos(master){
-  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked); // Uso de $$
+  $$('#tbody input[type="checkbox"][data-mlb]').forEach(ch => ch.checked = master.checked);
   if (window.PromoBulk) { window.PromoBulk.onHeaderToggle(!!master.checked); }
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+  atualizarFaixaSelecaoCampanha();
 }
-function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); } // Uso de $$
+function getSelecionados(){ return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(el => el.dataset.mlb); }
 function removerUnicoDaCampanha(mlb){ alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ''}`); }
 
 window.goPage = goPage;
 window.toggleTodos = toggleTodos;
 window.aplicarLoteSelecionados = aplicarLoteSelecionados;
 window.removerUnicoDaCampanha = removerUnicoDaCampanha;
-window.aplicarUnico = aplicarUnico;
 window.removerEmMassaSelecionados = removerEmMassaSelecionados;
 window.aplicarTodosFiltrados = aplicarTodosFiltrados;
 
-/* ======================== Boot ======================== */
-
-document.addEventListener('DOMContentLoaded', async () => {
-  hideLeadingRebateColumnIfPresent();
-  updateSelectedCampaignName();
-  HUD.reset(); // inicializa HUD da sessão
-  JobsWatcher.start(); // começa a observar progresso de jobs
-  // PromoDebug.setEnabled(true); // Removido
-  // PromoDebug.log('Boot OK. Carregando cards...'); // Removido
-  await carregarCards();
-  atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção após o boot
-});
 /* ======================== Modo busca unitária (apenas 1 MLB) ======================== */
 
 async function carregarSomenteMLBSelecionado() {
@@ -1943,16 +1913,16 @@ async function carregarSomenteMLBSelecionado() {
   } finally {
     state.loading = false;
     renderPaginacao();
-    atualizarFaixaSelecaoCampanha(); // Chamada para atualizar o banner de seleção
+    atualizarFaixaSelecaoCampanha();
   }
 }
 
 // cole perto dos outros helpers de UI
 async function atualizarFaixaSelecaoCampanha() {
   try {
-    if (!state.selectedCard) { // Se nenhum card está selecionado, o banner deve ser vazio ou ter uma mensagem padrão.
+    if (!state.selectedCard) { 
       const faixa = document.querySelector('[data-js="selecionados-banner"]');
-      if (faixa) faixa.textContent = ''; // Limpa ou define uma mensagem padrão
+      if (faixa) faixa.textContent = '';
       return;
     }
 
@@ -1975,8 +1945,7 @@ async function atualizarFaixaSelecaoCampanha() {
 
     const faixa = document.querySelector('[data-js="selecionados-banner"]');
     if (faixa) {
-      // exemplo de texto: "32 nesta página • toda a campanha: 209 selecionados (filtrados)"
-      const paginaSel = getSelecionados().length; // Usa getSelecionados() para contar itens marcados na página atual
+      const paginaSel = getSelecionados().length;
       faixa.textContent = `${paginaSel} selecionados nesta página • toda a campanha: ${totalFiltrados ?? '…'} selecionados (filtrados)`;
     }
   } catch (_) {
@@ -1984,11 +1953,9 @@ async function atualizarFaixaSelecaoCampanha() {
   }
 }
 
-
 /* ======================== Exports de utilidade no window ======================== */
 
 window.__PromoState = state;
-// window.__PromoDebug = PromoDebug; // Removido
 window.__JobsWatcher = JobsWatcher;
 
 /* ======================== Shims opcionais (evita erros se painel não existir) ======================== */
@@ -1997,40 +1964,40 @@ if (!window.JobsPanel) {
   window.JobsPanel = {
     addLocalJob(info){
       const id = `local-${Date.now()}`;
-      console.log(`JobsPanel shim: addLocalJob ${id} "${info?.title||''}"`); // Usado console.log
+      console.log(`JobsPanel shim: addLocalJob ${id} "${info?.title||''}"`);
       return id;
     },
     updateLocalJob(id, data){
-      console.log(`JobsPanel shim: update ${id} → ${JSON.stringify(data)}`); // Usado console.log
+      console.log(`JobsPanel shim: update ${id} → ${JSON.stringify(data)}`);
     },
     replaceId(oldId, newId){
-      console.log(`JobsPanel shim: replace ${oldId} → ${newId}`); // Usado console.log
-    }
+      console.log(`JobsPanel shim: replace ${oldId} → ${newId}`);
+    },
+    mergeApiJobs(list){
+      console.log('JobsPanel shim: mergeApiJobs', list);
+    },
+    show(){ console.log('JobsPanel shim: show()'); }
   };
 }
 
 if (!window.PromoBulk) {
   window.PromoBulk = {
-    setContext(ctx){ console.log(`PromoBulk shim: context → ${JSON.stringify(ctx)}`); }, // Usado console.log
-    onHeaderToggle(all){ console.log(`PromoBulk shim: header toggle = ${all}`); } // Usado console.log
+    setContext(ctx){ console.log(`PromoBulk shim: context → ${JSON.stringify(ctx)}`); },
+    onHeaderToggle(all){ console.log(`PromoBulk shim: header toggle = ${all}`); }
   };
 }
-
-/* ======================== Util: botão de copiar logs (opcional) ======================== */
-
-// (Seção addCopyLogsButton removida integralmente)
 
 /* ======================== Guard rails para erros não-capturados ======================== */
 
 window.addEventListener('unhandledrejection', (ev) => {
   try {
-    console.error(`Promise rejeitada: ${ev.reason?.message || ev.reason || 'erro'}`); // Usado console.error
+    console.error(`Promise rejeitada: ${ev.reason?.message || ev.reason || 'erro'}`);
   } catch {}
 });
 
 window.addEventListener('error', (ev) => {
   try {
-    console.error(`Erro JS: ${ev.message} @ ${ev.filename}:${ev.lineno}`); // Usado console.error
+    console.error(`Erro JS: ${ev.message} @ ${ev.filename}:${ev.lineno}`);
   } catch {}
 });
 
@@ -2055,17 +2022,13 @@ function clamp(n, min, max) {
 /* ======================== Experimentos / flags (mantido para toggles rápidos) ======================== */
 
 const Flags = {
-  dealPricePriceDeltaEnabled: true, // considerar price como ΔR$ quando candidate-like e sem sugestões
+  dealPricePriceDeltaEnabled: true,
   jobsWatcherEnabled: true,
-  // debugPanelEnabled: true, // Removido
 };
 
-console.log('Flags ativas: ' + JSON.stringify(Flags)); // Usado console.log
+console.log('Flags ativas: ' + JSON.stringify(Flags));
 
-// 🔧 CORREÇÃO: Inicialização melhorada do JobsWatcher
-window.__JobsWatcher = JobsWatcher;
-
-// Auto-iniciar se a flag estiver ativa
+// Auto-iniciar watcher se a flag estiver ativa
 if (Flags.jobsWatcherEnabled) {
   setTimeout(() => {
     JobsWatcher.start();
@@ -2073,8 +2036,16 @@ if (Flags.jobsWatcherEnabled) {
       isRunning: JobsWatcher.isRunning(),
       flagEnabled: Flags.jobsWatcherEnabled
     });
-  }, 1000); // Delay para garantir que tudo esteja carregado
+  }, 1000);
 }
 
-/* ======================== Estilos mínimos para o painel (fallback) ======================== */
-// (Seção injectDebugStyles removida integralmente)
+/* ======================== Boot ======================== */
+
+document.addEventListener('DOMContentLoaded', async () => {
+  hideLeadingRebateColumnIfPresent();
+  updateSelectedCampaignName();
+  HUD.reset();
+  JobsWatcher.start();
+  await carregarCards();
+  atualizarFaixaSelecaoCampanha();
+});
