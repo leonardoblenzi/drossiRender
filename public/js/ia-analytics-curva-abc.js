@@ -18,11 +18,9 @@
   // PROGRESS UI (barra lateral)
   // =========================================================
   function ensureProgressPanel() {
-    // Se já existe um painel custom no seu HTML/CSS, use ele:
     let panel = $('reportProgressPanel');
     if (panel) return panel;
 
-    // fallback: cria um painel básico
     panel = document.createElement('div');
     panel.id = 'reportProgressPanel';
     panel.style.cssText = `
@@ -77,17 +75,11 @@
     qs('#rpPct', p).textContent = clamped.toFixed(0) + '%';
   }
 
-  // =========================================================
   // Helpers
-  // =========================================================
-  // mantém apenas itens com vendas no período
-    function keepOnlySold(row) {
-      return Number(row?.units || 0) > 0; // ajuste aqui caso queira outra regra
-    }
+  function keepOnlySold(row) {
+    return Number(row?.units || 0) > 0;
+  }
 
-
-
-  // fetch com timeout (polyfill robusto)
   async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -99,7 +91,6 @@
     }
   }
 
-  // 🔵 Badge "ADS: Status"
   function adsBadgeHTML(statusCode, statusText, hasActivity) {
     const cls =
       statusCode === 'active' ? 'ads-yes' :
@@ -130,7 +121,7 @@
     curveCards: null
   };
 
-  // ===== Topbar
+  // Topbar
   async function initTopBar() {
     try {
       const r = await fetch('/api/account/current', { cache: 'no-store' });
@@ -156,7 +147,6 @@
     });
   }
 
-  // Datas padrão (30 dias)
   function setDefaultDates() {
     const to = new Date();
     const from = new Date(to);
@@ -165,7 +155,6 @@
     $('fDateTo').value   = to.toISOString().slice(0, 10);
   }
 
-  // Contas
   async function loadAccounts() {
     const sel = $('fAccounts'); sel.innerHTML = '';
     try {
@@ -189,7 +178,6 @@
     }
   }
 
-  // Filtros
   function getFilters(extra = {}) {
     const base = {
       date_from: $('fDateFrom').value,
@@ -208,7 +196,6 @@
     return Object.assign(base, extra);
   }
 
-  // Loading overlay
   function setLoading(on) {
     state.loading = on;
     let overlay = qs('#abcLoading');
@@ -230,7 +217,6 @@
     }
   }
 
-  // ===== Cards pequenos (A/B/C/Total)
   function renderMiniCards() {
     const cc = state.curveCards || {};
     const T  = state.totals || {};
@@ -260,7 +246,6 @@
     $('kT_ticket').textContent = fmtMoneyCents(tUnits > 0 ? Math.round(tRev / tUnits) : 0);
   }
 
-  // Meta dos cards (texto sob o título)
   function renderCardsMeta(curves) {
     const safe = (obj) => obj || { share: 0, count_items: 0 };
     const A = safe(curves?.A), B = safe(curves?.B), C = safe(curves?.C);
@@ -269,7 +254,6 @@
     $('cardCmeta').textContent = `${(C.share * 100).toFixed(1)}% • ${C.count_items} itens`;
   }
 
-  // Top 5
   function fillUL(id, arr) {
     const ul = $(id);
     ul.innerHTML = '';
@@ -283,7 +267,6 @@
     });
   }
 
-  // Summary
   async function loadSummary() {
     setLoading(true);
     try {
@@ -308,7 +291,6 @@
     }
   }
 
-  // Seleção visual
   function setSelection(tag) {
     qsa('.cards .card').forEach(c => c.classList.remove('selected'));
     if (tag === 'TOTAL') {
@@ -320,151 +302,145 @@
     }
   }
 
-  
-
-  // ===== Renderização da Tabela
- // Substitua sua função renderTable por esta:
-function renderTable(rows, page, total, limit) {
-  state.lastItems = Array.isArray(rows) ? rows : [];
-  state.page = page;
-
-  const tb = qs('#grid tbody');
-  tb.innerHTML = '';
-
-  const T = state.totals || {};
-  const uTotal = Number(T.units_total || 0);
-  const rTotal = Number(T.revenue_cents_total || 0);
-
-  (state.lastItems).forEach((r, idx) => {
-    try {
-      const curve = r.curve || '-';
-      const pillClass = curve ? `idx-${curve}` : '';
-
-      const unitShare = typeof r.unit_share === 'number' ? r.unit_share : (uTotal > 0 ? (r.units || 0) / uTotal : 0);
-      const revShare  = typeof r.revenue_share === 'number' ? r.revenue_share : (rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0);
-
-      const promoActive = !!(r.promo && r.promo.active);
-      const promoPct = (r.promo && r.promo.percent != null) ? Number(r.promo.percent) : null;
-      const promoTxt = promoActive ? 'Sim' : 'Não';
-      const promoPctTxt = (promoActive && promoPct != null) ? fmtPct(promoPct) : '—';
-
-      const ads = r.ads || {};
-      const statusCode = ads.status_code || (ads.in_campaign ? 'active' : 'none');
-      const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
-      const clicks = Number(ads.clicks || 0);
-      const imps   = Number(ads.impressions || 0);
-      const spendC = Number(ads.spend_cents || 0);
-      const aRevC  = Number(ads.revenue_cents || 0);
-      const hasActivity = !!ads.had_activity || (clicks + imps + spendC + aRevC) > 0;
-      const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><span class="idx-pill ${pillClass}">${curve}</span></td>
-        <td>${r.mlb || ''}</td>
-        <td>${r.title || ''}</td>
-        <td>${(r.units || 0).toLocaleString('pt-BR')}</td>
-        <td class="percent">${fmtPct(unitShare)}</td>
-        <td class="num">${fmtMoneyCents(r.revenue_cents || 0)}</td>
-        <td class="percent">${fmtPct(revShare)}</td>
-        <td>${promoTxt}</td>
-        <td class="percent">${promoPctTxt}</td>
-        <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
-        <td class="num">${clicks.toLocaleString('pt-BR')}</td>
-        <td class="num">${imps.toLocaleString('pt-BR')}</td>
-        <td class="num">${fmtMoneyCents(spendC)}</td>
-        <td class="percent">${hasActivity && acosVal !== null ? fmtPct(acosVal) : '—'}</td>
-        <td class="num">${fmtMoneyCents(aRevC)}</td>
-      `;
-      tb.appendChild(tr);
-    } catch (rowErr) {
-      console.error('Falha ao renderizar linha', idx, rowErr, r);
-      // não aborta toda a tabela — só pula a linha com problema
-    }
-  });
-
-  renderPagination(page, total, limit);
-}
-
-// Substitua sua função loadItems por esta:
-async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
-  setLoading(true);
-  try {
-    state.curveTab = curve;
+  function renderTable(rows, page, total, limit) {
+    state.lastItems = Array.isArray(rows) ? rows : [];
     state.page = page;
 
-    if (curve === 'ALL' && state.sort === 'share') {
-      setSelection('TOTAL');
-    } else if (curve === 'ALL') {
-      qsa('.cards .card').forEach(c => c.classList.remove('selected'));
-    } else {
-      setSelection(curve);
-    }
+    const tb = qs('#grid tbody');
+    tb.innerHTML = '';
 
-    const base = getFilters({ curve, page, limit: state.limit, include_ads: '1' });
-    const s = $('fSearch').value?.trim();
-    if (s) base.search = s;
+    const T = state.totals || {};
+    const uTotal = Number(T.units_total || 0);
+    const rTotal = Number(T.revenue_cents_total || 0);
 
-    const params = new URLSearchParams(base).toString();
-    const url = `/api/analytics/abc-ml/items?${params}`;
+    (state.lastItems).forEach((r, idx) => {
+      try {
+        const curve = r.curve || '-';
+        const pillClass = curve ? `idx-${curve}` : '';
 
-    // usa o mesmo timeout robusto do export (evita “signal timed out”)
-    const resp = await fetchWithTimeout(url, { credentials: 'same-origin' }, 90000);
-    if (!resp.ok) {
-      throw new Error(`items HTTP ${resp.status}`);
-    }
-    const j = await resp.json();
+        const unitShare = typeof r.unit_share === 'number' ? r.unit_share : (uTotal > 0 ? (r.units || 0) / uTotal : 0);
+        const revShare  = typeof r.revenue_share === 'number' ? r.revenue_share : (rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0);
 
-    if (!j || !Array.isArray(j.data)) {
-      console.warn('Resposta inesperada de /items', j);
-      renderTable([], j?.page || page, j?.total || 0, j?.limit || state.limit);
-      return;
-    }
+        const promoActive = !!(r.promo && r.promo.active);
+        const promoPct = (r.promo && r.promo.percent != null) ? Number(r.promo.percent) : null;
+        const promoTxt = promoActive ? 'Sim' : 'Não';
+        const promoPctTxt = (promoActive && promoPct != null) ? fmtPct(promoPct) : '—';
 
-    let rows = j.data.slice();
+        const ads = r.ads || {};
+        const statusCode = ads.status_code || (ads.in_campaign ? 'active' : 'none');
+        const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
+        const clicks = Number(ads.clicks || 0);
+        const imps   = Number(ads.impressions || 0);
+        const spendC = Number(ads.spend_cents || 0);
+        const aRevC  = Number(ads.revenue_cents || 0);
+        const hasActivity = !!ads.had_activity || (clicks + imps + spendC + aRevC) > 0;
+        const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
 
-    // FILTRO: somente itens com vendas > 0
-    rows = rows.filter(keepOnlySold);
-    // ordenações consistentes
-    if (state.sort === 'share') {
-      const T = state.totals || {};
-      const rTotal = Number(T.revenue_cents_total || 0);
-      rows = rows
-        .map(it => {
-          const share = (typeof it.revenue_share === 'number')
-            ? it.revenue_share
-            : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
-          return { ...it, __share__: share };
-        })
-        .sort((a, b) => b.__share__ - a.__share__);
-    } else if (state.metric === 'revenue') {
-      rows.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
-    } else {
-      rows.sort((a, b) => (b.units || 0) - (a.units || 0));
-    }
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><span class="idx-pill ${pillClass}">${curve}</span></td>
+          <td>${r.mlb || ''}</td>
+          <td>${r.title || ''}</td>
+          <td>${(r.units || 0).toLocaleString('pt-BR')}</td>
+          <td class="percent">${fmtPct(unitShare)}</td>
+          <td class="num">${fmtMoneyCents(r.revenue_cents || 0)}</td>
+          <td class="percent">${fmtPct(revShare)}</td>
+          <td>${promoTxt}</td>
+          <td class="percent">${promoPctTxt}</td>
+          <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
+          <td class="num">${clicks.toLocaleString('pt-BR')}</td>
+          <td class="num">${imps.toLocaleString('pt-BR')}</td>
+          <td class="num">${fmtMoneyCents(spendC)}</td>
+          <td class="percent">${hasActivity && acosVal !== null ? fmtPct(acosVal) : '—'}</td>
+          <td class="num">${fmtMoneyCents(aRevC)}</td>
+        `;
+        tb.appendChild(tr);
+      } catch (rowErr) {
+        console.error('Falha ao renderizar linha', idx, rowErr, r);
+      }
+    });
 
-    renderTable(rows, j.page || page, j.total ?? rows.length, j.limit || state.limit);
-  } catch (e) {
-    console.error(e);
-    // se o painel de progresso estiver aberto, loga lá também
-    const p = document.getElementById('reportProgressPanel');
-    if (p && p.style.display !== 'none') {
-      const log = document.createElement('div');
-      log.textContent = 'Erro ao carregar itens: ' + (e?.message || e);
-      log.style.color = '#b42318';
-      log.style.margin = '4px 0';
-      p.querySelector('#rpLog')?.appendChild(log);
-    }
-    alert('❌ Falha ao carregar itens da Curva ABC: ' + (e?.message || e));
-    // evita deixar a tabela “congelada”
-    renderTable([], page, 0, state.limit);
-  } finally {
-    setLoading(false);
+    renderPagination(page, total, limit);
   }
-}
 
+  async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
+    setLoading(true);
+    try {
+      state.curveTab = curve;
+      state.page = page;
 
-  // ===== Paginador
+      if (curve === 'ALL' && state.sort === 'share') {
+        setSelection('TOTAL');
+      } else if (curve === 'ALL') {
+        qsa('.cards .card').forEach(c => c.classList.remove('selected'));
+      } else {
+        setSelection(curve);
+      }
+
+            const base = getFilters({
+        curve,
+        page,
+        limit: state.limit,
+        include_ads: '1',
+        include_visits: '1' // [VISITS FIX] já traz visitas pra grade também
+      });
+
+      const s = $('fSearch').value?.trim();
+      if (s) base.search = s;
+
+      const params = new URLSearchParams(base).toString();
+      const url = `/api/analytics/abc-ml/items?${params}`;
+
+      const resp = await fetchWithTimeout(url, { credentials: 'same-origin' }, 90000);
+      if (!resp.ok) {
+        throw new Error(`items HTTP ${resp.status}`);
+      }
+      const j = await resp.json();
+
+      if (!j || !Array.isArray(j.data)) {
+        console.warn('Resposta inesperada de /items', j);
+        renderTable([], j?.page || page, j?.total || 0, j?.limit || state.limit);
+        return;
+      }
+
+      let rows = j.data.slice();
+
+      rows = rows.filter(keepOnlySold);
+      if (state.sort === 'share') {
+        const T = state.totals || {};
+        const rTotal = Number(T.revenue_cents_total || 0);
+        rows = rows
+          .map(it => {
+            const share = (typeof it.revenue_share === 'number')
+              ? it.revenue_share
+              : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
+            return { ...it, __share__: share };
+          })
+          .sort((a, b) => b.__share__ - a.__share__);
+      } else if (state.metric === 'revenue') {
+        rows.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
+      } else {
+        rows.sort((a, b) => (b.units || 0) - (a.units || 0));
+      }
+
+      renderTable(rows, j.page || page, j.total ?? rows.length, j.limit || state.limit);
+    } catch (e) {
+      console.error(e);
+      const p = document.getElementById('reportProgressPanel');
+      if (p && p.style.display !== 'none') {
+        const log = document.createElement('div');
+        log.textContent = 'Erro ao carregar itens: ' + (e?.message || e);
+        log.style.color = '#b42318';
+        log.style.margin = '4px 0';
+        p.querySelector('#rpLog')?.appendChild(log);
+      }
+      alert('❌ Falha ao carregar itens da Curva ABC: ' + (e?.message || e));
+      renderTable([], page, 0, state.limit);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function renderPagination(page, total, limit) {
     const pager = $('pager');
     const totalPages = Math.max(1, Math.ceil((total || 0) / (limit || 20)));
@@ -496,215 +472,201 @@ async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
     loadItems(curve, p);
   }
 
-// ===== Busca paginada com total real e opção "strictAds"
-async function fetchAllPages(onProgress, opts = {}) {
-  const {
-    limit = 120,          // menor para aliviar o endpoint de ADS
-    withAds = true,
-    timeoutMs = 120000,   // 120s no export
-    maxRetries = 3,
-    strictAds = false     // <-- NOVO: se true, não cai para sem ADS
-  } = opts;
+  // ===== Busca paginada com total real e opção "strictAds"
+  async function fetchAllPages(onProgress, opts = {}) {
+    const {
+      limit = 120,
+      withAds = true,
+      timeoutMs = 120000,
+      maxRetries = 3,
+      strictAds = false
+    } = opts;
 
-  const fetchItemsPage = async (page, tryWithAds) => {
-    const base = getFilters({
-      curve: state.curveTab || 'ALL',
-      page,
-      limit,
-      include_ads: tryWithAds ? '1' : '0',
-      include_visits: '1'
-    });
-    const params = new URLSearchParams(base).toString();
-    const url = `/api/analytics/abc-ml/items?${params}`;
+    const fetchItemsPage = async (page, tryWithAds) => {
+      const base = getFilters({
+        curve: state.curveTab || 'ALL',
+        page,
+        limit,
+        include_ads: tryWithAds ? '1' : '0',
+        include_visits: '1'
+      });
+      const params = new URLSearchParams(base).toString();
+      const url = `/api/analytics/abc-ml/items?${params}`;
 
-    let lastErr;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const r = await fetchWithTimeout(url, { credentials: 'same-origin' }, timeoutMs);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return await r.json();
-      } catch (e) {
-        lastErr = e;
-        await new Promise(res => setTimeout(res, 400 * attempt));
+      let lastErr;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const r = await fetchWithTimeout(url, { credentials: 'same-origin' }, timeoutMs);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return await r.json();
+        } catch (e) {
+          lastErr = e;
+          await new Promise(res => setTimeout(res, 400 * attempt));
+        }
       }
-    }
-    throw lastErr || new Error('Falha ao buscar página');
-  };
+      throw lastErr || new Error('Falha ao buscar página');
+    };
 
-  const all = [];
+    const all = [];
 
-  // 1) página 1 primeiro (para saber total real)
-  let first, totalPages, usedAdsForFirst = withAds;
-  try {
-    first = await fetchItemsPage(1, withAds);
-  } catch (e1) {
-    if (strictAds) {
-      throw new Error('Página 1 falhou com ADS (strictAds ativo).');
-    }
-    logProgress?.('Página 1: timeout/erro com ADS — tentando sem ADS…', 'warn');
-    first = await fetchItemsPage(1, false);
-    usedAdsForFirst = false;
-  }
-
-  const firstLimit = Number(first?.limit || limit) || limit;
-  const firstTotal = Number(first?.total || 0);
-  totalPages = Math.max(1, Math.ceil(firstTotal / firstLimit));
-
-  typeof onProgress === 'function' &&
-    onProgress({ page: 0, totalPages, withAds: usedAdsForFirst });
-
-  if (Array.isArray(first?.data)) all.push(...first.data);
-
-  // 2) páginas 2..N
-  for (let page = 2; page <= totalPages; page++) {
+    let first, totalPages, usedAdsForFirst = withAds;
     try {
-      const j = await fetchItemsPage(page, withAds);
-      if (Array.isArray(j?.data)) all.push(...j.data);
-      typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: true });
+      first = await fetchItemsPage(1, withAds);
     } catch (e1) {
       if (strictAds) {
-        throw new Error(`Página ${page} falhou com ADS (strictAds ativo).`);
+        throw new Error('Página 1 falhou com ADS (strictAds ativo).');
       }
-      logProgress?.(`Página ${page}: timeout/erro com ADS — tentando sem ADS…`, 'warn');
-      const j2 = await fetchItemsPage(page, false);
-      if (Array.isArray(j2?.data)) all.push(...j2.data);
-      typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: false });
+      logProgress?.('Página 1: timeout/erro com ADS — tentando sem ADS…', 'warn');
+      first = await fetchItemsPage(1, false);
+      usedAdsForFirst = false;
     }
+
+    const firstLimit = Number(first?.limit || limit) || limit;
+    const firstTotal = Number(first?.total || 0);
+    totalPages = Math.max(1, Math.ceil(firstTotal / firstLimit));
+
+    typeof onProgress === 'function' &&
+      onProgress({ page: 0, totalPages, withAds: usedAdsForFirst });
+
+    if (Array.isArray(first?.data)) all.push(...first.data);
+
+    for (let page = 2; page <= totalPages; page++) {
+      try {
+        const j = await fetchItemsPage(page, withAds);
+        if (Array.isArray(j?.data)) all.push(...j.data);
+        typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: true });
+      } catch (e1) {
+        if (strictAds) {
+          throw new Error(`Página ${page} falhou com ADS (strictAds ativo).`);
+        }
+        logProgress?.(`Página ${page}: timeout/erro com ADS — tentando sem ADS…`, 'warn');
+        const j2 = await fetchItemsPage(page, false);
+        if (Array.isArray(j2?.data)) all.push(...j2.data);
+        typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: false });
+      }
+    }
+
+    return all;
   }
 
-  return all;
-}
+  async function exportCSV() {
+    const safeProgress = (cur, tot, opts) =>
+      (progressFab && typeof progressFab.progress === 'function')
+        ? progressFab.progress(cur, tot, opts)
+        : null;
 
+    try {
+      setLoading(true);
+      progressFab.show('Carregando dados para exportação…');
 
+      const allRows = await fetchAllPages(
+        ({ page, totalPages, withAds }) => safeProgress(page, totalPages, { withAds }),
+        { limit: 120, withAds: true, timeoutMs: 120000, strictAds: true }
+      );
 
-async function exportCSV() {
-  // helper: não quebra se o FAB antigo estiver no cache
-  const safeProgress = (cur, tot, opts) =>
-    (progressFab && typeof progressFab.progress === 'function')
-      ? progressFab.progress(cur, tot, opts)
-      : null;
+      progressFab.message('Gerando CSV…');
 
-  try {
-    setLoading(true);
-    progressFab.show('Carregando dados para exportação…');
+      const rowsForCsv = allRows.slice();
+      if (state.sort === 'share' || state.metric === 'revenue') {
+        rowsForCsv.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
+      } else {
+        rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
+      }
 
-    // Busca todas as páginas com ADS obrigatório (garante métricas no CSV)
-    const allRows = await fetchAllPages(
-      ({ page, totalPages, withAds }) => safeProgress(page, totalPages, { withAds }),
-      { limit: 120, withAds: true, timeoutMs: 120000, strictAds: true }
-    );
+      const rowsFiltered = rowsForCsv.filter(r => Number(r.units || 0) > 0);
 
-    progressFab.message('Gerando CSV…');
+      const uTotal = rowsFiltered.reduce((s, r) => s + (r.units || 0), 0);
+      const rTotal = rowsFiltered.reduce((s, r) => s + (r.revenue_cents || 0), 0);
 
-    // Ordenação consistente com a tela
-    const rowsForCsv = allRows.slice();
-    if (state.sort === 'share' || state.metric === 'revenue') {
-      rowsForCsv.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
-    } else {
-      rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
-    }
-
-    // (opcional) filtra itens sem venda para não inflar contagem
-    const rowsFiltered = rowsForCsv.filter(r => Number(r.units || 0) > 0);
-
-    // Totais para calcular %
-    const uTotal = rowsFiltered.reduce((s, r) => s + (r.units || 0), 0);
-    const rTotal = rowsFiltered.reduce((s, r) => s + (r.revenue_cents || 0), 0);
-
-    const head = [
-      'Índice','MLB','Título',
-      'Unidades','Unid. (%)','Valor','FATURAMENTO %',
-      'PROMO','% APLICADA',
-      'ADS','Cliq.','Impr.','Visit.','Conv.',
-      'Invest.','ACOS','Receita Ads',
-      'Vendas 7D','Vendas 15D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
-    ];
-
-    const rows = rowsFiltered.map(r => {
-      const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
-      const revShare  = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
-
-      const promoActive = !!(r.promo && r.promo.active);
-      const promoTxt = promoActive ? 'Sim' : 'Não';
-      const promoPct = (r.promo && r.promo.percent != null) ? Number(r.promo.percent) : null;
-      const promoPctCsv = (promoActive && promoPct != null)
-        ? (promoPct * 100).toFixed(2).replace('.', ',') + '%'
-        : '—';
-
-      const ads = r.ads || {};
-      const clicks = Number(ads.clicks || 0);
-      const imps   = Number(ads.impressions || 0);
-      const spendC = Number(ads.spend_cents || 0);
-      const aRevC  = Number(ads.revenue_cents || 0);
-      const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
-      const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
-
-      const visits = Number(r.visits || 0);
-      const conv   = visits > 0 ? (Number(r.units || 0) / visits) : null;
-
-      return [
-        r.curve || '-',
-        r.mlb || '',
-        (r.title || '').replace(/"/g, '""'),
-
-        (r.units || 0),
-        (unitShare * 100).toFixed(2).replace('.', ',') + '%',
-        (Number(r.revenue_cents || 0) / 100).toFixed(2).replace('.', ','),
-        (revShare * 100).toFixed(2).replace('.', ',') + '%',
-
-        promoTxt,
-        promoPctCsv,
-
-        statusText,
-        clicks,
-        imps,
-        visits,
-        conv != null ? (conv * 100).toFixed(2).replace('.', ',') + '%' : '—',
-
-        (spendC / 100).toFixed(2).replace('.', ','),
-        acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
-        (aRevC / 100).toFixed(2).replace('.', ','),
-
-        Number(r.units_7d  || 0),
-        Number(r.units_15d || 0),
-        Number(r.units_30d || 0),
-        Number(r.units_40d || 0),
-        Number(r.units_60d || 0),
-        Number(r.units_90d || 0)
+      const head = [
+        'Índice','MLB','Título',
+        'Unidades','Unid. (%)','Valor','FATURAMENTO %',
+        'PROMO','% APLICADA',
+        'ADS','Cliq.','Impr.','Visit.','Conv.',
+        'Invest.','ACOS','Receita Ads',
+        'Vendas 7D','Vendas 15D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
       ];
-    });
 
-    const data = [head, ...rows]
-      .map(cols => cols.map(c => `"${String(c)}"`).join(';'))
-      .join('\r\n');
+      const rows = rowsFiltered.map(r => {
+        const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
+        const revShare  = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
 
-    const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'curva_abc.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+        const promoActive = !!(r.promo && r.promo.active);
+        const promoTxt = promoActive ? 'Sim' : 'Não';
+        const promoPct = (r.promo && r.promo.percent != null) ? Number(r.promo.percent) : null;
+        const promoPctCsv = (promoActive && promoPct != null)
+          ? (promoPct * 100).toFixed(2).replace('.', ',') + '%'
+          : '—';
 
-    progressFab.message('Concluído!');
-    progressFab.done(true);
-  } catch (e) {
-    console.error(e);
-    progressFab.message('Falha: ' + (e?.message || e));
-    progressFab.done(false);
-    alert('❌ Falha ao exportar CSV: ' + (e?.message || e));
-  } finally {
-    setLoading(false);
+        const ads = r.ads || {};
+        const clicks = Number(ads.clicks || 0);
+        const imps   = Number(ads.impressions || 0);
+        const spendC = Number(ads.spend_cents || 0);
+        const aRevC  = Number(ads.revenue_cents || 0);
+        const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
+        const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
+
+        const visits = Number(r.visits || r.visits_total || 0);
+        const conv   = visits > 0 ? (Number(r.units || 0) / visits) : null;
+
+        return [
+          r.curve || '-',
+          r.mlb || '',
+          (r.title || '').replace(/"/g, '""'),
+
+          (r.units || 0),
+          (unitShare * 100).toFixed(2).replace('.', ',') + '%',
+          (Number(r.revenue_cents || 0) / 100).toFixed(2).replace('.', ','),
+          (revShare * 100).toFixed(2).replace('.', ',') + '%',
+
+          promoTxt,
+          promoPctCsv,
+
+          statusText,
+          clicks,
+          imps,
+          visits,
+          conv != null ? (conv * 100).toFixed(2).replace('.', ',') + '%' : '—',
+
+          (spendC / 100).toFixed(2).replace('.', ','),
+          acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
+          (aRevC / 100).toFixed(2).replace('.', ','),
+
+          Number(r.units_7d  || 0),
+          Number(r.units_15d || 0),
+          Number(r.units_30d || 0),
+          Number(r.units_40d || 0),
+          Number(r.units_60d || 0),
+          Number(r.units_90d || 0)
+        ];
+      });
+
+      const data = [head, ...rows]
+        .map(cols => cols.map(c => `"${String(c)}"`).join(';'))
+        .join('\r\n');
+
+      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'curva_abc.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+
+      progressFab.message('Concluído!');
+      progressFab.done(true);
+    } catch (e) {
+      console.error(e);
+      progressFab.message('Falha: ' + (e?.message || e));
+      progressFab.done(false);
+      alert('❌ Falha ao exportar CSV: ' + (e?.message || e));
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
-
-
-
-
-  // ===== Bind
   function debounce(fn, ms = 300) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
   function applySwitchDefaults(){
     qsa('#switch-groupby .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.group === state.groupBy));
@@ -768,71 +730,67 @@ async function exportCSV() {
     if (btnCsv) btnCsv.addEventListener('click', exportCSV);
   }
 
-// === FAB de progresso (canto inferior direito) — sempre com "progress" ===
-const progressFab = (() => {
-  let root, icon, msgEl, pctEl;
+  const progressFab = (() => {
+    let root, icon, msgEl, pctEl;
 
-  function ensure() {
-    if (root) return root;
-    root = document.createElement('div');
-    root.id = 'reportFab';
-    root.innerHTML = `
-      <div class="rf-row">
-        <span id="rfIcon" class="rf-spinner"></span>
-        <div style="display:flex;flex-direction:column;gap:2px">
-          <div class="rf-title">Processando relatório</div>
-          <div id="rfMsg" class="rf-msg">Preparando…</div>
-          <div id="rfPct" class="rf-pct" aria-live="polite"></div>
+    function ensure() {
+      if (root) return root;
+      root = document.createElement('div');
+      root.id = 'reportFab';
+      root.innerHTML = `
+        <div class="rf-row">
+          <span id="rfIcon" class="rf-spinner"></span>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div class="rf-title">Processando relatório</div>
+            <div id="rfMsg" class="rf-msg">Preparando…</div>
+            <div id="rfPct" class="rf-pct" aria-live="polite"></div>
+          </div>
+          <button id="rfClose" class="rf-close" title="Fechar" type="button">×</button>
         </div>
-        <button id="rfClose" class="rf-close" title="Fechar" type="button">×</button>
-      </div>
-    `;
-    document.body.appendChild(root);
-    icon  = root.querySelector('#rfIcon');
-    msgEl = root.querySelector('#rfMsg');
-    pctEl = root.querySelector('#rfPct');
-    root.querySelector('#rfClose').onclick = hide;
-    return root;
-  }
+      `;
+      document.body.appendChild(root);
+      icon  = root.querySelector('#rfIcon');
+      msgEl = root.querySelector('#rfMsg');
+      pctEl = root.querySelector('#rfPct');
+      root.querySelector('#rfClose').onclick = hide;
+      return root;
+    }
 
-  function show(message = 'Processando…') {
-    ensure();
-    root.style.display = 'block';
-    icon.className = 'rf-spinner';
-    msgEl.textContent = message;
-    pctEl.textContent = '';
-  }
+    function show(message = 'Processando…') {
+      ensure();
+      root.style.display = 'block';
+      icon.className = 'rf-spinner';
+      msgEl.textContent = message;
+      pctEl.textContent = '';
+    }
 
-  function message(m) {
-    ensure();
-    msgEl.textContent = m;
-  }
+    function message(m) {
+      ensure();
+      msgEl.textContent = m;
+    }
 
-  // NOVO: sempre presente
-  function progress(current, total, opts = {}) {
-    ensure();
-    const safeTotal = Math.max(1, Number(total || 1));
-    const cur = Math.max(0, Math.min(Number(current || 0), safeTotal));
-    const pct = Math.floor((cur / safeTotal) * 100);
-    const hint = opts.withAds === false ? ' • (sem ADS nesta página)' : '';
-    pctEl.textContent = `${cur}/${safeTotal} (${pct}%)${hint}`;
-  }
+    function progress(current, total, opts = {}) {
+      ensure();
+      const safeTotal = Math.max(1, Number(total || 1));
+      const cur = Math.max(0, Math.min(Number(current || 0), safeTotal));
+      const pct = Math.floor((cur / safeTotal) * 100);
+      const hint = opts.withAds === false ? ' • (sem ADS nesta página)' : '';
+      pctEl.textContent = `${cur}/${safeTotal} (${pct}%)${hint}`;
+    }
 
-  function done(ok = true) {
-    ensure();
-    icon.className = ok ? 'rf-check' : 'rf-check err';
-    setTimeout(hide, 2200);
-  }
+    function done(ok = true) {
+      ensure();
+      icon.className = ok ? 'rf-check' : 'rf-check err';
+      setTimeout(hide, 2200);
+    }
 
-  function hide() {
-    if (root) root.style.display = 'none';
-  }
+    function hide() {
+      if (root) root.style.display = 'none';
+    }
 
-  return { show, message, progress, done, hide };
-})();
+    return { show, message, progress, done, hide };
+  })();
 
-
-  // ===== Boot
   window.addEventListener('DOMContentLoaded', async () => {
     await initTopBar();
     setDefaultDates();

@@ -156,6 +156,16 @@ function parseCommonQuery(q) {
   };
 }
 
+/** Boolean query helper (aceita 1, true, yes, on) */
+function parseBoolParam(v, def = false) {
+  if (v === undefined || v === null) return def;
+  const s = String(v).toLowerCase().trim();
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off'].includes(s)) return false;
+  return def;
+}
+
+
 /** GET /api/analytics/abc-ml/summary */
 router.get('/abc-ml/summary', async (req, res) => {
   const p = parseCommonQuery(req.query);
@@ -299,6 +309,99 @@ async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
   if (lastErr) throw lastErr;
   return null;
 }
+
+async function fetchVisitsForItems({ token, itemIds, date_from, date_to, dbgArr }) {
+  const out = {};
+
+  const ids = Array.from(
+    new Set((itemIds || []).map(id => String(id).toUpperCase()).filter(Boolean))
+  );
+  if (!ids.length) return out;
+
+  // Normaliza para formato aceito pelo /items/visits: YYYY-MM-DD
+  const toYMD = (d) => {
+    if (!d) return null;
+    if (typeof d === 'string') return d.slice(0, 10);
+    try {
+      return d.toISOString().slice(0, 10);
+    } catch {
+      return null;
+    }
+  };
+
+  const df = toYMD(date_from);
+  const dt = toYMD(date_to);
+
+  // ⚠️ Alguns módulos da API retornam:
+  // "maximum amount of items to query is 1"
+  // Então aqui vamos garantir 1 item por chamada.
+  const CHUNK = 1;
+
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK); // na prática, sempre 1
+
+    const qs = new URLSearchParams();
+    qs.set('ids', slice.join(','));   // ex: "MLB123..."
+    qs.set('date_from', df);          // ex: "2025-10-25"
+    qs.set('date_to', dt);            // ex: "2025-11-23"
+    qs.set('unit', 'day');            // granularidade diária
+    if (token) qs.set('access_token', token);
+
+    const url = `https://api.mercadolibre.com/items/visits?${qs.toString()}`;
+
+    try {
+      // Sem Authorization aqui — rely no access_token na query
+      const j = await httpGetJson(url, {}, 2, dbgArr);
+
+      const arr = Array.isArray(j)
+        ? j
+        : Array.isArray(j?.results)
+          ? j.results
+          : [];
+
+      for (const v of arr) {
+        const itemId = String(v.item_id || v.id || '').toUpperCase();
+        if (!itemId) continue;
+
+        let total = 0;
+
+        // helper pra somar qualquer array de detalhes
+        const sumArr = (arr) => arr.reduce(
+          (s, d) => s + Number(d?.visits ?? d?.total ?? d?.total_visits ?? 0),
+          0
+        );
+
+        if (v.total_visits != null) {
+          total = Number(v.total_visits);
+        } else if (v.total != null) {
+          total = Number(v.total);
+        } else if (Array.isArray(v.visits_detail)) {
+          total = sumArr(v.visits_detail);
+        } else if (Array.isArray(v.visits)) {
+          total = sumArr(v.visits);
+        } else if (Array.isArray(v.data)) {
+          total = sumArr(v.data);
+        }
+
+        if (!Number.isFinite(total) || total < 0) continue;
+        out[itemId] = { visits_total: total };
+      }
+    } catch (e) {
+      if (dbgArr) {
+        dbgArr.push({
+          type: 'visits_error',
+          slice: slice.join(','), // aqui vai ser só 1 item
+          message: e.message || String(e)
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+
+
 
 /** Lê mapeamento de advertiser_id por site via env ou query */
 function getAdvertiserIdFromConfig(req, site) {
@@ -900,12 +1003,22 @@ router.get('/abc-ml/items', async (req, res) => {
     sort = 'units_desc',
     page = '1',
     limit = '50',
-    include_ads = '1',
-    include_ads_debug = '0',
+    include_ads: include_ads_raw = '1',
+    include_ads_debug: include_ads_debug_raw = '0',
     ads_channels = 'marketplace',
-    include_promos = '1',
-    include_promos_debug = '0'
+    include_promos: include_promos_raw = '1',
+    include_promos_debug: include_promos_debug_raw = '0',
+    include_visits: include_visits_raw = '0',
+    include_visits_debug: include_visits_debug_raw = '0'
   } = req.query;
+
+  // Normaliza flags booleanas (aceita "1", "true", "yes"...)
+  const includeAds         = parseBoolParam(include_ads_raw, true);
+  const includeAdsDebug    = parseBoolParam(include_ads_debug_raw, false);
+  const includePromos      = parseBoolParam(include_promos_raw, true);
+  const includePromosDebug = parseBoolParam(include_promos_debug_raw, false);
+  const includeVisits      = parseBoolParam(include_visits_raw, false);
+  const includeVisitsDebug = parseBoolParam(include_visits_debug_raw, false);
 
   if (!date_from || !date_to || accounts.length === 0) {
     return res.status(400).json({ error: 'date_from, date_to, accounts são obrigatórios' });
@@ -914,17 +1027,20 @@ router.get('/abc-ml/items', async (req, res) => {
   try {
     const map = new Map();
 
+    // Para unidades 7/15/30/40/60/90d precisamos olhar até 90 dias antes do date_to
     const from90 = ymdShift(date_to, -89);
     const fetchFrom = ymdMin(date_from, from90);
 
+    // ================== 1) BUSCA DE PEDIDOS E AGREGAÇÃO BASE ==================
     for (const acc of accounts) {
       const token = await getToken(req.app, req, acc);
       const sellerId = await getSellerId(token);
 
       for await (const order of iterOrders({ token, sellerId, date_from: fetchFrom, date_to })) {
         const fullOrder = isFull(order);
-        const diffDays = daysDiffFromAnchorUTC(date_to, order?.date_created || '');
-        const inPeriod = inRangeUTC(order?.date_created || '', date_from, date_to);
+        const createdIso = order?.date_created || '';
+        const diffDays = daysDiffFromAnchorUTC(date_to, createdIso);
+        const inPeriod = inRangeUTC(createdIso, date_from, date_to);
 
         for (const it of (order.order_items || [])) {
           const mlb = it?.item?.id;
@@ -957,9 +1073,14 @@ router.get('/abc-ml/items', async (req, res) => {
             units_30d: 0,
             units_40d: 0,
             units_60d: 0,
-            units_90d: 0
+            units_90d: 0,
+
+            // visitas (preenchidas depois se include_visits=1)
+            visits_total: 0,
+            visits: 0
           };
 
+          // Janela principal (date_from → date_to)
           if (inPeriod) {
             row.units += q;
             row.revenue += revenue;
@@ -967,6 +1088,7 @@ router.get('/abc-ml/items', async (req, res) => {
             row.is_full = row.is_full || fullOrder;
           }
 
+          // Janelas relativas ao date_to (7d, 15d, 30d, 40d, 60d, 90d)
           if (Number.isFinite(diffDays) && diffDays >= 0) {
             if (diffDays <= 6)  row.units_7d  += q;
             if (diffDays <= 14) row.units_15d += q;
@@ -983,6 +1105,7 @@ router.get('/abc-ml/items', async (req, res) => {
 
     let rows = Array.from(map.values());
 
+    // ================== 2) CLASSIFICAÇÃO ABC E SHARES ==================
     const labeled = classifyABC(rows, {
       metric: metric === 'revenue' ? 'revenue' : 'units',
       aCut: a_cut,
@@ -997,6 +1120,7 @@ router.get('/abc-ml/items', async (req, res) => {
       r.revenue_share = totalRevenueCents > 0 ? r.revenue_cents / totalRevenueCents : 0;
     });
 
+    // ================== 3) FILTRO (curve, search) + ORDEM ==================
     const filtered = labeled.filter(r =>
       (curve === 'ALL' || r.curve === curve) &&
       (!search ||
@@ -1013,20 +1137,20 @@ router.get('/abc-ml/items', async (req, res) => {
       filtered.sort((a, b) => (b.units || 0) - (a.units || 0));
     }
 
-    const pnum = Math.max(parseInt(page, 10), 1);
-    const lim  = Math.min(Math.max(parseInt(limit, 10), 1), 200);
+    // ================== 4) PAGINAÇÃO ==================
+    const pnum = Math.max(parseInt(page, 10) || 1, 1);
+    const lim  = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
     const start = (pnum - 1) * lim;
     const pageSlice = filtered.slice(start, start + lim);
 
-    /** ADS v2 — por anúncio (apenas itens da página) */
-    const adsDebugEnabled = String(include_ads_debug) === '1';
+    // ================== 5) ADS (apenas itens da página) ==================
     const adsDebug = {};
     const channels = String(ads_channels || 'marketplace')
       .split(',')
       .map(s => s.trim().toLowerCase())
       .filter(Boolean);
 
-    if (String(include_ads) === '1' && pageSlice.length) {
+    if (includeAds && pageSlice.length) {
       const byAccount = new Map();
       for (const r of pageSlice) {
         const acc = r._account || accounts[0];
@@ -1051,7 +1175,7 @@ router.get('/abc-ml/items', async (req, res) => {
           });
           Object.assign(adsAccum, mapMetrics);
         } finally {
-          if (adsDebugEnabled) adsDebug[acc] = dbgAcc;
+          if (includeAdsDebug) adsDebug[acc] = dbgAcc;
         }
       }
 
@@ -1063,12 +1187,16 @@ router.get('/abc-ml/items', async (req, res) => {
           status_text: 'Não',
           in_campaign: false,
           had_activity: false,
-          clicks: 0, impressions: 0, spend_cents: 0, revenue_cents: 0, acos: null
+          clicks: 0,
+          impressions: 0,
+          spend_cents: 0,
+          revenue_cents: 0,
+          acos: null
         };
       }
     }
 
-    // ===== PROMOÇÕES (estado ATUAL via /items/{id}/prices) — fora do bloco de ADS
+    // ================== 6) PROMOÇÕES via /items/{id}/prices ==================
     const promosPricesDebug = {};
     let pricesPromosAccum = {};
     if (pageSlice.length) {
@@ -1092,30 +1220,33 @@ router.get('/abc-ml/items', async (req, res) => {
       }
     }
 
-    /** Promoções — Central de Promoções + fallback e MESCLA com prices */
-    const promosDebugEnabled = String(include_promos_debug) === '1';
+    // ================== 7) PROMOÇÕES — Central + fallback + merge ==================
     let promosDebug = {};
-    if (String(include_promos) === '1' && pageSlice.length) {
+    if (includePromos && pageSlice.length) {
       try {
         const { map: promosMap, debug } = await enrichWithPromotions({
-          app: req.app, req, accounts, pageSlice, promosDebugEnabled
+          app: req.app,
+          req,
+          accounts,
+          pageSlice,
+          promosDebugEnabled: includePromosDebug
         });
         promosDebug = debug || {};
 
         for (const it of pageSlice) {
           const key = String(it.mlb || '').toUpperCase();
-          const fromBatch = promosMap[key] || { active: false, percent: null, source: null };
-          const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
-          const merged = mergePromo(fromPrices, fromBatch); // [FIX] mescla, não sobrescreve
-                    it.promo = {
+          const fromBatch  = promosMap[key]          || { active: false, percent: null, source: null };
+          const fromPrices = pricesPromosAccum[key]  || { active: false, percent: null, source: null };
+          const merged = mergePromo(fromPrices, fromBatch);
+          it.promo = {
             active: !!merged.active,
             percent: (merged.percent != null ? Number(merged.percent) : null),
             source: merged.source || fromBatch.source || fromPrices.source || null
           };
         }
       } catch (e) {
-        if (promosDebugEnabled) promosDebug.__error = e.message;
-        // se der erro na central, ainda tenta manter o que veio do /prices
+        if (includePromosDebug) promosDebug.__error = e.message;
+        // se der erro na Central, ainda tentamos manter o que veio do /prices
         for (const it of pageSlice) {
           const key = String(it.mlb || '').toUpperCase();
           const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
@@ -1129,7 +1260,7 @@ router.get('/abc-ml/items', async (req, res) => {
         }
       }
     } else {
-      // quando include_promos !== '1', ainda assim mantemos a leitura do /prices
+      // quando include_promos = false, ainda assim mantemos o snapshot do /prices
       for (const it of pageSlice) {
         const key = String(it.mlb || '').toUpperCase();
         const fromPrices = pricesPromosAccum[key] || { active: false, percent: null, source: null };
@@ -1141,12 +1272,60 @@ router.get('/abc-ml/items', async (req, res) => {
       }
     }
 
-    // ===== resposta
-    const response = { page: pnum, limit: lim, total: filtered.length, data: pageSlice };
-    if (adsDebugEnabled) response.ads_debug = adsDebug;
-    if (promosDebugEnabled) {
-      // anexa debug separado do que veio do /prices para ajudar troubleshooting
+    // ================== 8) VISITAS (items/visits) — apenas itens da página ==================
+    const visitsDebug = {};
+    if (includeVisits && pageSlice.length) {
+      const byAccountVisits = new Map();
+      for (const r of pageSlice) {
+        const acc = r._account || accounts[0];
+        if (!byAccountVisits.has(acc)) byAccountVisits.set(acc, new Set());
+        byAccountVisits.get(acc).add(String(r.mlb || '').toUpperCase());
+      }
+
+      const visitsAccum = {};
+      for (const acc of byAccountVisits.keys()) {
+        const token = await getToken(req.app, req, acc);
+        const mlbIds = Array.from(byAccountVisits.get(acc));
+        const dbgArr = [];
+        try {
+          const mapVisits = await fetchVisitsForItems({
+            token,
+            itemIds: mlbIds,
+            date_from,
+            date_to,
+            dbgArr
+          });
+          Object.assign(visitsAccum, mapVisits);
+        } finally {
+          if (includeVisitsDebug) visitsDebug[acc] = dbgArr;
+        }
+      }
+
+      for (const it of pageSlice) {
+        const key = String(it.mlb || '').toUpperCase();
+        const v = visitsAccum[key];
+        const totalVisits = v ? Number(v.visits_total || 0) : 0;
+        it.visits_total = totalVisits;
+        it.visits = totalVisits;
+      }
+    }
+
+    // ================== 9) RESPOSTA ==================
+    const response = {
+      page: pnum,
+      limit: lim,
+      total: filtered.length,
+      data: pageSlice
+    };
+
+    if (includeAdsDebug) {
+      response.ads_debug = adsDebug;
+    }
+    if (includePromosDebug) {
       response.promos_debug = { ...(promosDebug || {}), prices_probe: promosPricesDebug || {} };
+    }
+    if (includeVisitsDebug) {
+      response.visits_debug = visitsDebug;
     }
 
     res.json(response);
@@ -1156,5 +1335,5 @@ router.get('/abc-ml/items', async (req, res) => {
   }
 });
 
-module.exports = router;
 
+module.exports = router;
