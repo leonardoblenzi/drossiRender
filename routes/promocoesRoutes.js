@@ -114,6 +114,105 @@ function resolveDealFinalAndPct(raw) {
   return { final: Number(final.toFixed(2)), pct: Number(pct.toFixed(2)) };
 }
 
+/* ===========================================================
+ * HELPERS COMPARTILHADOS COM selection/prepare
+ * (espelham a lógica do front: computeDescPct)
+ * =========================================================== */
+
+function toNumSafe(x) {
+  if (x === null || x === undefined || x === '') return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeStatusServer(s) {
+  s = String(s || '').toLowerCase();
+  if (s === 'in_progress') return 'pending';
+  return s;
+}
+
+/** Lê rebate (MELI/Seller) de diversos formatos do payload + promotion_benefits */
+function pickRebateServer(obj, promotionBenefits) {
+  const b = obj?.benefits || {};
+  const meli = toNumSafe(
+    obj?.meli_percentage ??
+    obj?.meli_percent ??
+    b?.meli_percent ??
+    promotionBenefits?.meli_percent
+  );
+  const seller = toNumSafe(
+    obj?.seller_percentage ??
+    obj?.seller_percent ??
+    b?.seller_percent ??
+    promotionBenefits?.seller_percent
+  );
+  const type = b?.type || promotionBenefits?.type || (meli != null ? 'REBATE' : null);
+  return { type, meli, seller };
+}
+
+/**
+ * Calcula a % de desconto considerando o tipo de campanha,
+ * o item bruto do ML e, opcionalmente, promotion_benefits do response.
+ * É o espelho da computeDescPct do front.
+ */
+function computeDescPctServer(it, promotionType, promotionBenefits) {
+  const typeUp = String(promotionType || it.type || '').toUpperCase();
+  const original = toNumSafe(it.original_price ?? it.price ?? null);
+  const st = normalizeStatusServer(it.status);
+
+  // SMART / PRICE_MATCHING: soma MELI + Seller quando faltar % do ML
+  if (['SMART', 'PRICE_MATCHING', 'PRICE_MATCHING_MELI_ALL'].includes(typeUp)) {
+    if (original != null) {
+      const rb = pickRebateServer(it, promotionBenefits);
+      const m = (
+        toNumSafe(it.meli_percentage) ??
+        toNumSafe(it.rebate_meli_percent) ??
+        toNumSafe(rb.meli)
+      );
+      const s = (
+        toNumSafe(it.seller_percentage) ??
+        toNumSafe(rb.seller)
+      );
+      const tot = toNumSafe((m || 0) + (s || 0));
+      const mlDisc = toNumSafe(it.discount_percentage);
+      if (mlDisc == null && (m != null || s != null)) return tot;
+      return mlDisc;
+    }
+    return toNumSafe(it.discount_percentage);
+  }
+
+  // DEAL / SELLER_* : usa heurística de resolução (prioriza suggested -> min -> max)
+  if (['DEAL', 'SELLER_CAMPAIGN', 'PRICE_DISCOUNT', 'DOD'].includes(typeUp)) {
+    const { pct } = resolveDealFinalAndPct({
+      original_price: original,
+      status: st,
+      deal_price: it.deal_price ?? it.new_price,
+      min_discounted_price: it.min_discounted_price,
+      suggested_discounted_price: it.suggested_discounted_price,
+      max_discounted_price: it.max_discounted_price,
+      price: it.price,
+      discount_percentage: it.discount_percentage,
+    });
+
+    const mlPct = toNumSafe(it.discount_percentage);
+    const isCandLike = (st === 'candidate' || st === 'scheduled' || st === 'pending');
+
+    if (isCandLike) return pct; // melhor null do que um valor claramente errado
+
+    // Se o ML mandar um % muito maluco, preferimos o pct da heurística
+    if (mlPct != null && mlPct > 70 && pct != null && Math.abs(mlPct - pct) > 5) return pct;
+
+    return (mlPct != null ? mlPct : pct);
+  }
+
+  // Fallback genérico
+  const deal = toNumSafe(it.deal_price ?? it.price ?? null);
+  if (original != null && deal != null && original > 0) {
+    return (1 - (deal / original)) * 100;
+  }
+  return toNumSafe(it.discount_percentage);
+}
+
 /** Lista promoções disponíveis para o vendedor atual */
 core.get('/api/promocoes/users', async (req, res) => {
   try {
@@ -684,32 +783,10 @@ core.post('/api/promocoes/jobs/remove', async (req, res) => {
 
 
 /**
- * Seleção robusta + tokenizada da campanha inteira
+ * Prepara seleção global (conta todos os itens filtrados) e devolve um token.
  * Body: { promotion_id, promotion_type, status, mlb, percent_max }
  *
  * Usada pelo botão "Selecionar toda a campanha (filtrados)" no front.
- */
-/**
- * Prepara seleção global da campanha inteira, armazena os IDs em memória
- * e devolve um token para ser usado depois em /jobs/apply-mass.
- *
- * Body: {
- *   promotion_id,
- *   promotion_type,
- *   status,       // 'started' | 'candidate' | 'scheduled' | null
- *   mlb,          // opcional, string
- *   percent_max   // opcional, número (% desc. máx.)
- * }
- */
-
-/**
- * Prepara seleção global (todas as páginas / filtrados) e devolve um token.
- * Body: { promotion_id, promotion_type, status, mlb, percent_max }
- */
-
-/**
- * Prepara seleção global (conta todos os itens filtrados) e devolve um token.
- * Body: { promotion_id, promotion_type, status, mlb, percent_max }
  */
 core.post('/api/promocoes/selection/prepare', async (req, res) => {
   try {
@@ -738,6 +815,12 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
     let searchAfter = null;
     const ids = [];
     let page = 0;
+
+    const hasPercentFilter =
+      percent_max != null &&
+      percent_max !== '' &&
+      Number.isFinite(Number(percent_max));
+    const percentMaxNum = hasPercentFilter ? Number(percent_max) : null;
 
     while (true) {
       page += 1;
@@ -786,19 +869,17 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
       const results = Array.isArray(js.results) ? js.results : [];
       if (!results.length) break;
 
+      const promotionBenefits = js.promotion_benefits || null;
+
       // aplica filtro de desconto e MLB aqui mesmo (caso a API traga a mais)
       for (const it of results) {
         const id = String(it.id || it.item_id || '').trim();
         if (!id) continue;
 
-        // filtro de desconto máx. (%)
-        if (
-          percent_max != null &&
-          percent_max !== '' &&
-          Number.isFinite(Number(percent_max))
-        ) {
-          const pct = Number(it.discount_percentage || 0);
-          if (pct > Number(percent_max)) continue;
+        // filtro de desconto máx. (%) usando a MESMA lógica do front
+        if (hasPercentFilter) {
+          const pct = computeDescPctServer(it, promotion_type, promotionBenefits);
+          if (pct == null || Number(pct) > percentMaxNum) continue;
         }
 
         // filtro extra por MLB (garantia)
@@ -877,13 +958,6 @@ core.post('/api/promocoes/selection/prepare', async (req, res) => {
 });
 
 
-
-
-
-
-
-
-
 /**
  * Dispara job em massa (apply/remove) a partir do token da seleção preparada.
  * Body: { token, action: "apply"|"remove", values?: { dryRun?: boolean } }
@@ -947,7 +1021,6 @@ core.post('/api/promocoes/jobs/apply-mass', async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 });
-
 
 
 // ---- Montagem do router com aliases funcionais (shim)

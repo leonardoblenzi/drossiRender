@@ -318,7 +318,7 @@
     return null;
   }
 
-   async function prepareWholeCampaign() {
+    async function prepareWholeCampaign() {
     if (!ctx.promotion_id || !ctx.promotion_type) {
       alert('Selecione uma campanha antes de usar a seleção da campanha toda.');
       return null;
@@ -336,7 +336,7 @@
         status: mapStatusForPrepare(ctx.filtros.status), // 'started' | 'candidate' | 'scheduled' | null
         mlb: ctx.filtros.mlb || null,
 
-        // 🔹 Envia nos dois campos para bater com qualquer implementação do back
+        // envia nos dois campos para ser compatível com o back
         percent_max: maxDesc,
         discount_max: maxDesc,
       };
@@ -348,7 +348,7 @@
         body: JSON.stringify(body),
       });
 
-      // Se o endpoint não existe (404/405), ativa fallback local
+      // Se o endpoint não existe (404/405) -> fallback local
       if (r.status === 404 || r.status === 405) {
         console.warn('selection/prepare não encontrado, usando fallback local.');
         return await fallbackLocalSelection();
@@ -360,19 +360,53 @@
         return await fallbackLocalSelection();
       }
 
-      const total = Number(js.total || 0);
+      // ids opcionalmente enviados pelo back quando não há store/token
+      const idsFromApi = Array.isArray(js.ids)
+        ? js.ids.map((v) => String(v)).filter(Boolean)
+        : null;
 
-      // Se veio total=0 mas a tela tem itens visíveis, consideramos suspeito e caímos no fallback
-      if (total === 0 && countVisible() > 0) {
+      let total = 0;
+      if (js.total != null && !Number.isNaN(Number(js.total))) {
+        total = Number(js.total);
+      } else if (idsFromApi && idsFromApi.length) {
+        total = idsFromApi.length;
+      }
+
+      // se veio total=0, sem ids, mas a tela tem itens → suspeito -> fallback
+      if (total === 0 && (!idsFromApi || !idsFromApi.length) && countVisible() > 0) {
         console.warn(
-          'selection/prepare retornou total=0 com itens visíveis. Usando fallback local.'
+          'selection/prepare retornou total=0 sem ids, com itens visíveis. Usando fallback local.'
         );
         const fb = await fallbackLocalSelection();
         if (fb) return fb;
       }
 
+      // Se tiver token, preferimos token (store avançada)
+      if (js.token) {
+        return {
+          token: js.token,
+          total,
+          ids: null,
+        };
+      }
+
+      // Sem token, mas com ids → usamos ids como seleção global em memória
+      if (idsFromApi && idsFromApi.length) {
+        return {
+          token: null,
+          total,
+          ids: idsFromApi,
+        };
+      }
+
+      // Nenhum dos dois? Último recurso: fallback local
+      console.warn('selection/prepare não retornou token nem ids. Usando fallback local.');
+      const fb = await fallbackLocalSelection();
+      if (fb) return fb;
+
+      // fallback de segurança
       return {
-        token: js.token || null,
+        token: null,
         total,
         ids: null,
       };
@@ -474,7 +508,16 @@
   /* ====================== Ações (Aplicar / Remover) ====================== */
 
   async function onApplyClick() {
-    // Cenário 1: toda campanha via token -> tenta job massivo
+    // 🔹 NOVO: se está em modo "toda campanha" e o criar-promocao.js
+    // expôs aplicarTodosFiltrados(), delegamos pra ele.
+    // Ele já sabe ler filtros de status, % e MLB e usa /apply-bulk
+    // ou fallback navegando todas as páginas.
+    if (ctx.global.selectedAll && typeof window.aplicarTodosFiltrados === 'function') {
+      await window.aplicarTodosFiltrados();
+      return;
+    }
+
+    // Cenário 1 (legado): toda campanha via token -> tenta job massivo
     if (ctx.global.selectedAll && ctx.global.token) {
       try {
         const body = {
@@ -524,6 +567,13 @@
   }
 
   async function onRemoveClick() {
+    // 🔹 NOVO opcional: se você criar removerTodosFiltrados() no criar-promocao.js,
+    // dá pra delegar a remoção da campanha inteira por lá também.
+    if (ctx.global.selectedAll && typeof window.removerTodosFiltrados === 'function') {
+      await window.removerTodosFiltrados();
+      return;
+    }
+
     // Cenário 1: toda campanha via token
     if (ctx.global.selectedAll && ctx.global.token) {
       try {
@@ -646,7 +696,7 @@
       window.JobsPanel?.show?.();
       window.__JobsWatcher?.start?.();
     } catch (e) {
-      console.error('Erro ao iniciar remoção da página:', e);
+      console.error('Erro ao iniciar remoção em massa da página:', e);
       alert('Erro ao iniciar remoção em massa da página.');
     }
   }
