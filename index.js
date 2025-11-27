@@ -210,6 +210,14 @@ try {
   console.error('❌ Erro ao carregar TokenRoutes:', error.message);
 }
 
+try {
+  const validarDimensoesRoutes = require('./routes/validarDimensoesRoutes');
+  app.use('/api/validar-dimensoes', validarDimensoesRoutes);
+  console.log('✅ ValidarDimensoesRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar ValidarDimensoesRoutes:', error.message);
+}
+
 // Promoção (API já existente no seu projeto)
 try {
   const promocaoRoutes = require('./routes/removerPromocaoRoutes');
@@ -271,6 +279,16 @@ try {
   console.log('✅ Interface de pesquisa carregada (com monitoramento)');
 } catch (error) {
   console.error('❌ Erro ao carregar interface de pesquisa:', error.message);
+}
+
+// ✅ Interface Validar Dimensões
+try {
+  app.get('/validar-dimensoes', (req, res) => {
+    res.sendFile(path.join(__dirname, 'views', 'validar-dimensoes.html'));
+  });
+  console.log('✅ Interface de validar dimensões carregada');
+} catch (error) {
+  console.error('❌ Erro ao carregar interface de validar dimensões:', error.message);
 }
 
 // Keyword Analytics
