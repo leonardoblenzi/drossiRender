@@ -6,8 +6,10 @@
     "forca_background": true
   },
   "criado_em": "2025-08-25T17:11:07.518Z",
-  "status": "iniciado",
+  "status": "cancelado",
   "processados": 0,
   "sucessos": 0,
-  "erros": 0
+  "erros": 0,
+  "cancelado_em": "2025-11-27T18:50:58.639Z",
+  "atualizado_em": "2025-11-27T18:50:58.640Z"
 }

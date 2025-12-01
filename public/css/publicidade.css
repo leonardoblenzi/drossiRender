@@ -1,0 +1,233 @@
+/* ===== Página Publicidade / Product Ads ===== */
+.publicidade-page {
+  padding-bottom: 40px;
+}
+
+/* Cabeçalho */
+.pub-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.pub-header h1 {
+  margin: 0;
+}
+
+.pub-header .subtitle {
+  margin-top: 4px;
+  color: #666;
+}
+
+.pub-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Filtros */
+.pub-filters {
+  margin-top: 20px;
+}
+
+.pub-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.filter-group label {
+  font-size: 13px;
+  color: #555;
+}
+
+.filter-group select,
+.filter-group input[type="text"] {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  font-size: 14px;
+}
+
+.filter-group--grow {
+  flex: 1;
+  min-width: 220px;
+}
+
+.filter-group--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: auto;
+}
+
+.filter-group--button {
+  flex-direction: row;
+  gap: 8px;
+  min-width: auto;
+}
+
+/* Botões */
+.btn-primary,
+.btn-secondary {
+  border: none;
+  border-radius: 4px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: #f8c400;
+  color: #333;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  filter: brightness(0.95);
+}
+
+.btn-secondary {
+  background: #eee;
+  color: #333;
+}
+
+.btn-secondary:hover {
+  background: #e2e2e2;
+}
+
+/* Tabela */
+.pub-table {
+  margin-top: 24px;
+}
+
+.pub-table__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pub-table__header h2 {
+  margin: 0;
+}
+
+.pub-table__summary {
+  font-size: 13px;
+  color: #666;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid #e3e3e3;
+  background: #fff;
+}
+
+.table-campanhas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table-campanhas thead {
+  background: #fafafa;
+}
+
+.table-campanhas th,
+.table-campanhas td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eee;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.table-campanhas th.col-nome,
+.table-campanhas td.col-nome {
+  text-align: left;
+  min-width: 260px;
+}
+
+.table-campanhas th.col-acoes,
+.table-campanhas td.col-acoes {
+  min-width: 120px;
+}
+
+.table-campanhas tbody tr:hover {
+  background: #fffbe8;
+}
+
+.campanha-nome {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.campanha-meta {
+  font-size: 11px;
+  color: #777;
+}
+
+/* Pills / badges */
+.badge-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-pill--status-ativa {
+  background: #e6f6e6;
+  color: #2b7a2b;
+}
+
+.badge-pill--status-pausada {
+  background: #fff3cd;
+  color: #8a6d3b;
+}
+
+.badge-pill--status-encerrada {
+  background: #f2f2f2;
+  color: #777;
+}
+
+/* Botões de ação na tabela */
+.table-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-link {
+  border: none;
+  background: none;
+  color: #0077cc;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+/* Estado vazio */
+.pub-empty {
+  text-align: center;
+  font-size: 14px;
+  color: #777;
+  padding: 18px 0;
+}

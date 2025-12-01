@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Mercado Livre - Publicidade • Product Ads</title>
+
+  <!-- CSS global do app -->
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <!-- CSS específico dessa tela -->
+  <link rel="stylesheet" href="/css/publicidade.css" />
+</head>
+<body>
+  <!-- TOPO: Conta atual + Status + Trocar Conta (mesmo padrão do dashboard) -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">🟡</span>
+      <span class="app-name">API Mercado Livre</span>
+    </div>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val">Carregando...</span>
+      </div>
+      <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+      <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+    </div>
+  </header>
+
+  <!-- Navegação principal com abas (igual dashboard, mas linkando para rotas) -->
+  <nav class="main-nav">
+    <div class="tabs">
+      <a class="nav-tab" href="/dashboard" data-tab="dashboard">Dashboard</a>
+      <a class="nav-tab" href="/produtos" data-tab="produtos">Produtos</a>
+      <a class="nav-tab" href="/ia-analytics" data-tab="ia">IA &amp; Analytics</a>
+      <a class="nav-tab active" href="/publicidade" data-tab="publicidade">Publicidade</a>
+      <a class="nav-tab" href="/benchmarking" data-tab="benchmarking">Benchmarking</a>
+      <a class="nav-tab" href="/ml-utils" data-tab="ml">ML</a>
+      <a class="nav-tab" href="/full" data-tab="full">FULL</a>
+    </div>
+  </nav>
+
+  <main class="page-wrap publicidade-page">
+    <!-- Cabeçalho da página -->
+    <section class="pub-header container">
+      <div>
+        <h1>📣 Publicidade – Product Ads</h1>
+        <p class="subtitle">
+          Ranking de campanhas de Product Ads com métricas de desempenho. Clique em uma campanha
+          para ver os anúncios e detalhes.
+        </p>
+      </div>
+      <div class="pub-header__actions">
+        <button id="btn-export-campanhas" class="btn-primary">📥 Baixar CSV</button>
+      </div>
+    </section>
+
+    <!-- Filtros principais -->
+    <section class="pub-filters container">
+      <div class="pub-filters__row">
+        <div class="filter-group">
+          <label for="f-periodo">Período</label>
+          <select id="f-periodo">
+            <option value="30">Últimos 30 dias</option>
+            <option value="7">Últimos 7 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="180">Últimos 180 dias</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="f-status-campanha">Status</label>
+          <select id="f-status-campanha">
+            <option value="todas">Todas</option>
+            <option value="ativas">Ativas</option>
+            <option value="pausadas">Pausadas</option>
+            <option value="encerradas">Encerradas</option>
+          </select>
+        </div>
+
+        <div class="filter-group filter-group--grow">
+          <label for="f-busca">Pesquisar campanha</label>
+          <input
+            type="text"
+            id="f-busca"
+            placeholder="Digite o nome da campanha"
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="filter-group filter-group--checkbox">
+          <label>
+            <input type="checkbox" id="f-ordenar-variacao" />
+            Classificar por variação
+          </label>
+        </div>
+
+        <div class="filter-group filter-group--button">
+          <button id="btn-aplicar-filtros" class="btn-primary">Filtrar</button>
+          <button id="btn-limpar-filtros" class="btn-secondary">Limpar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tabela de campanhas -->
+    <section class="pub-table container">
+      <header class="pub-table__header">
+        <h2>Ranking de campanhas</h2>
+        <span id="campanhas-resumo" class="pub-table__summary">Carregando campanhas...</span>
+      </header>
+
+      <div class="table-wrapper">
+        <table class="table-campanhas">
+          <thead>
+            <tr>
+              <th class="col-nome">Nome da campanha</th>
+              <th>Competitividade</th>
+              <th>Orçamento mensal</th>
+              <th>Orçamento diário disponível</th>
+              <th>ACOS objetivo</th>
+              <th>ACOS</th>
+              <th>TACOS</th>
+              <th>CPI</th>
+              <th>LISB</th>
+              <th>LISAR</th>
+              <th>Participação</th>
+              <th>Vendas publicidade</th>
+              <th>Impressões</th>
+              <th>Cliques</th>
+              <th>Investimento</th>
+              <th>CPC</th>
+              <th>CTR</th>
+              <th>Receita</th>
+              <th>Retornos</th>
+              <th class="col-acoes">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-campanhas">
+            <!-- linhas renderizadas via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <div id="campanhas-empty" class="pub-empty" style="display:none;">
+        <p>📭 Nenhuma campanha encontrada para os filtros selecionados.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- JS específico da tela -->
+  <script src="/js/publicidade.js"></script>
+</body>
+</html>
