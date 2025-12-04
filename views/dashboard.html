@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
   <title>API Mercado Livre - Dashboard</title>
 </head>
 <body>
@@ -30,7 +30,6 @@
       <button class="nav-tab" data-tab="produtos">Produtos</button>
       <button class="nav-tab" data-tab="ia">IA & Analytics</button>
       <button class="nav-tab" data-tab="publicidade">Publicidade</button>
-
       <button class="nav-tab" data-tab="benchmarking">Benchmarking</button>
       <button class="nav-tab" data-tab="alertas">Alertas</button>
       <button class="nav-tab" data-tab="ml">ML</button>
@@ -104,14 +103,12 @@
             <p>Remova promoções de anúncios individualmente ou em lote.</p>
             <a href="/remover-promocao">🔧 Acessar Interface</a>
           </div>
-          <!-- ✅ NOVO CARD: Validar dimensões -->
+          <!-- Validar dimensões -->
           <div class="endpoint">
             <h3>📦 Validar dimensões <span class="status active">Ativo</span></h3>
             <p>Consulte as dimensões cadastradas nos anúncios (MLB) e exporte tudo em CSV.</p>
-            <!-- se a tua rota de view for diferente, troca o href aqui -->
             <a href="/validar-dimensoes">📦 Acessar Interface</a>
           </div>
-          <!-- /NOVO CARD -->
         </div>
       </div>
     </section>
@@ -138,18 +135,17 @@
             <a href="/keyword-analytics">📊 Acessar Análise</a>
           </div>
 
-          <!-- ✅ NOVO CARD: Curva ABC -->
+          <!-- Curva ABC -->
           <div class="endpoint curva-abc">
             <h3>📊 Curva ABC <span class="status active">Ativo</span></h3>
             <p>Top 5 A/B/C por período e multicontas. Clique nos cards para filtrar.</p>
             <a href="/ia-analytics/curva-abc">📊 Acessar Curva ABC</a>
           </div>
-          <!-- /NOVO CARD -->
         </div>
       </div>
     </section>
 
-        <!-- PUBLICIDADE -->
+    <!-- PUBLICIDADE -->
     <section id="tab-publicidade" class="tab-page">
       <div class="container">
         <h1>📣 Publicidade</h1>
@@ -163,11 +159,10 @@
               Visualize o ranking de campanhas, métricas completas (ACOS, TACOS, cliques, impressões,
               receita, retornos, etc.) e baixe os dados em CSV.
             </p>
-            <!-- essa rota vai abrir a página dedicada (views/publicidade.html) -->
             <a href="/publicidade">🚀 Acessar Product Ads</a>
           </div>
 
-          <!-- Espaço para futuros cards de publicidade (remarketing, branding, etc.) -->
+          <!-- Espaço para futuros cards de publicidade -->
           <!--
           <div class="endpoint">
             <h3>📺 Outra funcionalidade <span class="status">Em breve</span></h3>
@@ -178,7 +173,6 @@
       </div>
     </section>
     <!-- /PUBLICIDADE -->
-
 
     <!-- BENCHMARKING -->
     <section id="tab-benchmarking" class="tab-page">
@@ -213,14 +207,13 @@
       </div>
     </section>
 
-    <!-- ✅ FULL -->
+    <!-- FULL -->
     <section id="tab-full" class="tab-page">
       <div class="container">
         <h1>📦 FULL</h1>
         <p class="subtitle">Produtos que estão no fulfillment do Mercado Livre (ML Full).</p>
 
         <div class="endpoints">
-          <!-- Card principal -->
           <div class="endpoint">
             <h3>🗂️ Produtos (Full) <span id="full-status-pill" class="status active">Ativo</span></h3>
             <p>Veja os itens que estão no centro de fulfillment (estoque, preço, status, promoções ativas).</p>
@@ -243,12 +236,10 @@
               </span>
             </div>
             <div style="margin-top:12px;">
-              <!-- abre a página dedicada (grid completo) -->
               <a class="btn-primary" href="/full">🚀 Abrir Produtos (Full)</a>
             </div>
           </div>
 
-          <!-- Card auxiliar (opcional) -->
           <div class="endpoint">
             <h3>📤 Exportações</h3>
             <p>Gere relatórios CSV/XLSX dos itens sob Full. (Na página dedicada, use “Exportar CSV”.)</p>
@@ -340,7 +331,11 @@
   }
 
   /* ===== Conta / Trocar conta ===== */
-  const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
+  const ACCOUNT_LABELS = {
+    drossi: 'DRossi Interiores',
+    diplany: 'Diplany',
+    rossidecor: 'Rossi Decor'
+  };
 
   async function carregarContaAtual() {
     const currentEl = $('account-current');
@@ -384,16 +379,24 @@
           if (t) t.textContent = data.token_preview || '—';
           if (m) m.textContent = data.message || 'OK';
         } else {
-          safeAlert('✅ ' + (data.message || 'OK') + '\nUser: ' + (data.nickname || '—') + '\nToken: ' + (data.token_preview || '—'));
+          safeAlert('✅ ' + (data.message || 'OK') +
+            '\nUser: ' + (data.nickname || '—') +
+            '\nToken: ' + (data.token_preview || '—'));
         }
       } else {
         const msg = data.error || 'Falha ao verificar';
-        if (updateModal) { const m = $('status-msg'); if (m) m.textContent = msg; }
-        else { safeAlert('❌ ' + msg); }
+        if (updateModal) {
+          const m = $('status-msg'); if (m) m.textContent = msg;
+        } else {
+          safeAlert('❌ ' + msg);
+        }
       }
     } catch (error) {
-      if (updateModal) { const m = $('status-msg'); if (m) m.textContent = 'Erro: ' + error.message; }
-      else { safeAlert('❌ Erro: ' + error.message); }
+      if (updateModal) {
+        const m = $('status-msg'); if (m) m.textContent = 'Erro: ' + error.message;
+      } else {
+        safeAlert('❌ Erro: ' + error.message);
+      }
     }
   }
 
@@ -409,16 +412,24 @@
           if (t) t.textContent = (data.access_token || '').substring(0, 20) + '...';
           if (m) m.textContent = data.message || 'Token renovado';
         } else {
-          safeAlert('✅ ' + (data.message || 'Token renovado') + '\nUser: ' + (data.nickname || '—') + '\nNovo token: ' + (data.access_token || '').substring(0, 20) + '...');
+          safeAlert('✅ ' + (data.message || 'Token renovado') +
+            '\nUser: ' + (data.nickname || '—') +
+            '\nNovo token: ' + (data.access_token || '').substring(0, 20) + '...');
         }
       } else {
         const msg = data.error || 'Falha ao renovar';
-        if (updateModal) { const m = $('status-msg'); if (m) m.textContent = msg; }
-        else { safeAlert('❌ ' + msg); }
+        if (updateModal) {
+          const m = $('status-msg'); if (m) m.textContent = msg;
+        } else {
+          safeAlert('❌ ' + msg);
+        }
       }
     } catch (error) {
-      if (updateModal) { const m = $('status-msg'); if (m) m.textContent = 'Erro: ' + error.message; }
-      else { safeAlert('❌ Erro: ' + error.message); }
+      if (updateModal) {
+        const m = $('status-msg'); if (m) m.textContent = 'Erro: ' + error.message;
+      } else {
+        safeAlert('❌ Erro: ' + error.message);
+      }
     }
   }
 
@@ -429,8 +440,12 @@
     show($('modal-processos'));
     atualizarProcessos().catch(e => console.error(e));
     if (intervalAtualizacao) clearInterval(intervalAtualizacao);
-    intervalAtualizacao = setInterval(() => atualizarProcessos().catch(e => console.error(e)), 5000);
+    intervalAtualizacao = setInterval(
+      () => atualizarProcessos().catch(e => console.error(e)),
+      5000
+    );
   }
+
   function fecharModalProcessos() {
     hide($('modal-processos'));
     if (intervalAtualizacao) clearInterval(intervalAtualizacao);
@@ -482,18 +497,26 @@
           📊 ${((job.concluidos || 0) + (job.falharam || 0))}/${job.total_mlbs || 0} MLBs processados
           ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ''}
         </div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${(job.progresso_percentual || 0)}%"></div></div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${(job.progresso_percentual || 0)}%"></div>
+        </div>
         <div class="process-actions">
           <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id || job.id}')">📊 Detalhes</button>
-          ${job.status === 'concluido' ? `<a href="/api/pesquisa-descricao/download/${job.job_id || job.id}" class="btn-small btn-success">📥 Download</a>` : ''}
-          ${(job.status === 'processando' || job.status === 'aguardando') ? `<button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id || job.id}')">🚫 Cancelar</button>` : ''}
+          ${job.status === 'concluido'
+            ? `<a href="/api/pesquisa-descricao/download/${job.job_id || job.id}" class="btn-small btn-success">📥 Download</a>`
+            : ''}
+          ${(job.status === 'processando' || job.status === 'aguardando')
+            ? `<button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id || job.id}')">🚫 Cancelar</button>`
+            : ''}
         </div>
       </div>
     `).join('');
   }
 
   function atualizarContadorDashboard(jobs) {
-    const ativos = (jobs || []).filter(j => j.status === 'processando' || j.status === 'aguardando').length;
+    const ativos = (jobs || []).filter(j =>
+      j.status === 'processando' || j.status === 'aguardando'
+    ).length;
     const counter = $('process-counter');
     const counterNumber = $('counter-number');
     if (!counter || !counterNumber) return;
@@ -507,17 +530,19 @@
     }
   }
 
-  function iniciarNovoProcesso() { window.location.href = '/pesquisa-descricao?novo_processo=true'; }
+  function iniciarNovoProcesso() {
+    window.location.href = '/pesquisa-descricao?novo_processo=true';
+  }
 
   async function verDetalhesProcesso(jobId) {
     const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 10000); // 10s
+    const timeout = setTimeout(() => ctl.abort(), 10000);
 
     try {
-      const response = await fetch(`/api/pesquisa-descricao/status/${encodeURIComponent(jobId)}`, {
-        cache: 'no-store',
-        signal: ctl.signal
-      });
+      const response = await fetch(
+        `/api/pesquisa-descricao/status/${encodeURIComponent(jobId)}`,
+        { cache: 'no-store', signal: ctl.signal }
+      );
 
       if (!response.ok) {
         const txt = await response.text().catch(() => '');
@@ -566,7 +591,10 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
   async function cancelarProcesso(jobId) {
     if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) return;
     try {
-      const response = await fetch(`/api/pesquisa-descricao/cancelar/${encodeURIComponent(jobId)}`, { method: 'POST' });
+      const response = await fetch(
+        `/api/pesquisa-descricao/cancelar/${encodeURIComponent(jobId)}`,
+        { method: 'POST' }
+      );
       const data = await response.json();
       if (data && (data.success || data.ok)) {
         safeAlert('✅ Processo cancelado com sucesso!');
@@ -574,7 +602,9 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
       } else {
         safeAlert('❌ Erro ao cancelar: ' + (data.message || data.error || 'Falha'));
       }
-    } catch (error) { safeAlert('❌ Erro: ' + error.message); }
+    } catch (error) {
+      safeAlert('❌ Erro: ' + error.message);
+    }
   }
 
   /* ===== Bind global (para onclick no HTML) ===== */
@@ -594,7 +624,10 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
 
   /* ===== Listeners estáticos ===== */
   function bindStaticListeners() {
-    safeBind($('btn-status'), 'click', async () => { abrirModalStatus(); await verificarToken(true); });
+    safeBind($('btn-status'), 'click', async () => {
+      abrirModalStatus();
+      await verificarToken(true);
+    });
     safeBind($('account-switch'), 'click', trocarConta);
 
     // Fechar modais ao clicar fora
@@ -614,8 +647,9 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
       carregarContaAtual();
     } catch (e) {
       console.error('Erro na inicialização:', e);
-      // não deixar a página inteira quebrar
     }
   });
 })();
 </script>
+</body>
+</html>

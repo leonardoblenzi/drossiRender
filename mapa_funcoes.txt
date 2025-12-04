@@ -1,0 +1,63 @@
+Publicidade/Product ADS
+
+/ (raiz do projeto)
+├─ index.js                         # Sobe o Express, registra as rotas
+│   └─ usa routes/publicidadeRoutes.js
+│
+├─ routes/
+│   ├─ publicidadeRoutes.js         # Rotas HTTP de Product Ads
+│   │   • GET /publicidade          -> abre a tela (view)
+│   │   • GET /api/publicidade/product-ads/campaigns
+│   │   • GET /api/publicidade/product-ads/campaigns/:id/items
+│   │   • GET /api/publicidade/product-ads/metricas-diarias
+│   │   └─ chama PublicidadeController
+│   │
+│   └─ ... (outras rotas)
+│
+├─ controllers/
+│   ├─ PublicidadeController.js     # Camada de controller / API
+│   │   • listarCampanhas(req,res)          -> ProductAdsService.listarCampanhas()
+│   │   • listarItensCampanha(req,res)      -> ProductAdsService.listarItensCampanha()
+│   │   • metricasDiarias(req,res)         -> ProductAdsService.metricasDiarias()
+│   │   └─ responde JSON para o front
+│   │
+│   └─ ... (outros controllers)
+│
+├─ services/
+│   ├─ productAdsService.js         # 💥 AQUI está toda a lógica de Product Ads
+│   │   • urls()                                -> endpoints do ML
+│   │   • withAuth() / prepararAuth()          -> token + chamadas autenticadas
+│   │   • obterAdvertiserId()                  -> pega advertiser da conta
+│   │   • buscarThumbnailsParaItens()         -> 🔍 busca thumbnails em /items
+│   │   • listarCampanhas()                    -> campanhas agregadas
+│   │   • listarItensCampanha()                -> itens + métricas + thumbnail
+│   │   • metricasDiarias()                    -> série diária para gráfico
+│   │   • exportarItensCampanhaCsv()           -> export CSV
+│   │
+│   └─ tokenService.js / tokenService/index.js # usado por prepararAuth()/withAuth()
+│
+├─ views/
+│   ├─ publicidade.ejs               # Tela “Painel de Product Ads”
+│   │   • tabela de ranking de campanhas
+│   │   • tabela de itens da campanha
+│   │   • inclui <script src="/js/publicidade.js">
+│   │
+│   └─ partials/…                    # (se tiver componentes reaproveitados)
+│
+└─ public/
+    ├─ js/
+    │   ├─ publicidade.js           # Frontend da tela
+    │   │   • busca /api/publicidade/product-ads/campaigns
+    │   │   • busca /api/publicidade/product-ads/campaigns/:id/items
+    │   │   • aplica filtros, paginação (20 itens por página)
+    │   │   • monta o HTML das linhas, usando `item.thumbnail`
+    │   │   • (vamos colocar aqui o loading de lista / filtros)
+    │   │
+    │   └─ helpers/…, outros .js
+    │
+    ├─ css/
+    │   ├─ publicidade.css          # (se tiver um CSS específico da tela)
+    │   └─ main.css / theme.css     # estilos globais
+    │
+    └─ img/
+        └─ ...                      # ícones, placeholders de imagem, etc.

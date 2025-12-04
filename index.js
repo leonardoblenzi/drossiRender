@@ -340,6 +340,26 @@ try {
 }
 
 // ==========================================
+// 🟡 Publicidade / Product Ads (API + HTML)
+// ==========================================
+try {
+  const publicidadeRoutes = require('./routes/publicidadeRoutes');
+  app.use('/api/publicidade', publicidadeRoutes);
+  console.log('✅ PublicidadeRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar PublicidadeRoutes:', error.message);
+}
+
+try {
+  app.get('/publicidade', (req, res) => {
+    res.sendFile(path.join(__dirname, 'views', 'publicidade.html'));
+  });
+  console.log('✅ Interface de publicidade (Product Ads) carregada');
+} catch (error) {
+  console.error('❌ Erro ao carregar interface de publicidade:', error.message);
+}
+
+// ==========================================
 // ERRORS
 // ==========================================
 app.use((error, req, res, next) => {
@@ -367,7 +387,8 @@ app.use((req, res) => {
         'GET /keyword-analytics - Interface de analytics',
         'GET /criar-promocao - Interface de promoções',
         'GET /remover-promocao - Interface de remoção',
-        'GET /ia-analytics/curva-abc - Curva ABC (tempo real)'
+        'GET /ia-analytics/curva-abc - Curva ABC (tempo real)',
+        'GET /publicidade - Painel de Product Ads'
       ],
       apis: [
         'GET /api/account/list - Listar contas',
@@ -382,7 +403,9 @@ app.use((req, res) => {
         'GET /api/pesquisa-descricao/status/:job_id - Status de job',
         'GET /api/keyword-analytics/* - APIs de keyword analytics',
         'GET /api/analytics/abc-ml/summary - Curva ABC resumo (ML tempo real)',
-        'GET /api/analytics/abc-ml/items - Curva ABC itens (ML tempo real)'
+        'GET /api/analytics/abc-ml/items - Curva ABC itens (ML tempo real)',
+        'GET /api/publicidade/product-ads/campaigns - Listar campanhas de Product Ads',
+        'GET /api/publicidade/product-ads/campaigns/:id/items - Itens da campanha'
       ],
       debug: [
         'GET /test-basic - Teste básico',
@@ -407,6 +430,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`    • http://localhost:${PORT}/criar-promocao - Criar promoções`);
   console.log(`    • http://localhost:${PORT}/remover-promocao - Remover promoções`);
   console.log(`    • http://localhost:${PORT}/ia-analytics/curva-abc - Curva ABC (Analytics)`);
+  console.log(`    • http://localhost:${PORT}/publicidade - Painel de Product Ads`);
   console.log('🚀 ================================');
   console.log('📊 APIs Principais:');
   console.log(`    • http://localhost:${PORT}/api/account/* - Seleção de conta`);
@@ -415,6 +439,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`    • http://localhost:${PORT}/api/promocao/ - Promoções`);
   console.log(`    • http://localhost:${PORT}/api/token/ - Gerenciamento de token`);
   console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`);
+  console.log(`    • http://localhost:${PORT}/api/publicidade/* - Product Ads (campanhas + itens)`);
   console.log('🚀 ================================');
   console.log('🔧 Sistema de Monitoramento:');
   console.log(`    • http://localhost:${PORT}/api/system/health - Health check`);
@@ -436,7 +461,6 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`    • Redis: ${process.env.REDIS_URL || process.env.REDIS_HOST ? '✅ Configurado' : '❌ Não configurado'}`);
   console.log('🚀 ================================');
 });
-
 
 // ==========================================
 // GRACEFUL SHUTDOWN

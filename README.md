@@ -15,24 +15,33 @@ Sistema para gerenciar promoções de anúncios no Mercado Livre.
 ```bash
 git clone https://github.com/seu-usuario/nome-do-projeto.git
 cd nome-do-projeto
-```
 
 
 ```
 ```
-drossiAPI
-├─ .env
+ml_render_fixed
+├─ CHANGES.diff
 ├─ config
 │  ├─ accounts.js
 │  └─ config.js
 ├─ controllers
+│  ├─ AdAnalysisController.js
 │  ├─ CriarPromocaoController.js
+│  ├─ FullController.js
 │  ├─ HtmlController.js
+│  ├─ ItemsController.js
 │  ├─ keywordAnalyticsController.js
 │  ├─ pesquisaDescricaoController.js
-│  ├─ PromocaoController.js
-│  └─ TokenController.js
+│  ├─ PromocoesController.js
+│  ├─ PublicidadeController.js
+│  ├─ RemoverPromocaoController.js
+│  ├─ TokenController.js
+│  └─ ValidarDimensoesController.js
+├─ data
+│  └─ backups
 ├─ index.js
+├─ lib
+│  └─ redisClient.js
 ├─ middleware
 │  ├─ authMiddleware.js
 │  └─ ensureAccount.js
@@ -40,45 +49,86 @@ drossiAPI
 ├─ package.json
 ├─ public
 │  ├─ css
+│  │  ├─ analise-anuncio.css
 │  │  ├─ criar-promocao.css
+│  │  ├─ curva-abc.css
 │  │  ├─ dashboard.css
 │  │  ├─ keyword-analytics.css
 │  │  ├─ pesquisa-descricao.css
-│  │  └─ remover-promocao.css
+│  │  ├─ promo-jobs.css
+│  │  ├─ publicidade.css
+│  │  ├─ remover-promocao.css
+│  │  └─ select-conta.css
 │  └─ js
+│     ├─ account-bar.js
+│     ├─ analise-anuncio.js
 │     ├─ criar-promocao.js
 │     ├─ dashboard.js
+│     ├─ full.js
+│     ├─ ia-analytics-curva-abc.js
+│     ├─ jobs-panel.js
 │     ├─ keyword-analytics.js
 │     ├─ pesquisa-descricao.js
-│     └─ remover-promocao.js
+│     ├─ promo-bulk.js
+│     ├─ publicidade.js
+│     ├─ remocao-bulk.js
+│     ├─ remover-promocao.js
+│     └─ validar-dimensoes.js
 ├─ README.md
+├─ render.yaml
 ├─ results
+│  ├─ job_1756141867517_5l1xtles5_metadata.json
+│  └─ job_1756141867517_5l1xtles5_resultados.jsonl
 ├─ routes
 │  ├─ accountRoutes.js
+│  ├─ adAnalysisRoutes.js
+│  ├─ analytics-abc-Routes.js
 │  ├─ criarPromocaoRoutes.js
+│  ├─ fullRoutes.js
 │  ├─ htmlRoutes.js
+│  ├─ itemsRoutes.js
 │  ├─ keywordAnalyticsRoutes.js
 │  ├─ pesquisaDescricaoRoutes.js
-│  ├─ promocaoRoutes.js
-│  └─ tokenRoutes.js
+│  ├─ promocoesRoutes.js
+│  ├─ publicidadeRoutes.js
+│  ├─ removerPromocaoRoutes.js
+│  ├─ tokenRoutes.js
+│  └─ validarDimensoesRoutes.js
 ├─ services
+│  ├─ adAnalysisService.js
+│  ├─ adsService.js
 │  ├─ criarPromocaoService.js
 │  ├─ csvManager.js
+│  ├─ fullDatabaseService.js
+│  ├─ fullService.js
+│  ├─ itemsService.js
 │  ├─ keywordAnalyticsService.js
+│  ├─ ml-auth.js
 │  ├─ pesquisaDescricaoService.js
-│  ├─ promocaoService.js
+│  ├─ productAdsService.js
+│  ├─ promoBulkRemoveAdapter.js
+│  ├─ promoJobsService.js
+│  ├─ promoSelectionStore.js
 │  ├─ queueService.js
-│  └─ tokenService.js
+│  ├─ removerPromocaoService.js
+│  ├─ sellerPromotionsService.js
+│  ├─ tokenService.js
+│  └─ validarDimensoesService.js
 ├─ test-controller.js
-├─ uploads
 ├─ utils
 │  └─ helper.js
 └─ views
+   ├─ analise-anuncios.html
    ├─ criar-promocao.html
    ├─ dashboard.html
+   ├─ full.html
+   ├─ ia-analytics
+   │  └─ curva-abc.html
    ├─ keyword-analytics.html
    ├─ pesquisa-descricao.html
+   ├─ publicidade.html
    ├─ remover-promocao.html
-   └─ select-conta.html
+   ├─ select-conta.html
+   └─ validar-dimensoes.html
 
 ```

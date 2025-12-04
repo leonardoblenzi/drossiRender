@@ -1,153 +1,214 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>API Mercado Livre - Publicidade • Product Ads</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Publicidade • Product Ads</title>
 
-  <!-- CSS global do app -->
-  <link rel="stylesheet" href="/css/dashboard.css" />
-  <!-- CSS específico dessa tela -->
-  <link rel="stylesheet" href="/css/publicidade.css" />
+  <!-- Reaproveita estilos globais -->
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <link rel="stylesheet" href="/css/publicidade.css?v=1">
 </head>
 <body>
-  <!-- TOPO: Conta atual + Status + Trocar Conta (mesmo padrão do dashboard) -->
+  <!-- TOPO FIXO (mesmo padrão Promoções / Full) -->
   <header class="account-bar">
     <div class="account-bar__left">
-      <span class="logo">🟡</span>
-      <span class="app-name">API Mercado Livre</span>
+      <span class="logo">📣</span>
+      <span class="app-name">Publicidade • Product Ads</span>
     </div>
     <div class="account-bar__right">
       <div class="account-bar__current">
         <span class="lbl">Conta:</span>
-        <span id="account-current" class="val">Carregando...</span>
+        <span class="val" data-account-label>carregando…</span>
       </div>
-      <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
-      <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+      <button id="account-switch" class="account-bar__switch" type="button" data-account-switch>
+        Trocar Conta
+      </button>
     </div>
   </header>
 
-  <!-- Navegação principal com abas (igual dashboard, mas linkando para rotas) -->
-  <nav class="main-nav">
-    <div class="tabs">
-      <a class="nav-tab" href="/dashboard" data-tab="dashboard">Dashboard</a>
-      <a class="nav-tab" href="/produtos" data-tab="produtos">Produtos</a>
-      <a class="nav-tab" href="/ia-analytics" data-tab="ia">IA &amp; Analytics</a>
-      <a class="nav-tab active" href="/publicidade" data-tab="publicidade">Publicidade</a>
-      <a class="nav-tab" href="/benchmarking" data-tab="benchmarking">Benchmarking</a>
-      <a class="nav-tab" href="/ml-utils" data-tab="ml">ML</a>
-      <a class="nav-tab" href="/full" data-tab="full">FULL</a>
-    </div>
-  </nav>
-
-  <main class="page-wrap publicidade-page">
-    <!-- Cabeçalho da página -->
-    <section class="pub-header container">
+  <div class="wrap publicidade-wrap">
+    <header class="page-header">
       <div>
-        <h1>📣 Publicidade – Product Ads</h1>
+        <h2>Product Ads</h2>
         <p class="subtitle">
-          Ranking de campanhas de Product Ads com métricas de desempenho. Clique em uma campanha
-          para ver os anúncios e detalhes.
+          Visualize campanhas de Product Ads, acompanhe as principais métricas e veja os anúncios participantes.
         </p>
       </div>
-      <div class="pub-header__actions">
-        <button id="btn-export-campanhas" class="btn-primary">📥 Baixar CSV</button>
+
+      <!-- Filtros de período -->
+      <form id="ads-filters" class="ads-filters" autocomplete="off">
+        <div class="ads-filters__group">
+          <label for="dateFrom">De</label>
+          <input id="dateFrom" name="dateFrom" type="date">
+        </div>
+        <div class="ads-filters__group">
+          <label for="dateTo">Até</label>
+          <input id="dateTo" name="dateTo" type="date">
+        </div>
+        <button id="btnReloadAds" type="button" class="btn primary">Atualizar métricas</button>
+      </form>
+    </header>
+
+    <!-- Resumo numérico -->
+    <section class="ads-summary">
+      <div class="ads-summary-grid">
+        <article class="ads-summary-card">
+          <h3>Investimento</h3>
+          <p id="sumCost" class="ads-summary__value">R$ 0,00</p>
+          <p class="ads-summary__hint">Custo total das campanhas no período</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>Cliques</h3>
+          <p id="sumClicks" class="ads-summary__value">0</p>
+          <p class="ads-summary__hint">Total de cliques gerados</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>Impressões</h3>
+          <p id="sumPrints" class="ads-summary__value">0</p>
+          <p class="ads-summary__hint">Quantidade de vezes que seus anúncios apareceram</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>CTR médio</h3>
+          <p id="avgCtr" class="ads-summary__value">0,00%</p>
+          <p class="ads-summary__hint">Taxa média de cliques sobre impressões</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>ACOS médio</h3>
+          <p id="avgAcos" class="ads-summary__value">0,00%</p>
+          <p class="ads-summary__hint">Custo em relação ao faturamento</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>ROAS médio</h3>
+          <p id="avgRoas" class="ads-summary__value">0,00x</p>
+          <p class="ads-summary__hint">Retorno sobre o investimento em anúncios</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>Vendas (unid.)</h3>
+          <p id="sumUnits" class="ads-summary__value">0</p>
+          <p class="ads-summary__hint">Unidades vendidas atribuídas aos anúncios</p>
+        </article>
+
+        <article class="ads-summary-card">
+          <h3>Faturamento</h3>
+          <p id="sumAmount" class="ads-summary__value">R$ 0,00</p>
+          <p class="ads-summary__hint">Valor de vendas atribuídas às campanhas</p>
+        </article>
       </div>
     </section>
 
-    <!-- Filtros principais -->
-    <section class="pub-filters container">
-      <div class="pub-filters__row">
-        <div class="filter-group">
-          <label for="f-periodo">Período</label>
-          <select id="f-periodo">
-            <option value="30">Últimos 30 dias</option>
-            <option value="7">Últimos 7 dias</option>
-            <option value="90">Últimos 90 dias</option>
-            <option value="180">Últimos 180 dias</option>
-          </select>
-        </div>
+    <!-- Gráfico de métricas (diário) -->
+    <section class="ads-chart">
+      <div class="card">
+        <header class="card-header">
+          <div>
+            <h3>Evolução das métricas</h3>
+            <p class="muted">
+              Visualize impressões, cliques, investimento e faturamento no período selecionado.
+            </p>
+          </div>
+        </header>
 
-        <div class="filter-group">
-          <label for="f-status-campanha">Status</label>
-          <select id="f-status-campanha">
-            <option value="todas">Todas</option>
-            <option value="ativas">Ativas</option>
-            <option value="pausadas">Pausadas</option>
-            <option value="encerradas">Encerradas</option>
-          </select>
-        </div>
-
-        <div class="filter-group filter-group--grow">
-          <label for="f-busca">Pesquisar campanha</label>
-          <input
-            type="text"
-            id="f-busca"
-            placeholder="Digite o nome da campanha"
-            autocomplete="off"
-          />
-        </div>
-
-        <div class="filter-group filter-group--checkbox">
-          <label>
-            <input type="checkbox" id="f-ordenar-variacao" />
-            Classificar por variação
-          </label>
-        </div>
-
-        <div class="filter-group filter-group--button">
-          <button id="btn-aplicar-filtros" class="btn-primary">Filtrar</button>
-          <button id="btn-limpar-filtros" class="btn-secondary">Limpar</button>
+        <div class="ads-chart-wrapper" style="height: 260px;">
+          <canvas id="adsMetricsChart"></canvas>
         </div>
       </div>
     </section>
 
-    <!-- Tabela de campanhas -->
-    <section class="pub-table container">
-      <header class="pub-table__header">
-        <h2>Ranking de campanhas</h2>
-        <span id="campanhas-resumo" class="pub-table__summary">Carregando campanhas...</span>
-      </header>
+     <!-- ===================== RANKING DE CAMPANHAS ===================== -->
+    <section class="ads-ranking">
+      <div class="card">
+        <header class="card-header ads-ranking-header">
+          <div>
+            <h3>Ranking de campanhas</h3>
+            <p id="rankingPeriod" class="muted">
+              Período: —
+            </p>
+          </div>
+        </header>
 
-      <div class="table-wrapper">
-        <table class="table-campanhas">
-          <thead>
-            <tr>
-              <th class="col-nome">Nome da campanha</th>
-              <th>Competitividade</th>
-              <th>Orçamento mensal</th>
-              <th>Orçamento diário disponível</th>
-              <th>ACOS objetivo</th>
-              <th>ACOS</th>
-              <th>TACOS</th>
-              <th>CPI</th>
-              <th>LISB</th>
-              <th>LISAR</th>
-              <th>Participação</th>
-              <th>Vendas publicidade</th>
-              <th>Impressões</th>
-              <th>Cliques</th>
-              <th>Investimento</th>
-              <th>CPC</th>
-              <th>CTR</th>
-              <th>Receita</th>
-              <th>Retornos</th>
-              <th class="col-acoes">Ações</th>
-            </tr>
-          </thead>
-          <tbody id="tbody-campanhas">
-            <!-- linhas renderizadas via JS -->
-          </tbody>
-        </table>
-      </div>
-
-      <div id="campanhas-empty" class="pub-empty" style="display:none;">
-        <p>📭 Nenhuma campanha encontrada para os filtros selecionados.</p>
+        <div class="table-wrapper table-wrapper--wide">
+          <table class="table table-ranking" id="tblCampaigns">
+            <thead>
+              <tr>
+                <th class="sticky-col">Nome da campanha</th>
+                <th>Status</th>
+                <th>Estratégia</th>
+                <th>ACOS objetivo</th>
+                <th>ACOS</th>
+                <th>TACOS</th>
+                <th>CPI</th>
+                <th>LISB</th>
+                <th>LISAR</th>
+                <th>Participação</th>
+                <th>Vendas publicidade</th>
+                <th>Impressões</th>
+                <th>Cliques</th>
+                <th>Investimento</th>
+                <th>CPC</th>
+                <th>CTR</th>
+                <th>Receita</th>
+                <th>Retornos</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyCampaigns">
+              <tr>
+                <td colspan="18" class="muted">
+                  Nenhuma campanha carregada. Clique em <strong>Atualizar métricas</strong>.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
-  </main>
 
-  <!-- JS específico da tela -->
-  <script src="/js/publicidade.js"></script>
+    <!-- ===================== DETALHE DA CAMPANHA ===================== -->
+    <section class="ads-detail">
+              <!-- ITENS DA CAMPANHA (MLBs) -->
+        <div class="table-wrapper table-wrapper--wide ads-items-wrapper">
+          <table class="table ads-items-table" id="tblItems">
+            <thead>
+              <tr>
+                <th class="sticky-col">Produto</th>
+                <th>Qualidade da publicação</th>
+                <th>ACOS</th>
+                <th>TACOS</th>
+                <th>Impressões</th>
+                <th>Cliques</th>
+                <th>CTR</th>
+                <th>CPC</th>
+                <th>Conversão publicitária</th>
+                <th>Vendas publicidade</th>
+                <th>Vendas diretas</th>
+                <th>Vendas assistidas</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyItems">
+              <tr>
+                <td colspan="12" class="muted">
+                  Nenhuma campanha selecionada.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="ads-pagination" id="adsPagination"></div>
+
+        </div>
+
+    </section>
+
+  <!-- Chart.js para o gráfico -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Scripts globais -->
+  <script src="/js/account-bar.js" defer></script>
+  <!-- Script específico da página (carrega campanhas / itens / gráfico) -->
+  <script src="/js/publicidade.js" defer></script>
 </body>
 </html>
