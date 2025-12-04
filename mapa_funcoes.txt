@@ -61,3 +61,140 @@ Publicidade/Product ADS
     │
     └─ img/
         └─ ...                      # ícones, placeholders de imagem, etc.
+
+
+Produtos/Validar dimensões
+
+/ (raiz do projeto)
+├─ index.js                               # Sobe o Express, registra as rotas e páginas
+│   ├─ usa routes/validarDimensoesRoutes.js      (API)
+│   └─ GET /validar-dimensoes                    (view HTML da tela)
+│
+├─ routes/
+│   ├─ validarDimensoesRoutes.js          # Rotas HTTP da feature "Validar Dimensões"
+│   │   • POST /api/validar-dimensoes/analisar-item
+│   │       -> ValidarDimensoesController.analisarItem()
+│   │   └─ (futuro) ex.: /api/validar-dimensoes/verificar-nulos-conta, etc.
+│   │
+│   └─ ... (outras rotas)
+│
+├─ controllers/
+│   ├─ ValidarDimensoesController.js      # Controller da validação de dimensões
+│   │   • getAccountMeta(res)                    -> pega chave/label da conta atual
+│   │   • getCreds(res)                         -> pega mlCreds do res.locals (authMiddleware)
+│   │   • analisarItem(req,res)
+│   │       - valida body.mlb
+│   │       - monta opts { mlCreds, accountKey }
+│   │       - chama ValidarDimensoesService.analisarUm(mlb, opts)
+│   │       - responde JSON:
+│   │           { success: true, data: { mlb, raw, height_cm, ... }, account: {...} }
+│   │
+│   └─ ... (outros controllers)
+│
+├─ services/
+│   ├─ validarDimensoesService.js         # 💥 Núcleo da lógica de dimensões
+│   │   • urls()
+│   │       - resolve base de `items` via config.urls.items ou padrão ML
+│   │   • prepararAuthState(options)
+│   │       - mesmo padrão do adAnalysisService
+│   │       - usa TokenService.renovarTokenSeNecessario(mlCreds)
+│   │       - devolve { token, creds, key }
+│   │   • authFetch(url, init, state)
+│   │       - faz fetch com Authorization: Bearer {token}
+│   │       - em 401, renova token via TokenService.renovar(state.creds) e tenta de novo
+│   │   • parseDimensions(dimStr)
+│   │       - recebe string tipo "9x19x19,500"
+│   │       - separa em altura, largura, comprimento, peso (cm / g)
+│   │       - devolve { height_cm, width_cm, length_cm, weight_g }
+│   │   • ValidarDimensoesService.analisarUm(mlbId, options)
+│   │       - chama /items/{mlbId}
+│   │       - lê item.shipping.dimensions
+│   │       - usa parseDimensions(...)
+│   │       - retorna:
+│   │           {
+│   │             mlb,
+│   │             success: true/false,
+│   │             status: 'OK' | 'ERRO',
+│   │             raw,           // string original do ML
+│   │             height_cm,
+│   │             width_cm,
+│   │             length_cm,
+│   │             weight_g,
+│   │             message (em caso de erro)
+│   │           }
+│   │
+│   └─ tokenService.js / ml-auth.js       # usados para renovar / obter tokens do ML
+│
+├─ views/
+│   ├─ validar-dimensoes.html             # Tela “Validar Dimensões (MLB)”
+│   │   • header com conta atual + botão "Status" + "Trocar conta"
+│   │   • nav com abas (Dashboard, Produtos, IA & Analytics, etc.)
+│   │   • card "Validar Dimensões":
+│   │       - input MLB único + botão "Analisar"
+│   │       - textarea para lote de MLBs + delay entre requisições
+│   │       - barra de progresso (atual / total)
+│   │       - tabela de resultados:
+│   │           #, MLB, Altura, Largura, Comprimento, Peso, String bruta, Status
+│   │       - botão "Exportar CSV"
+│   │   • inclui:
+│   │       <link rel="stylesheet" href="/css/validar-dimensoes.css">
+│   │       <script src="/js/validar-dimensoes.js"></script>
+│   │
+│   └─ ... (outras views: dashboard.html, analise-anuncios.html, etc.)
+│
+└─ public/
+    ├─ js/
+    │   ├─ validar-dimensoes.js           # Frontend da tela de validação de dimensões
+    │   │   • helpers:
+    │   │       - $, qs, qsa
+    │   │       - ACCOUNT_LABELS
+    │   │       - parseDimensions(dimStr)  // versão de front, usada pra exibir na tabela/CSV
+    │   │   • estado:
+    │   │       - currentAccountKey
+    │   │       - resultados[] (lista de itens já analisados)
+    │   │   • conta / token:
+    │   │       - carregarContaAtual()     -> /api/account/current
+    │   │       - trocarConta()           -> limpa cookie e redireciona /select-conta
+    │   │       - abrirModalStatus(), fecharModalStatus()
+    │   │       - verificarToken(updateModal)
+    │   │       - renovarToken(updateModal)
+    │   │   • comunicação com a API:
+    │   │       - fetchDimensoes(mlb)
+    │   │           -> POST /api/validar-dimensoes/analisar-item
+    │   │           -> trata HTTP != 200, erros de JSON, etc.
+    │   │           -> devolve { mlb, raw, error? }
+    │   │       - processarLote(mlbs[])
+    │   │           -> zera resultados
+    │   │           -> laço chamando fetchDimensoes com delay opcional
+    │   │           -> atualiza progresso + tabela
+    │   │   • UI:
+    │   │       - renderTabela()
+    │   │           -> monta <tbody> com #, MLB, altura, largura, comprimento, peso, raw, status
+    │   │       - atualizarProgresso(atual, total)
+    │   │       - exportarCSV()
+    │   │           -> gera CSV com:
+    │   │              MLB;Altura_cm;Largura_cm;Comprimento_cm;Peso_g;Bruto_shipping_dimensions;Status
+    │   │   • eventos:
+    │   │       - click em #btn-dim-analisar-um      -> processa um MLB
+    │   │       - click em #btn-dim-analisar-lote    -> processa lista de MLBs
+    │   │       - click em #btn-dim-download         -> baixa CSV
+    │   │       - click em #btn-status               -> abre modal de token e chama verificarToken(true)
+    │   │       - click em #account-switch           -> trocarConta()
+    │   │       - handlers data-action="verificar-token" / "renovar-token" no modal
+    │   │       - listener pra fechar o modal clicando fora
+    │   │       - DOMContentLoaded -> carregarContaAtual() + bindEvents()
+    │   │
+    │   └─ ... outros .js (analise-anuncio.js, ia-analytics-curva-abc.js, etc.)
+    │
+    ├─ css/
+    │   ├─ validar-dimensoes.css          # (separado) estilos específicos da tela
+    │   │   • layout dos cards
+    │   │   • grid dos inputs
+    │   │   • tabela de resultados
+    │   │   • barra de progresso
+    │   │
+    │   ├─ dashboard.css                  # estilos globais (header, abas, etc.)
+    │   └─ ... outros CSS
+    │
+    └─ img/
+        └─ ...                            # se tiver ícones/ilustrações específicas

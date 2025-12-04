@@ -15,6 +15,10 @@
   let currentAccountKey = null;
   let resultados = [];
 
+  // Paginação
+  let currentPage = 1;
+  const pageSize = 25;
+
   /* ==========================
    *  Conta atual / Trocar conta
    * ========================== */
@@ -115,7 +119,7 @@
               (data.nickname || '—') +
               '\nNovo token: ' +
               (data.access_token || '').substring(0, 20) +
-              '...',
+              '...', // corte
           );
         }
       } else {
@@ -161,70 +165,108 @@
     };
   }
 
-async function fetchDimensoes(mlb) {
-  try {
-    const res = await fetch('/api/validar-dimensoes/analisar-item', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mlb }),
-    });
+  async function fetchDimensoes(mlb) {
+    try {
+      const res = await fetch('/api/validar-dimensoes/analisar-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mlb }),
+      });
 
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const j = await res.json();
-        msg = j.error || j.message || msg;
-      } catch (_) {}
-      throw new Error(msg);
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const j = await res.json();
+          msg = j.error || j.message || msg;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || json.message || 'Falha na análise');
+      }
+
+      const d = json.data || {};
+      return {
+        mlb: d.mlb || mlb,
+        raw: d.raw || '',
+        error:
+          d.status === 'ERRO' ? d.message || 'Erro ao buscar dimensões' : null,
+      };
+    } catch (err) {
+      console.error('Erro ao buscar dimensões', mlb, err);
+      return {
+        mlb,
+        raw: '',
+        error: err.message || 'Erro ao buscar dimensões',
+      };
     }
-
-    const json = await res.json();
-    if (!json.success) {
-      throw new Error(json.error || json.message || 'Falha na análise');
-    }
-
-    const d = json.data || {};
-    return {
-      mlb: d.mlb || mlb,
-      raw: d.raw || '',
-      error: d.status === 'ERRO' ? d.message || 'Erro ao buscar dimensões' : null,
-    };
-  } catch (err) {
-    console.error('Erro ao buscar dimensões', mlb, err);
-    return {
-      mlb,
-      raw: '',
-      error: err.message || 'Erro ao buscar dimensões',
-    };
   }
-}
 
+  /* ==========================
+   *  Paginação (helpers)
+   * ========================== */
+
+  function getPageItems() {
+    const start = (currentPage - 1) * pageSize;
+    return resultados.slice(start, start + pageSize);
+  }
+
+  function updatePaginationControls() {
+    const totalPages = Math.ceil(resultados.length / pageSize) || 1;
+
+    const lbl = $('dim-page-label');
+    const btnPrev = $('dim-page-prev');
+    const btnNext = $('dim-page-next');
+
+    if (!lbl || !btnPrev || !btnNext) return;
+
+    lbl.textContent = `Página ${currentPage} de ${totalPages}`;
+
+    btnPrev.disabled = currentPage <= 1;
+    btnNext.disabled = currentPage >= totalPages;
+  }
+
+  /* ==========================
+   *  Tabela
+   * ========================== */
 
   function renderTabela() {
     const tbody = $('dim-results-body');
     const btnDownload = $('btn-dim-download');
     if (!tbody || !btnDownload) return;
 
-    if (!resultados.length) {
+    const pageItems = getPageItems();
+
+    if (!resultados.length || !pageItems.length) {
       tbody.innerHTML =
         '<tr><td colspan="8" style="text-align:center;color:#6b7280;">Sem resultados ainda</td></tr>';
       btnDownload.disabled = true;
+      updatePaginationControls();
       return;
     }
 
-    const rowsHtml = resultados
+    const rowsHtml = pageItems
       .map((r, idx) => {
         const dims = parseDimensions(r.raw);
+
+        // 🔄 Reordenação solicitada:
+        // length_cm = Altura, width_cm = Largura, height_cm = Comprimento
+        const altura = dims.length_cm;
+        const largura = dims.width_cm;
+        const comprimento = dims.height_cm;
+
         const status = r.error ? `Erro: ${r.error}` : 'OK';
 
         return `
           <tr>
-            <td>${idx + 1}</td>
+            <td>${(currentPage - 1) * pageSize + idx + 1}</td>
             <td class="mono">${r.mlb}</td>
-            <td>${dims.height_cm}</td>
-            <td>${dims.width_cm}</td>
-            <td>${dims.length_cm}</td>
-            <td>${dims.weight_g}</td>
+            <td>${altura ?? ''}</td>
+            <td>${largura ?? ''}</td>
+            <td>${comprimento ?? ''}</td>
+            <td>${dims.weight_g ?? ''}</td>
             <td>${r.raw || ''}</td>
             <td>${status}</td>
           </tr>
@@ -234,6 +276,8 @@ async function fetchDimensoes(mlb) {
 
     tbody.innerHTML = rowsHtml;
     btnDownload.disabled = false;
+
+    updatePaginationControls();
   }
 
   function atualizarProgresso(atual, total) {
@@ -248,6 +292,7 @@ async function fetchDimensoes(mlb) {
 
   async function processarLote(mlbs) {
     resultados = [];
+    currentPage = 1;
     renderTabela();
     atualizarProgresso(0, mlbs.length);
 
@@ -286,12 +331,17 @@ async function fetchDimensoes(mlb) {
       const dims = parseDimensions(r.raw);
       const status = r.error ? `Erro: ${r.error}` : 'OK';
 
+      // mesma regra da tabela
+      const altura = dims.length_cm;
+      const largura = dims.width_cm;
+      const comprimento = dims.height_cm;
+
       const cols = [
         r.mlb,
-        dims.height_cm,
-        dims.width_cm,
-        dims.length_cm,
-        dims.weight_g,
+        altura ?? '',
+        largura ?? '',
+        comprimento ?? '',
+        dims.weight_g ?? '',
         r.raw || '',
         status,
       ];
@@ -338,6 +388,7 @@ async function fetchDimensoes(mlb) {
         const mlb = (inputUm.value || '').trim();
         if (!mlb) return;
         resultados = [];
+        currentPage = 1;
         atualizarProgresso(0, 1);
         const r = await fetchDimensoes(mlb);
         resultados.push(r);
@@ -359,6 +410,27 @@ async function fetchDimensoes(mlb) {
 
     if (btnDownload) {
       btnDownload.addEventListener('click', exportarCSV);
+    }
+
+    // Paginação
+    const btnPrev = $('dim-page-prev');
+    const btnNext = $('dim-page-next');
+
+    if (btnPrev && btnNext) {
+      btnPrev.addEventListener('click', () => {
+        if (currentPage > 1) {
+          currentPage--;
+          renderTabela();
+        }
+      });
+
+      btnNext.addEventListener('click', () => {
+        const totalPages = Math.ceil(resultados.length / pageSize) || 1;
+        if (currentPage < totalPages) {
+          currentPage++;
+          renderTabela();
+        }
+      });
     }
 
     const btnStatus = $('btn-status');
@@ -395,5 +467,6 @@ async function fetchDimensoes(mlb) {
   document.addEventListener('DOMContentLoaded', () => {
     carregarContaAtual();
     bindEvents();
+    updatePaginationControls();
   });
 })();
