@@ -1,0 +1,240 @@
+<!-- views/estrategicos.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Produtos Estratégicos</title>
+
+  <!-- Estilos globais + específicos -->
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <link rel="stylesheet" href="/css/estrategicos.css?v=1">
+</head>
+<body>
+  <!-- TOPO FIXO (mesmo padrão das outras telas) -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">⭐</span>
+      <span class="app-name">Produtos Estratégicos</span>
+    </div>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span class="val" data-account-label>carregando…</span>
+      </div>
+      <button id="account-switch" class="account-bar__switch" type="button" data-account-switch>
+        Trocar Conta
+      </button>
+    </div>
+  </header>
+
+  <div class="wrap estrategicos-wrap">
+    <!-- CABEÇALHO DA PÁGINA -->
+    <header class="page-header estrategicos-header">
+      <div>
+        <h2>Produtos Estratégicos</h2>
+        <p class="subtitle">
+          Gerencie a lista de anúncios estratégicos por conta, defina percentuais-padrão e aplique promoções
+          recorrentes sem depender de planilhas externas.
+        </p>
+      </div>
+
+      <!-- Controles principais -->
+      <div class="estrategicos-header__actions">
+        <div class="estrategicos-header__group">
+          <label for="strategicGroup">Lista de estratégicos</label>
+          <select id="strategicGroup">
+            <option value="drossi">DRossi Interiores</option>
+            <option value="diplany">Diplany</option>
+            <option value="rossidecor">Rossi Decor</option>
+          </select>
+        </div>
+
+        <button id="btnAddRow" type="button" class="btn secondary">
+          ➕ Adicionar item
+        </button>
+
+        <button id="btnToggleUpload" type="button" class="btn ghost">
+          ⬆️ Atualizar por arquivo
+        </button>
+      </div>
+    </header>
+
+    <!-- ================= LOTE DE MLBS ================= -->
+    <section id="addMlbsPanel" class="card estrategicos-add-panel" hidden>
+      <header class="card-header">
+        <div>
+          <h3>Lote de MLBs</h3>
+          <p class="muted">
+            Cole abaixo um ou mais <strong>MLBs</strong>, um por linha (ou separados por espaço / vírgula).<br>
+            Ao salvar, cada MLB será incluído como produto estratégico na conta selecionada.
+          </p>
+        </div>
+      </header>
+      <div class="estrategicos-add-panel__body">
+        <label for="txtAddMlbs" class="estrategicos-add-panel__label">MLBs</label>
+        <textarea id="txtAddMlbs" class="estrategicos-add-panel__textarea"
+                  rows="6"
+                  placeholder="MLB123456789&#10;MLB987654321&#10;MLB000000001"></textarea>
+
+        <div class="estrategicos-add-panel__actions">
+          <button id="btnAddMlbsConfirm" type="button" class="btn primary">
+            ➕ Adicionar à lista
+          </button>
+          <button id="btnAddMlbsCancel" type="button" class="btn ghost">
+            Cancelar
+          </button>
+        </div>
+
+        <p id="addMlbsStatus" class="muted"></p>
+      </div>
+    </section>
+
+    <!-- UPLOAD CSV/XLSX -->
+    <section id="uploadPanel" class="card estrategicos-upload" hidden>
+      <header class="card-header">
+        <div>
+          <h3>Atualizar Estratégicos por Arquivo</h3>
+          <p class="muted">
+            Envie um arquivo <strong>CSV</strong> ou <strong>Excel</strong> contendo as colunas
+            <code>mlb</code> e <code>percent</code>. Opcionalmente, podemos remover da lista os itens
+            que não estiverem no arquivo.
+          </p>
+        </div>
+      </header>
+
+      <div class="estrategicos-upload__body">
+        <div class="estrategicos-upload__field">
+          <label for="fileStrategicos">Arquivo (.csv, .xlsx)</label>
+          <input id="fileStrategicos" type="file" accept=".csv,.xls,.xlsx" />
+        </div>
+        <div class="estrategicos-upload__field inline">
+          <label>
+            <input id="chkRemoveMissing" type="checkbox" />
+            Remover itens que não estiverem no arquivo
+          </label>
+        </div>
+        <div class="estrategicos-upload__actions">
+          <button id="btnProcessFile" class="btn primary" type="button">
+            🔄 Processar arquivo
+          </button>
+          <button id="btnCloseUpload" class="btn ghost" type="button">
+            Fechar
+          </button>
+        </div>
+        <p id="uploadStatus" class="muted"></p>
+      </div>
+    </section>
+
+    <!-- CONTROLES GERAIS DE DESCONTO -->
+    <section class="card estrategicos-controls">
+      <header class="card-header estrategicos-controls__header">
+        <div>
+          <h3>Configuração do ciclo atual</h3>
+          <p class="muted">
+            Ajuste a porcentagem padrão para todos os itens ou personalize por produto na tabela abaixo.
+          </p>
+        </div>
+      </header>
+      <div class="estrategicos-controls__body">
+        <div class="estrategicos-controls__group">
+          <label for="percentGlobal">Percentual padrão (%)</label>
+          <div class="estrategicos-controls__inline">
+            <input id="percentGlobal" type="number" min="0" max="90" step="0.1" placeholder="ex.: 19" />
+            <button id="btnFillFromGlobal" type="button" class="btn secondary">
+              Preencher coluna “% padrão (salvo)”
+            </button>
+          </div>
+          <small class="muted">
+            Essa ação apenas preenche a coluna “% padrão (salvo)” da tabela. A promoção só é criada ao clicar em
+            “Aplicar promoção nos selecionados”.
+          </small>
+        </div>
+
+        <div class="estrategicos-controls__group">
+          <label for="promotionType">Tipo de campanha</label>
+          <select id="promotionType">
+            <option value="DEAL">DEAL / Seller Campaign</option>
+            <option value="SMART">SMART</option>
+            <option value="PRICE_MATCHING">Price Matching</option>
+            <option value="MARKETPLACE_CAMPAIGN">Marketplace Campaign</option>
+          </select>
+          <small class="muted">
+            Esse tipo será utilizado quando o sistema criar as promoções automaticamente.
+          </small>
+        </div>
+
+        <div class="estrategicos-controls__group apply-actions">
+          <button id="btnApplySelected" class="btn primary" type="button">
+            🚀 Aplicar promoção nos selecionados
+          </button>
+          <button id="btnDeleteSelected" class="btn danger" type="button">
+            🗑 Excluir selecionados
+          </button>
+          <span id="applyHint" class="muted">
+            Selecione os itens na tabela; a % usada será a da coluna “% padrão (salvo)”.
+          </span>
+
+          <!-- Barra de progresso (lote de MLBs) -->
+          <div id="bulkAddProgress" class="estrategicos-progress" hidden>
+            <div class="estrategicos-progress__bar">
+              <div id="bulkAddProgressFill" class="estrategicos-progress__fill"></div>
+            </div>
+            <div id="bulkAddProgressLabel" class="estrategicos-progress__label">
+              0 / 0
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABELA PRINCIPAL DE ESTRATÉGICOS -->
+    <section class="card estrategicos-table-card">
+      <header class="card-header">
+        <div>
+          <h3>Lista de produtos estratégicos</h3>
+          <p class="muted">
+            Adicione, edite ou remova produtos estratégicos. A coluna “% padrão (salvo)” será usada ao aplicar
+            as promoções.
+          </p>
+        </div>
+        <div class="estrategicos-table__summary">
+          <span id="summaryTotal">0 itens</span>
+          <span id="summarySelected">0 selecionados</span>
+        </div>
+      </header>
+
+      <div class="table-wrapper table-wrapper--wide">
+        <table class="table estrategicos-table" id="tblStrategicos">
+          <thead>
+            <tr>
+              <th style="width:32px;">
+                <input type="checkbox" id="chkSelectAllRows">
+              </th>
+              <th>MLB</th>
+              <th>Nome do produto</th>
+              <th>% padrão (salvo)</th>
+              <th>% aplicada atualmente</th>
+              <th>Status</th>
+              <th style="width:110px;">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyStrategicos">
+            <tr>
+              <td colspan="7" class="muted">
+                Nenhum produto estratégico cadastrado. Use <strong>“Adicionar item”</strong> ou
+                <strong>“Atualizar por arquivo”</strong>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- Scripts globais -->
+  <script src="/js/account-bar.js" defer></script>
+  <!-- Script específico da página -->
+  <script src="/js/estrategicos.js" defer></script>
+</body>
+</html>

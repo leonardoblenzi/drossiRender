@@ -330,6 +330,16 @@ try {
   console.error('❌ Erro ao expor página Curva ABC:', error.message);
 }
 
+// Produtos Estratégicos (JSON por conta)
+try {
+  const estrategicosRoutes = require('./routes/estrategicosRoutes');
+  app.use(estrategicosRoutes); // já expõe /api/estrategicos/*
+  console.log('✅ EstrategicosRoutes carregado');
+} catch (error) {
+  console.error('❌ Erro ao carregar EstrategicosRoutes:', error.message);
+}
+
+
 // Full (API)
 try {
   const fullRoutes = require('./routes/fullRoutes');
@@ -388,7 +398,8 @@ app.use((req, res) => {
         'GET /criar-promocao - Interface de promoções',
         'GET /remover-promocao - Interface de remoção',
         'GET /ia-analytics/curva-abc - Curva ABC (tempo real)',
-        'GET /publicidade - Painel de Product Ads'
+        'GET /publicidade - Painel de Product Ads',
+        'GET /estrategicos - Produtos Estratégicos'
       ],
       apis: [
         'GET /api/account/list - Listar contas',
@@ -405,8 +416,14 @@ app.use((req, res) => {
         'GET /api/analytics/abc-ml/summary - Curva ABC resumo (ML tempo real)',
         'GET /api/analytics/abc-ml/items - Curva ABC itens (ML tempo real)',
         'GET /api/publicidade/product-ads/campaigns - Listar campanhas de Product Ads',
-        'GET /api/publicidade/product-ads/campaigns/:id/items - Itens da campanha'
-      ],
+        'GET /api/publicidade/product-ads/campaigns/:id/items - Itens da campanha',
+        'GET /api/estrategicos - Listar produtos estratégicos',    
+        'POST /api/estrategicos - Upsert produto estratégico',
+        'DELETE /api/estrategicos/:mlb - Remover produto estratégico',
+        'POST /api/estrategicos/replace - Substituir lista',
+        'POST /api/estrategicos/apply - Aplicar promoções',
+        'POST /api/estrategicos/upload - Processar upload CSV/XLSX'  
+      ], 
       debug: [
         'GET /test-basic - Teste básico',
         'GET /debug/routes - Debug de rotas'
@@ -440,6 +457,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`    • http://localhost:${PORT}/api/token/ - Gerenciamento de token`);
   console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`);
   console.log(`    • http://localhost:${PORT}/api/publicidade/* - Product Ads (campanhas + itens)`);
+  console.log(`    • http://localhost:${PORT}/estrategicos - Produtos Estratégicos`);
   console.log('🚀 ================================');
   console.log('🔧 Sistema de Monitoramento:');
   console.log(`    • http://localhost:${PORT}/api/system/health - Health check`);

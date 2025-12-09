@@ -50,7 +50,14 @@ router.get('/test', (_req, res) => {
 });
 
 /* ================================
- * NOVO: Página Full (HTML)
+ * NOVO: Página Produtos Estratégicos (HTML)
+ * ================================ */
+router.get('/estrategicos', noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'estrategicos.html'));
+});
+
+/* ================================
+ * Página Full (HTML)
  * ================================ */
 router.get('/full', noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'views', 'full.html'));

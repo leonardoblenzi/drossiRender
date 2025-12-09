@@ -198,3 +198,124 @@ Produtos/Validar dimensões
     │
     └─ img/
         └─ ...                            # se tiver ícones/ilustrações específicas
+
+
+Produtos Estratégicos
+
+/ (raiz do projeto)
+├─ index.js # Sobe o Express, registra as rotas e páginas
+│ ├─ app.use(estrategicosRoutes) # expõe /api/estrategicos/*
+│ └─ GET /estrategicos # (via HtmlRoutes ou rota direta) abre a tela HTML
+│
+├─ routes/
+│ ├─ estrategicosRoutes.js # Rotas HTTP da feature "Produtos Estratégicos"
+│ │ • GET /api/estrategicos -> EstrategicosController.list
+│ │ • POST /api/estrategicos -> EstrategicosController.upsert (upsert 1 item)
+│ │ • DELETE /api/estrategicos/:mlb -> EstrategicosController.remove
+│ │ • POST /api/estrategicos/replace -> EstrategicosController.replace (upload CSV)
+│ │ • POST /api/estrategicos/apply -> EstrategicosController.apply (cria promoções)
+│ │ └─ (opcional futuro) filtros por grupo/lista: ?group=drossi etc.
+│ │
+│ └─ htmlRoutes.js (ou equivalente)
+│ • GET /estrategicos -> views/estrategicos.html
+│
+├─ controllers/
+│ ├─ EstrategicosController.js # Controller da lista de estratégicos
+│ │ • getAccountMeta(res) -> pega accountKey + label (res.locals)
+│ │ • list(req,res) -> EstrategicosService.listarPorConta()
+│ │ • upsert(req,res) -> valida body { mlb, name?, percent_default?, ... }
+│ │ • remove(req,res) -> EstrategicosService.removerUm(mlb)
+│ │ • replace(req,res) -> EstrategicosService.replaceLista(items, opts)
+│ │ • apply(req,res) -> EstrategicosService.aplicarPromocoes({ items, promotion_type })
+│ │ - monta payload para CriarPromocaoService (DEAL / SMART / PRICE_MATCHING / MARKETPLACE_CAMPAIGN)
+│ │ - dispara criação de promoções em lote para os MLBs recebidos
+│ │ └─ responde sempre JSON: { success, items?, error? }
+│ │
+│ └─ ... (outros controllers do projeto)
+│
+├─ services/
+│ ├─ estrategicosService.js # 💥 Núcleo da lógica de “Produtos Estratégicos”
+│ │ • carregarPorConta(accountKey) -> busca/gera lista da conta (DB ou JSON/arquivo)
+│ │ • salvarUm(accountKey, item) -> upsert de único MLB
+│ │ • removerUm(accountKey, mlb) -> remove da lista
+│ │ • replaceLista(accountKey, items, opts) -> substitui/mescla lista (upload CSV)
+│ │ - se opts.remove_missing === true, apaga os que não vierem no arquivo
+│ │ • listarPorConta(accountKey) -> retorna array normalizado:
+│ │ { mlb, name, percent_default, percent_cycle, percent_applied, status }[]
+│ │ • aplicarPromocoes({ accountKey, items, promotionType, mlCreds })
+│ │ - converte { mlb, percent } em payload de criação de promo
+│ │ - usa CriarPromocaoService / PromocoesService para falar com o ML
+│ │ - devolve resumo: ok, falha, mensagens de erro por MLB
+│ │ └─ (implementação atual pode estar em arquivo único ou usando DB/JSON)
+│ │
+│ └─ outros services (tokenService, CriarPromocaoService, etc.) usados internamente
+│
+├─ views/
+│ ├─ estrategicos.html # Tela “Produtos Estratégicos”
+│ │ • header padrão com barra de conta (📦 API Mercado Livre / Produtos)
+│ │ • seção “Configuração do ciclo atual”
+│ │ - input % padrão para o ciclo
+│ │ - botão “Preencher coluna ‘% deste ciclo’”
+│ │ - select “Tipo de campanha” (DEAL, SMART, PRICE_MATCHING, MARKETPLACE_CAMPAIGN)
+│ │ - botão “🚀 Aplicar promoção nos selecionados”
+│ │ - barra de progresso #bulkAddProgress (para lote de MLBs)
+│ │ • seção “Lista de produtos estratégicos”
+│ │ - resumo #summaryTotal / #summarySelected
+│ │ - tabela #tblStrategicos com colunas:
+│ │ [✓], MLB, Nome, % padrão, % deste ciclo, % aplicada atualmente, Status, Ações
+│ │ • painel de lote de MLBs (addMlbsPanel):
+│ │ - textarea #txtAddMlbs (um MLB por linha ou separados por vírgula/espaço)
+│ │ - #addMlbsStatus para feedback
+│ │ - botões “Adicionar MLBs” / “Cancelar”
+│ │ • painel de upload CSV (uploadPanel):
+│ │ - input #fileStrategicos
+│ │ - checkbox #chkRemoveMissing (“remover itens que não estiverem no arquivo”)
+│ │ - #uploadStatus
+│ │ • inclui:
+│ │ <link rel="stylesheet" href="/css/estrategicos.css">
+│ │ <script src="/js/account-bar.js" defer></script>
+│ │ <script src="/js/estrategicos.js" defer></script>
+│ │
+│ └─ ... (dashboard.html, publicidade.html, validar-dimensoes.html, etc.)
+│
+└─ public/
+├─ js/
+│ ├─ estrategicos.js # Frontend da tela de estratégicos
+│ │ • helpers: $, qs, fetchJSON, toast, formatPercent
+│ │ • estado: rows[] (lista na memória), currentGroup
+│ │ • loadRows() -> GET /api/estrategicos e chama renderTable()
+│ │ • renderTable() -> monta <tbody> com inputs editáveis e botões Salvar/Excluir
+│ │ • saveRow(mlb) -> POST /api/estrategicos (upsert 1)
+│ │ • deleteRow(mlb) -> DELETE /api/estrategicos/:mlb
+│ │ • painel de lote:
+│ │ - openAddMlbsPanel(), closeAddMlbsPanel()
+│ │ - handleAddMlbsConfirm()
+│ │ · lê textarea, normaliza MLBs
+│ │ · mostra barra de progresso bulkAddProgress
+│ │ · faz POST /api/estrategicos para cada MLB
+│ │ · atualiza rótulo X / total
+│ │ • upload CSV:
+│ │ - parseCsvToItems(text)
+│ │ - handleUploadProcess() -> POST /api/estrategicos/replace
+│ │ • handleFillFromGlobal() -> preenche % deste ciclo para todos os rows
+│ │ • handleApplySelected() -> monta { mlb, percent }[] e POST /api/estrategicos/apply
+│ │ • bindStaticEvents() -> liga todos os botões, selects, checkboxes, textarea, etc.
+│ │ • DOMContentLoaded -> bindStaticEvents() + loadRows()
+│ │
+│ └─ outros .js globais (account-bar.js, dashboard, etc.)
+│
+├─ css/
+│ ├─ estrategicos.css # Estilos específicos da tela
+│ │ • .estrategicos-wrap -> layout interno com o mesmo “look” das outras páginas
+│ │ • .estrategicos-header, .estrategicos-header__actions
+│ │ • .estrategicos-controls, .estrategicos-table-card (cards)
+│ │ • .estrategicos-bulk-add -> painel de lote (textarea + botões)
+│ │ • .bulk-progress, .bulk-progress__bar, .bulk-progress__fill
+│ │ • .status-pill, .status-pill--ok, --pending, --error
+│ │ • ajustes de tabela: .col-mlb, .col-name, .col-percent, .col-actions
+│ │
+│ ├─ dashboard.css # estilos globais (header, abas, botões .btn, .card, .table, etc.)
+│ └─ ... outros CSS
+│
+└─ img/
+└─ ... # se tiver ícones para a tela (estrela, etc.)
