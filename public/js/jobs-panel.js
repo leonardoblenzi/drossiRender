@@ -1,9 +1,10 @@
-// jobs-panel.js (versão enxuta)
+// public/js/jobs-panel.js
 // Painel fixo de processos (lado direito embaixo), usado pela Central de Promoções
 // API exposta em window.JobsPanel:
 //   - addLocalJob({ title, accountKey?, accountLabel? }) -> jobId
-//   - updateLocalJob(jobId, { progress?, state?, completed? })
-//   - mergeApiJobs(list)  // integra com JobsWatcher (criar-promocao.js)
+//   - updateLocalJob(jobId, { progress?, state?, completed?, accountKey?, accountLabel? })
+//   - mergeApiJobs(list)  // integra com JobsWatcher (criar-promocao.js / pesquisa descrição / exclusão etc.)
+//   - replaceId(oldId, newId)  // troca o id de um job já exibido para outro (ex: id temporário -> process_id do backend)
 //   - show()
 //   - hide()
 
@@ -12,7 +13,7 @@
 
   const $ = (s) => document.querySelector(s);
 
-  let jobs = [];          // { id, title, progress, state, completed, accountKey, accountLabel }
+  let jobs = [];          // { id, title, progress, state, completed, accountKey, accountLabel, dismissed, updated }
   let panelEl = null;
   let collapsed = false;  // modo minimizado (só cabeçalho visível)
 
@@ -112,10 +113,12 @@
   }
 
   function ensureJob(id) {
-    let j = jobs.find((x) => x.id === id);
+    const jobId = String(id || '').trim();
+    if (!jobId) return null;
+    let j = jobs.find((x) => x.id === jobId);
     if (!j) {
       j = {
-        id,
+        id: jobId,
         title: 'Processo',
         progress: 0,
         state: 'iniciando…',
@@ -148,6 +151,7 @@
 
   function updateLocalJob(id, { progress, state, completed, accountKey, accountLabel }) {
     const j = ensureJob(id);
+    if (!j) return;
     if (typeof progress === 'number') j.progress = clamp(progress);
     if (state != null) j.state = String(state);
     if (typeof completed === 'boolean') j.completed = completed;
@@ -162,6 +166,27 @@
     }
     j.updated = Date.now();
     render();
+  }
+
+  // 🔁 Troca o id de um job existente (ex: local-123 → 987654321 do backend)
+  function replaceId(oldId, newId) {
+    const oldStr = String(oldId || '').trim();
+    const newStr = String(newId || '').trim();
+    if (!newStr) return oldStr;
+    if (oldStr === newStr) return newStr;
+
+    let job = jobs.find(j => j.id === oldStr);
+    if (!job) {
+      // Se não achou o antigo mas já existir um com o novo, só usa o novo
+      const existing = jobs.find(j => j.id === newStr);
+      if (existing) return newStr;
+      return newStr;
+    }
+
+    job.id = newStr;
+    job.updated = Date.now();
+    render();
+    return newStr;
   }
 
   // Integra jobs vindos do backend
@@ -234,6 +259,7 @@
     addLocalJob,
     updateLocalJob,
     mergeApiJobs,
+    replaceId,
     show,
     hide,
   };
