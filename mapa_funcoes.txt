@@ -439,3 +439,199 @@ Curva ABC (tempo real via API Mercado Livre)
 └─ utils/helper.js
 • Funções utilitárias compartilhadas (formatação, etc.) que podem ser usadas pelo front/back.
 
+Exclusão de Anúncios (único + lote, com painel de processos)
+
+/ (raiz do projeto)
+├─ index.js
+│ ├– Sobe o Express, middlewares globais (express.json, cors, cookieParser, estáticos em public/, etc.).
+│ ├– Aplica ensureAccount (garante conta selecionada) e authMiddleware.
+│ ├– Carrega e registra as rotas de exclusão:
+│ │ js │ │ const excluirAnuncioRoutes = require('./routes/excluirAnuncioRoutes'); │ │ app.use(excluirAnuncioRoutes); │ │ console.log('✅ ExcluirAnuncioRoutes carregado'); │ │
+│ │ → expõe no backend:
+│ │ • DELETE /anuncios/excluir/:mlb_id
+│ │ • POST /anuncios/excluir-lote
+│ │ • GET /anuncios/status-exclusao/:id
+│ ├– Carrega htmlRoutes.js, que inclui a rota da tela:
+│ │ • GET /excluir-anuncio → envia views/excluir-anuncio.html
+│ └– Logs de inicialização mostram o link:
+│ • http://localhost:PORT/excluir-anuncio - Painel de Exclusão de Anúncios
+│
+├─ routes/
+│ ├─ excluirAnuncioRoutes.js ← 💥 núcleo das rotas da feature
+│ │ • DELETE /anuncios/excluir/:mlb_id
+│ │ – Encaminha para ExcluirAnuncioController.excluirUnico
+│ │ • POST /anuncios/excluir-lote
+│ │ – Encaminha para ExcluirAnuncioController.excluirLote
+│ │ • GET /anuncios/status-exclusao/:id
+│ │ – Encaminha para ExcluirAnuncioController.status
+│ │ • Essa rota não tem prefixo /api, segue o mesmo padrão de /remover-promocao.
+│ │
+│ ├─ htmlRoutes.js
+│ │ • Inclui a rota da interface:
+│ │ – GET /excluir-anuncio → envia views/excluir-anuncio.html
+│ │ • Reaproveita o mesmo layout/cabeçalho (account-bar, nav, etc.) das outras telas.
+│ │
+│ └─ (demais rotas: removerPromocaoRoutes, criarPromocaoRoutes, publicidadeRoutes, etc.)
+│
+├─ controllers/
+│ ├─ ExcluirAnuncioController.js
+│ │ • excluirUnico(req, res)
+│ │ – Lê mlb_id de req.params.mlb_id (ou req.body.mlb_id como fallback).
+│ │ – Valida padrão MLB\d+.
+│ │ – Chama ExclusaoService.excluirUnico(mlbId).
+│ │ – Retorna o objeto completo do service (incluindo success, message, steps, etc.).
+│ │ – Usa statusCode = resultado.success ? 200 : 400.
+│ │
+│ │ • excluirLote(req, res)
+│ │ – Espera body: { mlb_ids: [...], delay_entre_remocoes? }.
+│ │ – Cria um processId e registra em processosExclusao[processId] um snapshot com:
+│ │ { id, status, total_anuncios, processados, sucessos, erros, progresso, iniciado_em, resultados }.
+│ │ – Responde imediatamente: { success: true, message, process_id }.
+│ │ – Dispara em segundo plano ExclusaoService.excluirLote(mlb_ids, processId, statusRef, delay) (sem await).
+│ │
+│ │ • status(req, res)
+│ │ – Lê req.params.id e retorna processosExclusao[id] ou 404 se não existir.
+│ │
+│ └─ (demais controllers: HtmlController, etc.)
+│
+├─ services/
+│ ├─ excluirAnuncioService.js ← lógica de integração com a API do Mercado Livre
+│ │ Constantes:
+│ │ • urls.items = https://api.mercadolibre.com/items
+│ │ • urls.me = https://api.mercadolibre.com/users/me
+│ │
+│ │ Helpers internos:
+│ │ • delay(ms) – pausa entre exclusões no lote.
+│ │ • prepararState(options?) – junta credenciais (APP_ID, CLIENT_SECRET, REFRESH_TOKEN, ACCESS_TOKEN)
+│ │ com as opções e chama TokenService.renovarTokenSeNecessario, retornando { token, creds }.
+│ │ • authFetch(url, init, state) – faz fetch com Authorization: Bearer <token>,
+│ │ e se tomar 401 renova o token com TokenService.renovarToken(state.creds) e tenta de novo.
+│ │
+│ │ • async excluirUnico(mlbId, authState?)
+│ │ – state = authState || prepararState() (reaproveitável em lote).
+│ │ – GET /items/:id → carrega o anúncio.
+│ │ – GET /users/me → confirma que item.seller_id === me.id.
+│ │ – Registra steps com { step: 'item_carregado', status: item.status, seller_id }, etc.
+│ │ – Se item.status !== 'closed':
+│ │ · faz PUT /items/:id com { status: 'closed' }
+│ │ · adiciona step fechado_sucesso ou erro_ao_fechar.
+│ │ – Em seguida, tenta exclusão definitiva (segundo passo da documentação ML):
+│ │ · PUT /items/:id com { deleted: true }
+│ │ · Se ok: retorna { success: true, message: 'Anúncio excluído com sucesso', mlb_id, status_inicial, status_tentado: 'closed', steps, detalhes_ml? }.
+│ │ · Se 4xx/5xx: retorna { success: false, error: true, message: 'Erro ao excluir anúncio: HTTP X — ...', detalhes_ml: <body bruto>, ... }.
+│ │ – Em casos onde a API já não permite exclusão (anúncios com vendas / históricos), o service devolve um texto explicativo (como você viu no JSON).
+│ │
+│ │ • async excluirLote(mlbIds, processoId, statusRef, delayEntre)
+│ │ – Usa um único state com token compartilhado para todos os itens.
+│ │ – Para cada mlbId:
+│ │ · chama excluirUnico(id, state)
+│ │ · empurra o resultado em statusRef.resultados.
+│ │ · incrementa statusRef.sucessos ou statusRef.erros.
+│ │ · incrementa statusRef.processados e statusRef.progresso (processados / total_anuncios * 100).
+│ │ · aguarda delayEntre ms entre um e outro (quando não é o último).
+│ │ – Ao final: statusRef.status = 'concluido'; statusRef.concluido_em = new Date();
+│ │
+│ ├─ tokenService.js
+│ │ • usado por prepararState/authFetch para renovar tokens.
+│ │
+│ └─ outros services gerais (ml-auth, queueService, etc.) – não participam diretamente da exclusão,
+│ porque aqui a chamada à API do ML é “na mão” via fetch.
+│
+├─ views/
+│ ├─ excluir-anuncio.html ← tela da Exclusão de Anúncios
+│ │ • Reaproveita a moldura padrão:
+│ │ – <link rel="stylesheet" href="/css/dashboard.css">
+│ │ – <link rel="stylesheet" href="/css/excluir-anuncio.css?v=2">
+│ │ – <link rel="stylesheet" href="/css/promo-jobs.css"> (mesmo painel de processos da Remover Promoções)
+│ │ • Layout:
+│ │ – header.account-bar com conta atual + botão Status + Trocar Conta.
+│ │ – nav.main-nav com tabs (Dashboard, Produtos, IA & Analytics, etc.); marca “Produtos” como ativo.
+│ │ – <main class="page-wrap"> → <div class="container"> com:
+│ │ · <h1>🗑️ Exclusão de Anúncios</h1>
+│ │ · form-group para MLB único (#mlb-id).
+│ │ · form-group para lista de MLBs (#mlb-list).
+│ │ · div.buttons-row com:
+│ │ * #btn-excluir (Excluir Único)
+│ │ * #btn-excluir-lote (Excluir em Lote)
+│ │ * #btn-limpar (Limpar)
+│ │ · #result-panel.result-panel.hidden + <pre id="result-json">{}</pre>.
+│ │ • No fim da página:
+│ │ – <div id="bulkJobsPanel" class="jobs-panel"></div> (painel flutuante de processos).
+│ │ – Scripts globais de conta + modal de status + jobs:
+│ │ · /js/jobs-panel.js
+│ │ · /js/exclusao-bulk.js
+│ │ · /js/excluir-anuncio.js
+│ │
+│ └─ demais views (dashboard, remover-promocao, publicidade, etc.)
+│
+├─ public/js/
+│ ├─ excluir-anuncio.js ← frontend da tela de exclusão
+│ │ • Seletores: #mlb-id, #mlb-list, #btn-excluir, #btn-excluir-lote, #btn-limpar, #result-panel, #result-json.
+│ │ • showResult(data) – mostra JSON formatado no panel.
+│ │ • limparTudo() – limpa inputs, esconde painel.
+│ │ • excluirUnico()
+│ │ – Valida MLB (/^MLB\d{5,}$/).
+│ │ – Faz DELETE /anuncios/excluir/:mlb.
+│ │ – Exibe o JSON retornado pelo service (incluindo steps).
+│ │ • excluirLote()
+│ │ – Quebra textarea em linhas, limpa e de-duplica.
+│ │ – Chama ExclusaoBulk.enqueue({ items: lista, delayMs: 250, title: 'Exclusão em lote (N)' }).
+│ │ – Mostra { ok: true, message: 'Enviado para processamento em segundo plano.' }.
+│ │ • Faz o addEventListener('click', ...) nos botões.
+│ │
+│ ├─ exclusao-bulk.js ← orquestrador de fila no front (versão para exclusão)
+│ │ • Mantém QUEUE e running para não rodar múltiplos loops.
+│ │ • enqueue({ items, delayMs, title })
+│ │ – limpa/valida lista de MLBs.
+│ │ – empilha em QUEUE e dispara pump().
+│ │ • pump()
+│ │ – enquanto houver itens na fila, chama startJob(entry).
+│ │ • startJob(entry)
+│ │ – Descobre a conta ativa (/api/account/current ou window.__ACCOUNT__).
+│ │ – Cria um job local no JobsPanel.addLocalJob({ title: 'Exclusão – N itens', accountKey/accountLabel }).
+│ │ – Chama POST /anuncios/excluir-lote com { mlb_ids, delay_entre_remocoes }.
+│ │ – Se success:
+│ │ · pega process_id
+│ │ · faz polling em GET /anuncios/status-exclusao/:id a cada 2.5s
+│ │ · atualiza barra/estado via JobsPanel.updateLocalJob(jobId, { progress, state, completed }).
+│ │ – Se erro ao iniciar: marca job como erro ao iniciar.
+│ │
+│ ├─ jobs-panel.js ← painel de processos genérico (reutilizado)
+│ │ • Mantém lista jobs[] e renderiza o painel fixo no canto inferior direito.
+│ │ • API global window.JobsPanel:
+│ │ – addLocalJob({ title, accountKey, accountLabel }) → jobId
+│ │ – updateLocalJob(jobId, { progress, state, completed, accountKey, accountLabel })
+│ │ – mergeApiJobs(list) (para integrações com backend que devolve lista de jobs)
+│ │ – show() / hide()
+│ │ • Exibe título, badge da conta, estado textual e barra de progresso.
+│ │
+│ └─ demais JS globais (dashboard.js, remover-promocao.js, account-bar.js, etc.)
+│
+├─ public/css/
+│ ├─ dashboard.css
+│ │ • Estilo global da aplicação: header amarelo, nav de abas, botões base, layout .page-wrap, .container, etc.
+│ │
+│ ├─ promo-jobs.css
+│ │ • Estilos do painel de processos (#bulkJobsPanel.jobs-panel, .job-row, .job-bar, etc.).
+│ │ • Reutilizado em Remover Promoções e Exclusão de Anúncios.
+│ │
+│ ├─ excluir-anuncio.css ← estilo específico da tela
+│ │ • Usa o mesmo “tema ML” da remover-promocao, mas com arquivo próprio:
+│ │ – .container → card branco central com borda suave e sombra.
+│ │ – h1 com ícone de lixeira e underline colorido.
+│ │ – .form-group para campos de MLB único e em lote.
+│ │ – input, textarea com bordas arredondadas, highlight em foco.
+│ │ – .buttons-row com espaçamento e uso das classes .btn-primary, .btn-warning, .btn-secondary.
+│ │ – .result-panel para o bloco JSON de resposta (fundo levemente verde e borda esquerda).
+│ │ • Complementa dashboard.css, não substitui.
+│ │
+│ └─ outros CSS (remover-promocao.css, publicidade.css, etc.)
+│
+└─ config/ & middleware/
+├─ middleware/ensureAccount.js
+│ • Garante res.locals.accountKey / res.locals.accountLabel e cookie ml_account antes de chegar nas rotas.
+├─ middleware/authMiddleware.js
+│ • Garante que o token ML esteja válido para a conta corrente (usado em quase todas as rotas protegidas).
+├─ config/config.js
+│ • URLs base do ML (items, users_me, etc.) usadas em excluirAnuncioService.
+└─ TokenService e demais configs – dão suporte à autenticação e renovação de token usada pela exclusão.
