@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exclusão de Anúncios - ML</title>
+
+  <!-- Estilos globais do painel (mesmos da Remover Promoções) -->
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <!-- Estilo específico desta página -->
+  <link rel="stylesheet" href="/css/excluir-anuncio.css?v=2" />
+  <!-- CSS do painel de jobs (o mesmo usado em Remover Promoções) -->
+  <link rel="stylesheet" href="/css/promo-jobs.css" />
+</head>
+<body>
+
+  <!-- TOPO FIXO (igual Remover Promoções) -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">🟡</span>
+      <span class="app-name">API Mercado Livre</span>
+    </div>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val">Carregando...</span>
+      </div>
+      <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+      <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+    </div>
+  </header>
+
+  <!-- NAV PRINCIPAL (igual Remover Promoções) -->
+  <nav class="main-nav">
+    <div class="tabs">
+      <a class="nav-tab" data-tab="dashboard" href="/dashboard">Dashboard</a>
+      <a class="nav-tab" data-tab="produtos" href="/criar-promocao">Produtos</a>
+      <a class="nav-tab" data-tab="ia" href="/analise-anuncios">IA &amp; Analytics</a>
+      <a class="nav-tab" data-tab="benchmarking" href="/benchmarking">Benchmarking</a>
+      <a class="nav-tab" data-tab="alertas" href="/alertas">Alertas</a>
+      <a class="nav-tab" data-tab="ml" href="/debug/routes">ML</a>
+    </div>
+  </nav>
+
+  <!-- MODAL DE STATUS (mesmo da Remover Promoções) -->
+  <div id="modal-status" class="modal">
+    <div class="modal-content">
+      <div class="modal-header alt">
+        <h3>🟢 Status da Integração</h3>
+        <span class="close" onclick="fecharModalStatus()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="status-grid">
+          <div class="stat-mini"><h4 id="status-usuario">—</h4><p>Usuário</p></div>
+          <div class="stat-mini"><h4 id="status-token">—</h4><p>Token (preview)</p></div>
+          <div class="stat-mini"><h4 id="status-msg">—</h4><p>Mensagem</p></div>
+        </div>
+        <div class="modal-controls">
+          <button class="btn-small btn-primary" onclick="verificarToken(true)">🔍 Verificar</button>
+          <button class="btn-small btn-success" onclick="renovarToken(true)">🔄 Renovar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTEÚDO PRINCIPAL DA PÁGINA -->
+  <main class="page-wrap">
+    <section class="tab-page active">
+      <div class="container">
+        <h1>🗑️ Exclusão de Anúncios</h1>
+
+        <!-- ÚNICO -->
+        <div class="form-group">
+          <label for="mlb-id">MLB ID do Anúncio:</label>
+          <input id="mlb-id" type="text" placeholder="Ex: MLB1234567890" />
+          <small>Digite o código MLB do anúncio (encontrado na URL).</small>
+        </div>
+
+        <!-- LOTE -->
+        <div class="form-group">
+          <label for="mlb-list">Múltiplos MLB IDs (um por linha):</label>
+          <textarea id="mlb-list" rows="6" placeholder="MLB1234567890
+MLB0987654321
+MLB1122334455"></textarea>
+          <small>Para excluir vários anúncios de uma vez, cole um MLB por linha.</small>
+        </div>
+
+        <!-- BOTÕES (IDs batendo com excluir-anuncio.js) -->
+        <div class="buttons-row">
+          <button id="btn-excluir" class="btn-primary">🗑️ Excluir Único</button>
+          <button id="btn-excluir-lote" class="btn-warning">🚀 Excluir em Lote</button>
+          <button id="btn-limpar" class="btn-secondary">🧹 Limpar</button>
+        </div>
+
+        <!-- RESULTADO (usado pelo excluir-anuncio.js) -->
+        <div id="result-panel" class="result-panel hidden">
+          <h3>Resultado</h3>
+          <pre id="result-json">{}</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Painel de processos (mesma estrutura da Remover Promoções) -->
+  <div id="bulkJobsPanel" class="jobs-panel"></div>
+
+  <!-- SCRIPTS GLOBAIS (conta + status + nav) -->
+  <script>
+    // Ativar aba "produtos"
+    (function(){
+      var tabs = document.querySelectorAll('.nav-tab');
+      tabs.forEach(function(t){
+        if (t.getAttribute('data-tab') === 'produtos') t.classList.add('active');
+      });
+    })();
+
+    const ACCOUNT_LABELS = {
+      drossi: 'DRossi Interiores',
+      diplany: 'Diplany',
+      rossidecor: 'Rossi Decor'
+    };
+
+    async function carregarContaAtual() {
+      const currentEl = document.getElementById('account-current');
+      try {
+        const r = await fetch('/api/account/current', { cache: 'no-store' });
+        const data = await r.json();
+        let shown = 'Não selecionada';
+        if (data && (data.ok || data.success)) {
+          shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
+        } else if (data) {
+          shown = data.label || data.accountKey || 'Desconhecida';
+        }
+        currentEl.textContent = shown;
+      } catch(e) {
+        currentEl.textContent = 'Indisponível';
+      }
+    }
+
+    async function trocarConta() {
+      try {
+        await fetch('/api/account/clear', { method: 'POST' });
+      } finally {
+        window.location.href = '/select-conta';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+      carregarContaAtual();
+      var switchBtn = document.getElementById('account-switch');
+      if (switchBtn) switchBtn.addEventListener('click', trocarConta);
+    });
+
+    // Modal Status
+    function abrirModalStatus(){ document.getElementById('modal-status').style.display = 'block'; }
+    function fecharModalStatus(){ document.getElementById('modal-status').style.display = 'none'; }
+
+    document.getElementById('btn-status').addEventListener('click', async () => {
+      abrirModalStatus();
+      await verificarToken(true);
+    });
+
+    async function verificarToken(updateModal=false) {
+      try {
+        const response = await fetch('/verificar-token');
+        const data = await response.json();
+        if (data.success) {
+          if (updateModal) {
+            document.getElementById('status-usuario').textContent = data.nickname || '—';
+            document.getElementById('status-token').textContent = data.token_preview || '—';
+            document.getElementById('status-msg').textContent = data.message || 'OK';
+          } else {
+            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+          }
+        } else {
+          if (updateModal) {
+            document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
+          } else {
+            alert('❌ ' + (data.error || 'Falha ao verificar'));
+          }
+        }
+      } catch (error) {
+        if (updateModal) {
+          document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+        } else {
+          alert('❌ Erro: ' + error.message);
+        }
+      }
+    }
+
+    async function renovarToken(updateModal=false) {
+      try {
+        const response = await fetch('/renovar-token-automatico', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+          if (updateModal) {
+            document.getElementById('status-usuario').textContent = data.nickname || '—';
+            document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
+            document.getElementById('status-msg').textContent = data.message || 'Token renovado';
+          } else {
+            alert('✅ ' + data.message + '\nUser: ' + data.nickname +
+                  '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+          }
+        } else {
+          if (updateModal) {
+            document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
+          } else {
+            alert('❌ ' + (data.error || 'Falha ao renovar'));
+          }
+        }
+      } catch (error) {
+        if (updateModal) {
+          document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+        } else {
+          alert('❌ Erro: ' + error.message);
+        }
+      }
+    }
+
+    // Fechar modal clicando fora
+    window.addEventListener('click', function(event){
+      const m2 = document.getElementById('modal-status');
+      if (event.target === m2) fecharModalStatus();
+    });
+  </script>
+
+  <!-- Scripts do painel e da fila -->
+  <script src="/js/jobs-panel.js" defer></script>
+  <script src="/js/exclusao-bulk.js" defer></script>
+  <!-- IMPORTANTE: nome certo do arquivo JS da página -->
+  <script src="/js/excluir-anuncio.js" defer></script>
+</body>
+</html>

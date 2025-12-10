@@ -57,6 +57,14 @@ router.get('/estrategicos', noCache, (_req, res) => {
 });
 
 /* ================================
+ * NOVO: Página Exclusão de Anúncios (HTML)
+ * ================================ */
+router.get('/excluir-anuncio', noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'excluir-anuncio.html'));
+});
+
+
+/* ================================
  * Página Full (HTML)
  * ================================ */
 router.get('/full', noCache, (_req, res) => {

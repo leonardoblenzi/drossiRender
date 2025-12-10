@@ -218,6 +218,16 @@ try {
   console.error('❌ Erro ao carregar ValidarDimensoesRoutes:', error.message);
 }
 
+//Exclusao de anuncios
+try {
+const excluirAnuncioRoutes = require('./routes/excluirAnuncioRoutes');
+app.use(excluirAnuncioRoutes);
+console.log('✅ ExcluirAnuncioRoutes carregado');
+} catch (error) {
+console.error('❌ Erro ao carregar ExcluirAnuncioRoutes:', error.message);
+}
+
+
 // Promoção (API já existente no seu projeto)
 try {
   const promocaoRoutes = require('./routes/removerPromocaoRoutes');
@@ -458,6 +468,8 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`);
   console.log(`    • http://localhost:${PORT}/api/publicidade/* - Product Ads (campanhas + itens)`);
   console.log(`    • http://localhost:${PORT}/estrategicos - Produtos Estratégicos`);
+  console.log(`    • http://localhost:${PORT}/excluir-anuncio - Painel de Exclusão de Anúncios`);
+
   console.log('🚀 ================================');
   console.log('🔧 Sistema de Monitoramento:');
   console.log(`    • http://localhost:${PORT}/api/system/health - Health check`);

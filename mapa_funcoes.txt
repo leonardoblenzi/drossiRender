@@ -319,3 +319,123 @@ Produtos Estratégicos
 │
 └─ img/
 └─ ... # se tiver ícones para a tela (estrela, etc.)
+
+Curva ABC (tempo real via API Mercado Livre)
+
+/ (raiz do projeto)
+├─ index.js
+│ ├─ Sobe o Express, carrega middlewares globais, etc.
+│ ├─ const analyticsAbcRoutes = require('./routes/analytics-abc-Routes')
+│ ├─ app.use('/api/analytics', analyticsAbcRoutes) → expõe:
+│ │ • GET /api/analytics/abc-ml/summary
+│ │ • GET /api/analytics/abc-ml/items
+│ └─ Usa também htmlRoutes.js / HtmlController para servir a página HTML da Curva ABC
+│
+├─ routes/
+│ ├─ analytics-abc-Routes.js ← 💥 núcleo da funcionalidade Curva ABC (backend)
+│ │ • GET /abc-ml/summary
+│ │ - Agrega pedidos pagos via /orders/search (ML) no intervalo date_from–date_to
+│ │ - Faz classificação ABC por receita ou unidades (classifyABC)
+│ │ - Calcula totais, cards de curva A/B/C, ticket médio, top5 de cada curva, etc.
+│ │
+│ │ • GET /abc-ml/items
+│ │ - Lê parâmetros: datas, contas, métrica, curva, paginação, ordenação, flags de Ads/Promo/Visitas…
+│ │ - Busca pedidos até 90 dias antes do date_to para preencher janelas:
+│ │ units_7d, units_15d, units_30d, units_40d, units_60d, units_90d
+│ │ - Classifica ABC, calcula shares e aplica filtro/ordem/paginação
+│ │ - Enriquecimento por item (apenas da página):
+│ │ · Ads: fetchAdsMetricsByItems (Product Ads v2 /advertisers + /ads)
+│ │ · Promoções: Central de Promoções + /items/{id}/prices
+│ │ · Visitas: /items/visits (agora 1 item por chamada, com unit=day)
+│ │ - Resposta: { page, limit, total, data: [...], ads_debug?, promos_debug?, visits_debug? }
+│ │ • Helpers internos importantes:
+│ │ - iterOrders({ token, sellerId, date_from, date_to }) → pagina /orders/search
+│ │ - classifyABC(rows, { metric, aCut, bCut }) → marca curve A/B/C e share_cum
+│ │ - fetchVisitsForItems(...) → chama /items/visits respeitando limite de 1 id por request
+│ │ - fetchAdsMetricsByItems(...) + fetchAdsMetricsSingle(...)
+│ │ - fetchPromosByItems(...), fetchPromotionsForItemsBatch(...), enrichWithPromotions(...)
+│ │ • Dependências principais:
+│ │ - services/ml-auth.js (via getToken(app, req, accountId))
+│ │ - node-fetch / fetch para chamar APIs do Mercado Livre
+│ │
+│ ├─ htmlRoutes.js
+│ │ • Rota da página HTML da Curva ABC, algo como:
+│ │ - GET /ia-analytics/curva-abc (ou similar) → HtmlController.curvaAbc
+│ │ - Renderiza views/ia-analytics/curva-abc.html
+│ │ • Outras telas (dashboard, criar promoção, etc.) também vivem aqui
+│ │
+│ └─ (demais rotas do projeto: criarPromocaoRoutes, publicidadeRoutes, fullRoutes, etc.)
+│
+├─ controllers/
+│ ├─ HtmlController.js
+│ │ • Método responsável por devolver a tela da Curva ABC, por ex.:
+│ │ - curvaAbc(req, res)
+│ │ · carrega informações de conta (res.locals.account, etc.)
+│ │ · responde com view views/ia-analytics/curva-abc.html
+│ │
+│ └─ (não existe um controller separado “CurvaAbcController”:
+│ toda a lógica da Curva ABC está concentrada em analytics-abc-Routes.js)
+│
+├─ services/
+│ ├─ ml-auth.js
+│ │ • getAccessTokenForAccount(accountKey, req)
+│ │ - usado por analytics-abc-Routes.js para obter o token de cada conta (drossi, diplany, etc.)
+│ │ - por trás, conversa com tokenService, config/accounts.js, etc.
+│ │ • Sem ele, os endpoints da Curva ABC não conseguem falar com:
+│ │ - /users/me, /orders/search, /items/visits, /advertising/*, /seller-promotions/*, /items/{id}/prices
+│ │
+│ ├─ tokenService.js (suporte para renovação de tokens)
+│ └─ outros services gerais (adsService, sellerPromotionsService, queueService, etc.)
+│ → não são chamados diretamente pela Curva ABC, porque o arquivo de rotas já chama as APIs do ML “na mão”.
+│
+├─ views/
+│ ├─ ia-analytics/
+│ │ └─ curva-abc.html ← tela da Curva ABC
+│ │ • Estrutura de página:
+│ │ - Header padrão com barra de contas (usa account-bar.js)
+│ │ - Filtros de: datas, contas, curva (A/B/C/ALL), métrica (unidades/receita), FULL/all, etc.
+│ │ - Cards-resumo (totais, participação das curvas, etc.)
+│ │ - Tabela principal com métricas de vendas, janelas de dias, Ads, promoções e visitas
+│ │ • Includes típicos:
+│ │ - <link rel="stylesheet" href="/css/dashboard.css">
+│ │ - <link rel="stylesheet" href="/css/curva-abc.css">
+│ │ - <script src="/js/account-bar.js" defer></script>
+│ │ - <script src="/js/ia-analytics-curva-abc.js" defer></script>
+│ │
+│ └─ outras views (dashboard.html, criar-promocao.html, publicidade.html, etc.)
+│
+├─ public/
+│ ├─ js/
+│ │ ├─ ia-analytics-curva-abc.js ← frontend da Curva ABC
+│ │ │ • Faz os requests para:
+│ │ │ - GET /api/analytics/abc-ml/summary (cards e top5)
+│ │ │ - GET /api/analytics/abc-ml/items?... (tabela principal)
+│ │ │ • Mantém o estado da tela: filtro de datas, conta, curva, métrica, full/all, include_ads, include_promos, include_visits, página, ordenação…
+│ │ │ • Renderiza:
+│ │ │ - cards de curva A/B/C e TOTAL
+│ │ │ - tabela com colunas: MLB, título, unidades, receita, % participação,
+│ │ │ units_7d/15d/30d/40d/60d/90d, dados de Ads, promo (percentual/source), visitas, etc.
+│ │ │ • Liga eventos de UI (change em filtros, paginação, botões) e atualiza a DOM conforme a resposta da API.
+│ │ │ • Usa account-bar.js para descobrir e exibir a conta ativa.
+│ │ │
+│ │ ├─ account-bar.js
+│ │ │ • Componente global da barra de contas (seleção de conta Mercado Livre), reutilizado em Curva ABC e demais telas.
+│ │ └─ outros JS globais (dashboard.js, criar-promocao.js, etc.)
+│ │
+│ ├─ css/
+│ │ ├─ curva-abc.css
+│ │ │ • Estilos específicos da tela Curva ABC: layout do wrapper, filtros, cards, tabela, badges de curva, etc.
+│ │ │ • Complementa dashboard.css (botões, cards, grid geral).
+│ │ ├─ dashboard.css
+│ │ └─ demais CSS do projeto (criar-promocao, publicidade, etc.)
+│ │
+│ └─ img/ (se houver ícones ou artes usadas na tela)
+│
+└─ config/ & utils/
+├─ config/accounts.js
+│ • Define as contas (drossi, diplany, rossidecor…) usadas na barra de conta e filtros da Curva ABC.
+├─ config/config.js
+│ • Configurações gerais do app (porta, ambiente, chaves base).
+└─ utils/helper.js
+• Funções utilitárias compartilhadas (formatação, etc.) que podem ser usadas pelo front/back.
+

@@ -1,0 +1,305 @@
+/* public/css/excluir-anuncio.css
+ * Estilo próprio da tela 🗑️ Exclusão de Anúncios
+ * Inspirado em remover-promocao, mas isolado neste arquivo.
+ */
+
+/* ===== Paleta / tokens ML ===== */
+:root {
+  --ml-yellow: #ffe600;
+  --ml-blue:   #3483fa;
+  --ml-dark:   #333333;
+  --ml-text:   #2f2f2f;
+  --ml-muted:  #6b7280;
+  --ml-bg:     #f5f5f5;
+  --ml-card:   #ffffff;
+  --success:   #2e7d32;
+  --warn:      #ffca28;
+  --danger:    #d32f2f;
+  --border:    #e5e7eb;
+}
+
+/* ===== Layout base da página ===== */
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--ml-bg);
+  color: var(--ml-text);
+  margin: 0;
+}
+
+/* page-wrap já existe no dashboard.css, aqui só garantimos espaçamento
+   abaixo do header fixo */
+.page-wrap {
+  min-height: 100vh;
+  padding: 0 16px 24px;
+  box-sizing: border-box;
+}
+
+/* Card principal da página de exclusão */
+.container,
+.excluir-card {
+  background: var(--ml-card);
+  padding: 32px;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  max-width: 1000px;
+  margin: 96px auto 24px auto; /* espaço por causa da account-bar */
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+/* Título principal */
+h1 {
+  color: var(--ml-dark);
+  text-align: center;
+  font-size: 2rem;
+  margin: 0 0 10px 0;
+}
+
+h1::after {
+  content: '';
+  display: block;
+  width: 120px;
+  height: 3px;
+  background: var(--danger); /* linha vermelha para diferenciar da tela de promo */
+  margin: 12px auto 0;
+  border-radius: 2px;
+}
+
+/* Subtítulo da página */
+.subtitle {
+  text-align: center;
+  font-size: 0.92rem;
+  color: var(--ml-muted);
+  margin: 0 0 24px 0;
+}
+
+/* ===== Campos de formulário ===== */
+
+.form-group,
+.input-section {
+  margin-bottom: 20px;
+}
+
+.form-group label,
+.input-section label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 700;
+  color: var(--ml-dark);
+}
+
+/* Inputs e textarea */
+input[type="text"],
+textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border 0.2s, box-shadow 0.2s;
+  font-size: 15px;
+  background: #fff;
+  color: var(--ml-text);
+  box-sizing: border-box;
+}
+
+input[type="text"]::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+  font-size: 0.92rem;
+}
+
+input[type="text"]:focus,
+textarea:focus {
+  border-color: var(--ml-blue);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(52, 131, 250, 0.18);
+}
+
+textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+/* helper text */
+small {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--ml-muted);
+}
+
+/* Layout “linha” para input + botão (um único anúncio) */
+.inline-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.inline-group input[type="text"] {
+  flex: 1;
+  min-width: 220px;
+}
+
+.inline-group button {
+  margin-right: 0;
+}
+
+/* ===== Botões ===== */
+
+button {
+  background: var(--ml-blue);
+  color: #fff;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  transition: transform 0.06s, box-shadow 0.2s, opacity 0.2s;
+  margin-right: 10px;
+  margin-bottom: 10px;
+}
+
+button:hover {
+  opacity: 0.96;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(52, 131, 250, 0.25);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* Botão principal: Excluir único (vermelho) */
+#btn-excluir,
+.btn-danger {
+  background: var(--danger);
+}
+
+#btn-excluir:hover,
+.btn-danger:hover {
+  box-shadow: 0 6px 18px rgba(211, 47, 47, 0.3);
+}
+
+/* Excluir em lote (amarelo) */
+#btn-excluir-lote,
+.btn-warning {
+  background: var(--warn);
+  color: #212529;
+}
+
+#btn-excluir-lote:hover,
+.btn-warning:hover {
+  box-shadow: 0 6px 18px rgba(255, 202, 40, 0.4);
+}
+
+/* Limpar / botões neutros */
+#btn-limpar,
+.btn-secondary {
+  background: #6b7280;
+}
+
+#btn-limpar:hover,
+.btn-secondary:hover {
+  box-shadow: 0 6px 18px rgba(55, 65, 81, 0.3);
+}
+
+/* ===== Resultado ===== */
+
+.result-panel,
+.painel-resultado {
+  margin-top: 24px;
+  background: #f9fafb;
+  border-left: 4px solid var(--ml-blue);
+  padding: 16px 16px 12px;
+  font-size: 0.9rem;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.result-panel.hidden,
+.painel-resultado.hidden {
+  display: none;
+}
+
+.result-panel h3,
+.painel-resultado h3 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ml-dark);
+}
+
+/* JSON do resultado */
+#result-json {
+  margin: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 12px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: #111827;
+  white-space: pre-wrap;
+}
+
+/* ===== Helpers de estado, se quiser usar mensagens internas ===== */
+
+.result {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 10px;
+  border-left: 4px solid;
+}
+
+.result.success {
+  background: #e8f5e9;
+  border-color: var(--success);
+  color: #1b5e20;
+}
+
+.result.error {
+  background: #fdecea;
+  border-color: var(--danger);
+  color: #7f1d1d;
+}
+
+.result.info {
+  background: #e8f4fd;
+  border-color: var(--ml-blue);
+  color: #0b4ea2;
+}
+
+/* ===== Responsivo ===== */
+@media (max-width: 768px) {
+  .container,
+  .excluir-card {
+    margin: 96px 10px 24px 10px;
+    padding: 20px;
+  }
+
+  button {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .inline-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+/* Linha de botões da página de exclusão */
+.buttons-row {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* No mobile os botões já vão para 100% pelo @media que define button { width: 100%; } */
