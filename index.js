@@ -1,3 +1,4 @@
+// index.js
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -20,7 +21,11 @@ const PORT = process.env.PORT || 3000;
 // ========================
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Se você usa cookies (ml_account) e precisar CORS cross-site,
+// considere: app.use(cors({ origin: true, credentials: true }));
 app.use(cors());
+
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -162,7 +167,6 @@ app.get('/', (req, res) => {
   if (FORCE_ACCOUNT_SELECTION || !hasAccountCookie) {
     return res.redirect('/select-conta');
   }
-  // Se não for forçado e já existe conta, mande ao dashboard:
   return res.redirect('/dashboard');
 });
 
@@ -218,15 +222,14 @@ try {
   console.error('❌ Erro ao carregar ValidarDimensoesRoutes:', error.message);
 }
 
-//Exclusao de anuncios
+// Exclusão de anúncios
 try {
-const excluirAnuncioRoutes = require('./routes/excluirAnuncioRoutes');
-app.use(excluirAnuncioRoutes);
-console.log('✅ ExcluirAnuncioRoutes carregado');
+  const excluirAnuncioRoutes = require('./routes/excluirAnuncioRoutes');
+  app.use(excluirAnuncioRoutes);
+  console.log('✅ ExcluirAnuncioRoutes carregado');
 } catch (error) {
-console.error('❌ Erro ao carregar ExcluirAnuncioRoutes:', error.message);
+  console.error('❌ Erro ao carregar ExcluirAnuncioRoutes:', error.message);
 }
-
 
 // Promoção (API já existente no seu projeto)
 try {
@@ -320,7 +323,7 @@ try {
 }
 
 // ==========================================
-// 🔹 Curva ABC — Rotas de API + Página HTML
+// 🔹 Curva ABC — Rotas de API
 // ==========================================
 try {
   const analyticsAbcRoutes = require('./routes/analytics-abc-Routes'); // API
@@ -330,14 +333,13 @@ try {
   console.error('❌ Erro ao carregar Analytics ABC Routes:', error.message);
 }
 
+// ✅ NOVO: Filtro Avançado de Anúncios (API)
 try {
-  // Página HTML (mantém seu padrão de views/arquivo .html)
-  app.get('/ia-analytics/curva-abc', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'ia-analytics', 'curva-abc.html'));
-  });
-  console.log('✅ Página Curva ABC carregada');
+  const filtroAnunciosRoutes = require('./routes/analytics-filtro-anuncios-routes');
+  app.use('/api/analytics', filtroAnunciosRoutes);
+  console.log('✅ Filtro Anúncios Routes carregado');
 } catch (error) {
-  console.error('❌ Erro ao expor página Curva ABC:', error.message);
+  console.error('❌ Erro ao carregar Filtro Anúncios Routes:', error.message);
 }
 
 // Produtos Estratégicos (JSON por conta)
@@ -348,7 +350,6 @@ try {
 } catch (error) {
   console.error('❌ Erro ao carregar EstrategicosRoutes:', error.message);
 }
-
 
 // Full (API)
 try {
@@ -403,13 +404,17 @@ app.use((req, res) => {
       interfaces: [
         'GET /select-conta - Selecionar conta',
         'GET /dashboard - Dashboard principal',
-        'GET /pesquisa-descricao - Interface de pesquisa',
-        'GET /keyword-analytics - Interface de analytics',
-        'GET /criar-promocao - Interface de promoções',
-        'GET /remover-promocao - Interface de remoção',
+        'GET /analise-anuncios - Análise de anúncios',
+        'GET /criar-promocao - Criar promoções',
+        'GET /remover-promocao - Remover promoções',
+        'GET /excluir-anuncio - Exclusão de anúncios',
+        'GET /estrategicos - Produtos Estratégicos',
+        'GET /full - FULL',
         'GET /ia-analytics/curva-abc - Curva ABC (tempo real)',
+        'GET /filtro-anuncios - Filtro Avançado de Anúncios',
         'GET /publicidade - Painel de Product Ads',
-        'GET /estrategicos - Produtos Estratégicos'
+        'GET /pesquisa-descricao - Interface de pesquisa',
+        'GET /keyword-analytics - Interface de analytics'
       ],
       apis: [
         'GET /api/account/list - Listar contas',
@@ -425,15 +430,16 @@ app.use((req, res) => {
         'GET /api/keyword-analytics/* - APIs de keyword analytics',
         'GET /api/analytics/abc-ml/summary - Curva ABC resumo (ML tempo real)',
         'GET /api/analytics/abc-ml/items - Curva ABC itens (ML tempo real)',
+        'GET /api/analytics/filtro-anuncios - Filtro Avançado de Anúncios',
         'GET /api/publicidade/product-ads/campaigns - Listar campanhas de Product Ads',
         'GET /api/publicidade/product-ads/campaigns/:id/items - Itens da campanha',
-        'GET /api/estrategicos - Listar produtos estratégicos',    
+        'GET /api/estrategicos - Listar produtos estratégicos',
         'POST /api/estrategicos - Upsert produto estratégico',
         'DELETE /api/estrategicos/:mlb - Remover produto estratégico',
         'POST /api/estrategicos/replace - Substituir lista',
         'POST /api/estrategicos/apply - Aplicar promoções',
-        'POST /api/estrategicos/upload - Processar upload CSV/XLSX'  
-      ], 
+        'POST /api/estrategicos/upload - Processar upload CSV/XLSX'
+      ],
       debug: [
         'GET /test-basic - Teste básico',
         'GET /debug/routes - Debug de rotas'
@@ -449,36 +455,47 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 ================================');
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log('🚀 ================================');
+
   console.log('📋 Interfaces Web:');
   console.log(`    • http://localhost:${PORT}/select-conta - Selecionar conta (obrigatório ao abrir)`);
   console.log(`    • http://localhost:${PORT}/dashboard - Dashboard principal`);
-  console.log(`    • http://localhost:${PORT}/pesquisa-descricao - Pesquisa em massa`);
-  console.log(`    • http://localhost:${PORT}/keyword-analytics - Análise de palavras-chave`);
+  console.log(`    • http://localhost:${PORT}/analise-anuncios - Análise de anúncios`);
   console.log(`    • http://localhost:${PORT}/criar-promocao - Criar promoções`);
   console.log(`    • http://localhost:${PORT}/remover-promocao - Remover promoções`);
+  console.log(`    • http://localhost:${PORT}/excluir-anuncio - Exclusão de anúncios`);
+  console.log(`    • http://localhost:${PORT}/estrategicos - Produtos Estratégicos`);
+  console.log(`    • http://localhost:${PORT}/full - FULL`);
   console.log(`    • http://localhost:${PORT}/ia-analytics/curva-abc - Curva ABC (Analytics)`);
+  console.log(`    • http://localhost:${PORT}/filtro-anuncios - Filtro Avançado de Anúncios`);
   console.log(`    • http://localhost:${PORT}/publicidade - Painel de Product Ads`);
+  console.log(`    • http://localhost:${PORT}/pesquisa-descricao - Pesquisa em massa`);
+  console.log(`    • http://localhost:${PORT}/keyword-analytics - Análise de palavras-chave`);
+
   console.log('🚀 ================================');
   console.log('📊 APIs Principais:');
   console.log(`    • http://localhost:${PORT}/api/account/* - Seleção de conta`);
-  console.log(`    • http://localhost:${PORT}/api/pesquisa-descricao/ - Sistema de pesquisa`);
-  console.log(`    • http://localhost:${PORT}/api/keyword-analytics/ - Analytics`);
-  console.log(`    • http://localhost:${PORT}/api/promocao/ - Promoções`);
-  console.log(`    • http://localhost:${PORT}/api/token/ - Gerenciamento de token`);
+  console.log(`    • http://localhost:${PORT}/api/token/* - Gerenciamento de token`);
+  console.log(`    • http://localhost:${PORT}/api/promocao/* - Promoções`);
+  console.log(`    • http://localhost:${PORT}/api/analise-anuncios/* - Análise de anúncios (API)`);
   console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`);
+  console.log(`    • http://localhost:${PORT}/api/analytics/filtro-anuncios - Filtro Avançado de Anúncios`);
   console.log(`    • http://localhost:${PORT}/api/publicidade/* - Product Ads (campanhas + itens)`);
-  console.log(`    • http://localhost:${PORT}/estrategicos - Produtos Estratégicos`);
-  console.log(`    • http://localhost:${PORT}/excluir-anuncio - Painel de Exclusão de Anúncios`);
+  console.log(`    • http://localhost:${PORT}/api/pesquisa-descricao/* - Sistema de pesquisa`);
+  console.log(`    • http://localhost:${PORT}/api/keyword-analytics/* - Keyword analytics`);
+  console.log(`    • http://localhost:${PORT}/api/full/* - FULL`);
+  console.log(`    • http://localhost:${PORT}/api/estrategicos/* - Estratégicos`);
 
   console.log('🚀 ================================');
   console.log('🔧 Sistema de Monitoramento:');
   console.log(`    • http://localhost:${PORT}/api/system/health - Health check`);
   console.log(`    • http://localhost:${PORT}/api/system/stats - Estatísticas`);
   console.log(`    • http://localhost:${PORT}/test-basic - Teste básico`);
+
   console.log('🚀 ================================');
   console.log('⚙️ Configuração:');
   console.log(`    • Porta: ${PORT}`);
   console.log(`    • Ambiente: ${process.env.NODE_ENV || 'development'}`);
+
   const acc = (process.env.SELECTED_ACCOUNT || process.env.DEFAULT_ACCOUNT || '').toLowerCase();
   if (acc) {
     const U = acc.toUpperCase();
@@ -487,6 +504,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   } else {
     console.log('    • Conta default: (nenhuma)');
   }
+
   console.log(`    • Sistema de Filas: ${queueService ? '✅ Ativo' : '❌ Indisponível'}`);
   console.log(`    • Redis: ${process.env.REDIS_URL || process.env.REDIS_HOST ? '✅ Configurado' : '❌ Não configurado'}`);
   console.log('🚀 ================================');

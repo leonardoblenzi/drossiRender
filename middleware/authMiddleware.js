@@ -8,7 +8,11 @@ const SKIP_PATHS = [
   /^\/health(?:\/|$)/i,
   /^\/api\/pesquisa-descricao\/jobs/i,      // já existia
   /^\/api\/pesquisa-descricao\/status/i,    // já existia
+
+  // ✅ NOVO: polling e download do filtro-anuncios (não precisa token ML)
+  /^\/api\/analytics\/filtro-anuncios\/jobs\/[^\/]+(?:\/|$)/i,
 ];
+
 const SKIP_METHODS = new Set(['OPTIONS', 'HEAD']);
 
 function isSkipped(req) {

@@ -63,6 +63,12 @@ router.get('/excluir-anuncio', noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'views', 'excluir-anuncio.html'));
 });
 
+/* ================================
+ * NOVO: Página Filtro Avançado de Anúncios (HTML)
+ * ================================ */
+router.get('/filtro-anuncios', noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'filtro-anuncios.html'));
+});
 
 /* ================================
  * Página Full (HTML)

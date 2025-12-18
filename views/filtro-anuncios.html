@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>Produtos — Filtro Avançado de Anúncios</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/filtro-anuncios.css">
+</head>
+
+<body class="filtro-anuncios">
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">🟡</span>
+      <span class="app-name">API Mercado Livre</span>
+    </div>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val">Carregando...</span>
+      </div>
+      <button id="btn-status" class="account-bar__status" title="Ver status do token" type="button">Status</button>
+      <button id="account-switch" class="account-bar__switch" title="Trocar de conta" type="button">Trocar Conta</button>
+    </div>
+  </header>
+
+  <div class="page-header">
+    <h1>Filtro Avançado de Anúncios</h1>
+    <div class="sub">Filtre por período, vendas, status, promo, Ads, visitas, cliques e impressões.</div>
+  </div>
+
+  <div class="wrap">
+    <section class="card filter-card" style="cursor:default">
+
+      <div class="filters form-grid">
+        <!-- LINHA 1 (6 colunas) -->
+        <div class="form-group">
+          <label for="fDateFrom">Período: de</label>
+          <input id="fDateFrom" type="date" class="input">
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <div class="form-group">
+          <label for="fDateTo">Período: até</label>
+          <input id="fDateTo" type="date" class="input">
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <div class="form-group span-2">
+          <label for="fSalesOp">Vendas</label>
+          <div class="inline-pair">
+            <select id="fSalesOp" class="input">
+              <option value="all">Todos</option>
+              <option value="gt">Maior que</option>
+              <option value="lt">Menor que</option>
+            </select>
+            <input id="fSalesVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
+          </div>
+          <small class="muted help">Quantidade de vendas no período.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="fStatus">Status</label>
+          <select id="fStatus" class="input">
+            <option value="all">Todos</option>
+            <option value="active">Ativo</option>
+            <option value="paused">Inativo/Pausado</option>
+          </select>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <div class="form-group">
+          <label for="fPromo">Promo ativa</label>
+          <select id="fPromo" class="input">
+            <option value="all">Todos</option>
+            <option value="yes">Sim</option>
+            <option value="no">Não</option>
+          </select>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <!-- LINHA 2 (6 colunas) -->
+        <div class="form-group">
+          <label for="fAds">Ads</label>
+          <select id="fAds" class="input">
+            <option value="all">Todos</option>
+            <option value="yes">Sim</option>
+            <option value="no">Não</option>
+          </select>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <div class="form-group span-2">
+          <label for="fVisitsOp">Visitas</label>
+          <div class="inline-pair">
+            <select id="fVisitsOp" class="input">
+              <option value="all">Todos</option>
+              <option value="gt">Maior que</option>
+              <option value="lt">Menor que</option>
+            </select>
+            <input id="fVisitsVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
+          </div>
+          <small class="muted help">Visitas no período filtrado.</small>
+        </div>
+
+        <div class="form-group span-2">
+          <label for="fClicksOp">Cliques</label>
+          <div class="inline-pair">
+            <select id="fClicksOp" class="input">
+              <option value="all">Todos</option>
+              <option value="gt">Maior que</option>
+              <option value="lt">Menor que</option>
+            </select>
+            <input id="fClicksVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
+          </div>
+          <small class="muted help">Cliques (Ads) no período.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="fEnvio">Envio</label>
+          <select id="fEnvio" class="input">
+            <option value="all">Todos</option>
+            <option value="buyer">Por conta do comprador</option>
+            <option value="free">Frete grátis</option>
+          </select>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <!-- LINHA 3 (6 colunas) -->
+        <div class="form-group span-2">
+          <label for="fImprOp">Impressões</label>
+          <div class="inline-pair">
+            <select id="fImprOp" class="input">
+              <option value="all">Todos</option>
+              <option value="gt">Maior que</option>
+              <option value="lt">Menor que</option>
+            </select>
+            <input id="fImprVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
+          </div>
+          <small class="muted help">Impressões (Ads) no período.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="fTipo">Tipo</label>
+          <select id="fTipo" class="input">
+            <option value="all">Todos</option>
+            <option value="classic">Clássico</option>
+            <option value="premium">Premium</option>
+          </select>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <div class="form-group">
+          <label for="fDetalhes">Detalhes do anúncio</label>
+          <select id="fDetalhes" class="input">
+            <option value="all">Todos</option>
+            <option value="catalog">Catálogo</option>
+            <option value="normal">Normal</option>
+          </select>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <!-- Espaço pra fechar a linha e empurrar o botão pro canto direito -->
+        <div class="form-group" aria-hidden="true">
+          <label>&nbsp;</label>
+          <div style="height: 40px;"></div>
+          <small class="muted help">&nbsp;</small>
+        </div>
+
+        <!-- Botão no canto inferior direito (última coluna da 3ª linha) -->
+        <div class="form-group btn-search">
+          <label>&nbsp;</label>
+          <button id="btnPesquisar" class="btn primary" style="width:100%" type="button">Filtrar</button>
+
+          <!-- ✅ NOVO: status do job (opcional, discreto). O JS pode preencher -->
+          <div id="job-status"
+               class="muted"
+               style="margin-top:8px; font-size:.82rem; line-height:1.2; display:none;">
+            <span id="job-status-text">Processando...</span>
+          </div>
+
+          <small class="muted help">&nbsp;</small>
+        </div>
+      </div>
+
+      <div class="filters-footer">
+        <ul class="muted tips">
+          <li>* Período influencia Vendas / Valor de Venda / Ads / Visitas</li>
+          <li>* Cliques e Impressões são métricas de Ads (quando disponível)</li>
+          <li>* A tabela segue a ordem de colunas definida por você</li>
+        </ul>
+
+        <div class="export-actions bottom">
+          <!-- ✅ dica: começa desabilitado; o JS habilita após 1ª busca -->
+          <button class="btn" id="btnExportCsv" title="Exportar CSV" type="button" disabled>CSV</button>
+          <button class="btn" title="Exportar Excel (em breve)" type="button" disabled>Excel</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="cursor:default">
+      <div class="table-head">
+        <strong>Resultados</strong>
+        <input id="fSearch" placeholder="Buscar por MLB, SKU ou nome do anúncio" class="input" style="max-width:360px">
+      </div>
+
+      <div class="table-scroll">
+        <table id="grid">
+          <thead>
+            <tr>
+              <th>MLB</th>
+              <th>SKU</th>
+              <th>Nome anúncio</th>
+              <th>Tipo</th>
+              <th>Envios</th>
+              <th class="num">Valor de Venda</th>
+              <th class="num">Qnt. Vendas</th>
+              <th class="num">Impressões</th>
+              <th class="num">Cliques/Visitas</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="pager" class="pager-wrap muted" style="margin-top:8px"></div>
+    </section>
+  </div>
+
+  <script src="/js/filtro-anuncios.js"></script>
+</body>
+</html>
