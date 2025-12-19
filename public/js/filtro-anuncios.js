@@ -26,6 +26,9 @@
   const POLL_MIN_MS = 800;
   const POLL_MAX_MS = 2500;
 
+  // ✅ Tabela com 8 colunas (sem "Detalhes")
+  const GRID_COLS = 8;
+
   // =========================
   // Estado
   // =========================
@@ -58,7 +61,7 @@
 
     envio: 'all',     // all | buyer | free
     tipo: 'all',      // all | classic | premium
-    detalhes: 'all',  // all | catalog | normal
+    detalhes: 'all',  // (mantido no payload caso backend use; não exibimos coluna)
 
     // ui
     q: '',
@@ -213,7 +216,7 @@
     if (!tbody) return;
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" style="text-align:center; padding:22px; color:#64748b;">
+        <td colspan="${GRID_COLS}" style="text-align:center; padding:22px; color:#64748b;">
           Clique em <b>Filtrar</b> para carregar os anúncios.
         </td>
       </tr>`;
@@ -224,7 +227,7 @@
     if (!tbody) return;
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" style="text-align:center; padding:22px; color:#64748b;">
+        <td colspan="${GRID_COLS}" style="text-align:center; padding:22px; color:#64748b;">
           ${msg || 'Carregando...'}
         </td>
       </tr>`;
@@ -242,30 +245,27 @@
     if (!rows || rows.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="9" style="text-align:center; padding:22px; color:#64748b;">
+          <td colspan="${GRID_COLS}" style="text-align:center; padding:22px; color:#64748b;">
             Nenhum resultado para os filtros selecionados.
           </td>
         </tr>`;
       return;
     }
 
+    // ✅ 8 colunas: MLB | SKU | Título | Tipo | Envios | Valor venda | Qtd vendas | Visitas
     tbody.innerHTML = rows.map((r) => {
-      const mlb = safe(r.mlb);
-      const sku = safe(r.sku);
+      const mlb  = safe(r.mlb);
+      const sku  = safe(r.sku);
       const name = safe(r.nome_anuncio || r.title || r.nome);
 
-      const tipo = safe(r.tipo);
+      const tipo   = safe(r.tipo);
       const envios = safe(r.envios);
 
       const valorVenda = fmtMoney(r.valor_venda);
       const qtdVendas  = fmtInt(r.qnt_vendas);
-      const impr       = fmtInt(r.impressoes);
-      const clicks     = fmtInt(r.cliques);
-      const visits     = fmtInt(r.visitas);
 
-      const clicksVisits = (clicks === '—' && visits === '—')
-        ? '—'
-        : `${clicks} / ${visits}`;
+      // ✅ Quando backend mandar visitas = null/undefined, mostra "-"
+      const visits = (r.visitas === null || r.visitas === undefined) ? '-' : fmtInt(r.visitas);
 
       return `
         <tr>
@@ -276,8 +276,7 @@
           <td>${envios}</td>
           <td class="num">${valorVenda}</td>
           <td class="num">${qtdVendas}</td>
-          <td class="num">${impr}</td>
-          <td class="num">${clicksVisits}</td>
+          <td class="num">${visits}</td>
         </tr>
       `;
     }).join('');
@@ -469,7 +468,6 @@
     renderLoadingRow('Criando job...');
 
     try {
-      // cria job novo
       const jobId = await createJob();
       if (!jobId) return;
 
@@ -519,7 +517,6 @@
         await pollJobUntilDone(state.job_id);
       }
 
-      // download direto do backend
       const url = API_JOBS_CSV(state.job_id);
       window.location.href = url;
     } catch (e) {
@@ -673,7 +670,6 @@
     } catch (e) {
       console.error('resumeJobIfPresent:', e);
       alert('⚠️ Não consegui retomar o job: ' + (e.message || e));
-      // se falhar, limpa a URL pra não ficar preso nisso
       updateJobIdInUrl(null);
       state.job_id = null;
       state.hasSearched = false;

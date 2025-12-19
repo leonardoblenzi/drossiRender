@@ -229,12 +229,10 @@ async function handleJobItems(req, res) {
       nome_anuncio: r.title,
       tipo: r.tipo,
       envios: r.envio,
-      detalhes: r.detalhes,
       valor_venda: (r.sold_value_cents || 0) / 100,
       qnt_vendas: r.sales_units || 0,
-      impressoes: r.impressions || 0,
-      cliques: r.clicks || 0,
-      visitas: r.visits || 0,
+      // sem Ads por enquanto
+      visitas: (r.visits === null || r.visits === undefined) ? null : (r.visits || 0),
       promo_ativa: r.promo_active,
       status: r.status || null,
     }));
@@ -351,7 +349,7 @@ router.get('/filtro-anuncios/jobs/:job_id/download.csv', async (req, res) => {
     const rows = await filtroQueue.getResults(job_id);
 
     // campos padrão (você pode ajustar depois)
-    const fields = String(req.query.fields || 'mlb,sku,title,tipo,envio,detalhes,sales_units,sold_value_cents,visits')
+    const fields = String(req.query.fields || 'mlb,sku,title,tipo,envio,sales_units,sold_value_cents,visits')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);

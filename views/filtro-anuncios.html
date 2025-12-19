@@ -6,6 +6,24 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="/css/dashboard.css">
   <link rel="stylesheet" href="/css/filtro-anuncios.css">
+
+  <!-- ✅ “cinza/desabilitado visual” para filtros que você vai plugar depois -->
+  <style>
+    .future-disabled {
+      opacity: .55;
+      filter: grayscale(.35);
+      cursor: not-allowed;
+    }
+    .future-disabled .input,
+    .future-disabled input,
+    .future-disabled select,
+    .future-disabled button {
+      cursor: not-allowed !important;
+    }
+    .future-disabled .help {
+      opacity: .9;
+    }
+  </style>
 </head>
 
 <body class="filtro-anuncios">
@@ -26,14 +44,17 @@
 
   <div class="page-header">
     <h1>Filtro Avançado de Anúncios</h1>
-    <div class="sub">Filtre por período, vendas, status, promo, Ads, visitas, cliques e impressões.</div>
+    <div class="sub">
+      Filtre por período, vendas, status, envio, tipo, detalhes e visitas (opcional).
+      <span class="muted">Campos de Ads/PROMO estão “em breve” (cinza).</span>
+    </div>
   </div>
 
   <div class="wrap">
     <section class="card filter-card" style="cursor:default">
 
       <div class="filters form-grid">
-        <!-- LINHA 1 (6 colunas) -->
+        <!-- LINHA 1 -->
         <div class="form-group">
           <label for="fDateFrom">Período: de</label>
           <input id="fDateFrom" type="date" class="input">
@@ -69,25 +90,27 @@
           <small class="muted help">&nbsp;</small>
         </div>
 
-        <div class="form-group">
+        <!-- ✅ Promo (em breve) — deixa cinza e desabilitado -->
+        <div class="form-group future-disabled">
           <label for="fPromo">Promo ativa</label>
-          <select id="fPromo" class="input">
+          <select id="fPromo" class="input" disabled>
             <option value="all">Todos</option>
             <option value="yes">Sim</option>
             <option value="no">Não</option>
           </select>
-          <small class="muted help">&nbsp;</small>
+          <small class="muted help">Em breve</small>
         </div>
 
-        <!-- LINHA 2 (6 colunas) -->
-        <div class="form-group">
+        <!-- LINHA 2 -->
+        <!-- ✅ Ads (em breve) — deixa cinza e desabilitado -->
+        <div class="form-group future-disabled">
           <label for="fAds">Ads</label>
-          <select id="fAds" class="input">
+          <select id="fAds" class="input" disabled>
             <option value="all">Todos</option>
             <option value="yes">Sim</option>
             <option value="no">Não</option>
           </select>
-          <small class="muted help">&nbsp;</small>
+          <small class="muted help">Em breve</small>
         </div>
 
         <div class="form-group span-2">
@@ -100,20 +123,21 @@
             </select>
             <input id="fVisitsVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
           </div>
-          <small class="muted help">Visitas no período filtrado.</small>
+          <small class="muted help">Visitas no período (só calcula se o filtro estiver ativo).</small>
         </div>
 
-        <div class="form-group span-2">
+        <!-- ✅ Cliques (Ads) — em breve -->
+        <div class="form-group span-2 future-disabled">
           <label for="fClicksOp">Cliques</label>
           <div class="inline-pair">
-            <select id="fClicksOp" class="input">
+            <select id="fClicksOp" class="input" disabled>
               <option value="all">Todos</option>
               <option value="gt">Maior que</option>
               <option value="lt">Menor que</option>
             </select>
-            <input id="fClicksVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
+            <input id="fClicksVal" type="number" class="input" placeholder="Qtd." min="0" step="1" disabled />
           </div>
-          <small class="muted help">Cliques (Ads) no período.</small>
+          <small class="muted help">Em breve (Ads)</small>
         </div>
 
         <div class="form-group">
@@ -126,18 +150,19 @@
           <small class="muted help">&nbsp;</small>
         </div>
 
-        <!-- LINHA 3 (6 colunas) -->
-        <div class="form-group span-2">
+        <!-- LINHA 3 -->
+        <!-- ✅ Impressões (Ads) — em breve -->
+        <div class="form-group span-2 future-disabled">
           <label for="fImprOp">Impressões</label>
           <div class="inline-pair">
-            <select id="fImprOp" class="input">
+            <select id="fImprOp" class="input" disabled>
               <option value="all">Todos</option>
               <option value="gt">Maior que</option>
               <option value="lt">Menor que</option>
             </select>
-            <input id="fImprVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
+            <input id="fImprVal" type="number" class="input" placeholder="Qtd." min="0" step="1" disabled />
           </div>
-          <small class="muted help">Impressões (Ads) no período.</small>
+          <small class="muted help">Em breve (Ads)</small>
         </div>
 
         <div class="form-group">
@@ -160,19 +185,18 @@
           <small class="muted help">&nbsp;</small>
         </div>
 
-        <!-- Espaço pra fechar a linha e empurrar o botão pro canto direito -->
+        <!-- Espaço pra fechar a linha e empurrar o botão -->
         <div class="form-group" aria-hidden="true">
           <label>&nbsp;</label>
           <div style="height: 40px;"></div>
           <small class="muted help">&nbsp;</small>
         </div>
 
-        <!-- Botão no canto inferior direito (última coluna da 3ª linha) -->
+        <!-- Botão -->
         <div class="form-group btn-search">
           <label>&nbsp;</label>
           <button id="btnPesquisar" class="btn primary" style="width:100%" type="button">Filtrar</button>
 
-          <!-- ✅ NOVO: status do job (opcional, discreto). O JS pode preencher -->
           <div id="job-status"
                class="muted"
                style="margin-top:8px; font-size:.82rem; line-height:1.2; display:none;">
@@ -185,14 +209,15 @@
 
       <div class="filters-footer">
         <ul class="muted tips">
-          <li>* Período influencia Vendas / Valor de Venda / Ads / Visitas</li>
+          <li>* Período influencia Vendas / Valor de Venda / Visitas</li>
           <li>* Cliques e Impressões são métricas de Ads (quando disponível)</li>
+          <li>* Visitas só é calculada quando o filtro <b>Visitas</b> estiver ativo; caso contrário aparece <b>-</b> para manter rápido</li>
           <li>* A tabela segue a ordem de colunas definida por você</li>
         </ul>
 
         <div class="export-actions bottom">
-          <!-- ✅ dica: começa desabilitado; o JS habilita após 1ª busca -->
-          <button class="btn" id="btnExportCsv" title="Exportar CSV" type="button" disabled>CSV</button>
+          <!-- ✅ Corrigido: NÃO começa travado. O JS já impede exportar sem job_id. -->
+          <button class="btn" id="btnExportCsv" title="Exportar CSV do último job (faça uma busca antes)" type="button">CSV</button>
           <button class="btn" title="Exportar Excel (em breve)" type="button" disabled>Excel</button>
         </div>
       </div>
@@ -215,8 +240,7 @@
               <th>Envios</th>
               <th class="num">Valor de Venda</th>
               <th class="num">Qnt. Vendas</th>
-              <th class="num">Impressões</th>
-              <th class="num">Cliques/Visitas</th>
+              <th class="num">Visitas</th>
             </tr>
           </thead>
           <tbody></tbody>

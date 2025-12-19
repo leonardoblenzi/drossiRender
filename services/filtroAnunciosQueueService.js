@@ -23,6 +23,7 @@ async function httpGetJson(url, headers = {}, retries = 3) {
       const r = await fetchRef(url, { headers });
       const status = r.status;
       const text = await r.text();
+
       if (status === 429 || (status >= 500 && status < 600)) {
         await sleep(400 * (i + 1));
         continue;
@@ -163,11 +164,11 @@ async function fetchSalesMap({ token, sellerId, date_from, date_to }) {
   return out;
 }
 
-// Visitas: 1 item por request (limit da API). Concurrency control.
+// Visitas: 1 item por request. Concurrency control.
+// ⚠️ Isso é a parte "cara" (N requests). Por isso, só usamos quando o filtro estiver ativo.
 async function fetchVisitsMap({ token, ids, date_from, date_to, concurrency = 4 }) {
   const out = new Map();
   const queue = ids.slice();
-  let active = 0;
 
   async function worker() {
     while (queue.length) {
@@ -244,7 +245,7 @@ class FiltroAnunciosQueueService {
         job.progress(2);
 
         const sellerId = await getSellerId(token);
-        job.progress(5);
+        job.progress(6);
 
         // 1) base: itens do seller (status)
         const wantedStatus = String(filters.status || 'all');
@@ -258,7 +259,7 @@ class FiltroAnunciosQueueService {
           allIds.push(...ids);
         }
         allIds = Array.from(new Set(allIds));
-        job.progress(12);
+        job.progress(15);
 
         // 2) detalhes do item (barato): shipping/listing_type/catalog
         const items = [];
@@ -266,8 +267,8 @@ class FiltroAnunciosQueueService {
         for (let i = 0; i < batches.length; i++) {
           const part = await fetchItemsBatch({ token, ids: batches[i] });
           items.push(...part);
-          const pct = 12 + Math.round(((i + 1) / batches.length) * 18);
-          job.progress(Math.min(pct, 30));
+          const pct = 15 + Math.round(((i + 1) / batches.length) * 20);
+          job.progress(Math.min(pct, 35));
           await sleep(60);
         }
 
@@ -284,6 +285,11 @@ class FiltroAnunciosQueueService {
             detalhes: mapDetalhes(it),
             shipping_free: !!it?.shipping?.free_shipping,
             envio: mapEnvio(it?.shipping),
+
+            // vendas/visitas preenchidas depois
+            sales_units: 0,
+            sold_value_cents: 0,
+            visits: null, // ← IMPORTANTE: default null pra UI mostrar "-"
           };
         }).filter(r => r.mlb);
 
@@ -313,43 +319,42 @@ class FiltroAnunciosQueueService {
           });
         }
 
-        job.progress(38);
+        job.progress(42);
 
-        // 4) vendas (orders) — só se precisar (filtro/sort/colunas)
+        // 4) vendas (orders) — mantém colunas + filtros + sort por sold_value
         const needSales =
           (filters.sales_op && filters.sales_op !== 'all') ||
           (filters.sort_by === 'sold_value') ||
-          true; // mantém colunas da tabela
+          true;
 
-        let salesMap = new Map();
         if (needSales) {
-          salesMap = await fetchSalesMap({
+          const salesMap = await fetchSalesMap({
             token,
             sellerId,
             date_from: filters.date_from,
             date_to: filters.date_to
           });
-        }
 
-        for (const r of rows) {
-          const s = salesMap.get(r.mlb) || { units: 0, revenue_cents: 0 };
-          r.sales_units = s.units;
-          r.sold_value_cents = s.revenue_cents;
+          for (const r of rows) {
+            const s = salesMap.get(r.mlb) || { units: 0, revenue_cents: 0 };
+            r.sales_units = s.units;
+            r.sold_value_cents = s.revenue_cents;
+          }
         }
 
         if (filters.sales_op && filters.sales_op !== 'all') {
           const val = Number(filters.sales_value || 0);
           rows = rows.filter(r => {
-            if (filters.sales_op === 'gt') return r.sales_units > val;
-            if (filters.sales_op === 'lt') return r.sales_units < val;
+            if (filters.sales_op === 'gt') return (r.sales_units || 0) > val;
+            if (filters.sales_op === 'lt') return (r.sales_units || 0) < val;
             return true;
           });
         }
 
-        job.progress(58);
+        job.progress(68);
 
-        // 5) visitas — só se filtro de visitas for usado ou pra preencher coluna
-        const needVisits = (filters.visits_op && filters.visits_op !== 'all') || true;
+        // 5) visitas — SOMENTE se filtro de visitas estiver ativo
+        const needVisits = (filters.visits_op && filters.visits_op !== 'all');
 
         if (needVisits) {
           const ids = rows.map(r => r.mlb);
@@ -363,46 +368,33 @@ class FiltroAnunciosQueueService {
 
           for (const r of rows) r.visits = visitsMap.get(r.mlb) ?? 0;
 
-          if (filters.visits_op && filters.visits_op !== 'all') {
-            const v = Number(filters.visits_value || 0);
-            rows = rows.filter(r => {
-              if (filters.visits_op === 'gt') return r.visits > v;
-              if (filters.visits_op === 'lt') return r.visits < v;
-              return true;
-            });
-          }
+          const v = Number(filters.visits_value || 0);
+          rows = rows.filter(r => {
+            const vv = Number(r.visits || 0);
+            if (filters.visits_op === 'gt') return vv > v;
+            if (filters.visits_op === 'lt') return vv < v;
+            return true;
+          });
         } else {
-          for (const r of rows) r.visits = 0;
+          // NÃO buscamos visitas -> manter null (UI mostra "-")
+          for (const r of rows) r.visits = null;
         }
 
-        job.progress(78);
+        job.progress(86);
 
-        // 6) clicks/impressions e promo/ads:
-        // Se você quiser, a gente pluga aqui reaproveitando exatamente os helpers do Curva ABC:
-        // - fetchAdsMetricsByItems(...) (batch)
-        // - fetchItemPromoNow(...) via /items/{id}/prices
-        //
-        // Por enquanto, pra não travar seu primeiro deploy do job, setamos 0.
-        // (Eu plugo o Ads/Promo no próximo passo com os helpers do seu arquivo, sem reinventar.)
-        for (const r of rows) {
-          r.impressions = 0;
-          r.clicks = 0;
-          r.promo_active = null;
-          r.ads = null;
-        }
-
-        // 7) sort
+        // 6) sort (mantém compat com seu front)
         const dir = (String(filters.sort_dir || 'desc').toLowerCase() === 'asc') ? 1 : -1;
         const by = String(filters.sort_by || 'sold_value');
+
         rows.sort((a, b) => {
-          const A = by === 'sold_value' ? (a.sold_value_cents || 0)
-                  : by === 'sales_units' ? (a.sales_units || 0)
-                  : (a.title || '').localeCompare(b.title || '');
-          const B = by === 'sold_value' ? (b.sold_value_cents || 0)
-                  : by === 'sales_units' ? (b.sales_units || 0)
-                  : 0;
-          if (by === 'title') return dir * ((a.title || '').localeCompare(b.title || ''));
-          return dir * (A - B);
+          if (by === 'title') {
+            return dir * String(a.title || '').localeCompare(String(b.title || ''));
+          }
+          if (by === 'sales_units') {
+            return dir * ((a.sales_units || 0) - (b.sales_units || 0));
+          }
+          // default sold_value
+          return dir * ((a.sold_value_cents || 0) - (b.sold_value_cents || 0));
         });
 
         await fs.writeFile(this._dataPath(jobId), JSON.stringify(rows, null, 2));
