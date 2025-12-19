@@ -50,6 +50,8 @@
     sales_op: 'all',
     sales_value: '',
     status: 'all',
+
+    // mantidos (mesmo se não usados no backend agora)
     promo: 'all',
     ads: 'all',
     visits_op: 'all',
@@ -61,7 +63,7 @@
 
     envio: 'all',     // all | buyer | free
     tipo: 'all',      // all | classic | premium
-    detalhes: 'all',  // (mantido no payload caso backend use; não exibimos coluna)
+    detalhes: 'all',  // mantido no payload
 
     // ui
     q: '',
@@ -105,7 +107,6 @@
     const timeout = opts.timeout || TIMEOUT_MS;
     const id = setTimeout(() => ctl.abort(), timeout);
 
-    // não repassar "timeout" pro fetch (não é opção nativa)
     const { timeout: _ignored, ...rest } = opts;
 
     try {
@@ -126,6 +127,15 @@
     try { return JSON.parse(txt); } catch { return { _raw: txt }; }
   }
 
+  function normalizeStatus(s) {
+    const t = String(s || '').toLowerCase().trim();
+    if (t === 'concluído') return 'concluido';
+    return t;
+  }
+
+  // =========================
+  // UI state helpers
+  // =========================
   function setLoading(on, msg = '') {
     state.loading = !!on;
     const btn = $('#btnPesquisar');
@@ -135,11 +145,27 @@
     }
   }
 
+  function setCsvEnabled(enabled) {
+    const btn = $('#btnExportCsv');
+    if (!btn) return;
+    btn.disabled = !enabled;
+    // opcional: se seu CSS tiver alguma classe de visual, pode ligar/desligar aqui
+    // btn.classList.toggle('is-disabled', !enabled);
+  }
+
   function setExportLoading(on, msg = '') {
     const btn = $('#btnExportCsv');
     if (!btn) return;
     btn.disabled = !!on;
     btn.textContent = on ? (msg || 'Exportando...') : 'CSV';
+  }
+
+  function setJobStatusUI(show, text = '') {
+    const wrap = $('#job-status');
+    const txt = $('#job-status-text');
+    if (!wrap) return;
+    wrap.style.display = show ? 'block' : 'none';
+    if (txt && text) txt.textContent = text;
   }
 
   function updateJobIdInUrl(jobId) {
@@ -173,7 +199,7 @@
       visits_op: state.visits_op || 'all',
       visits_value: state.visits_value,
 
-      // (guardados mesmo que o job ainda não use tudo)
+      // guardados
       promo: state.promo || 'all',
       ads: state.ads || 'all',
       clicks_op: state.clicks_op || 'all',
@@ -181,7 +207,7 @@
       impr_op: state.impr_op || 'all',
       impr_value: state.impr_value,
 
-      // novos filtros
+      // filtros “baratos”
       envio: state.envio || 'all',
       tipo: state.tipo || 'all',
       detalhes: state.detalhes || 'all',
@@ -190,7 +216,7 @@
       sort_by: state.sort_by || 'sold_value',
       sort_dir: state.sort_dir || 'desc',
 
-      // OBS: q (busca) fica no /items pra não refazer job
+      // OBS: q fica no /items
     };
   }
 
@@ -200,12 +226,6 @@
     p.set('limit', String(state.limit));
     if (state.q) p.set('q', state.q);
     return p.toString();
-  }
-
-  function normalizeStatus(s) {
-    const t = String(s || '').toLowerCase().trim();
-    if (t === 'concluído') return 'concluido';
-    return t;
   }
 
   // =========================
@@ -264,7 +284,6 @@
       const valorVenda = fmtMoney(r.valor_venda);
       const qtdVendas  = fmtInt(r.qnt_vendas);
 
-      // ✅ Quando backend mandar visitas = null/undefined, mostra "-"
       const visits = (r.visitas === null || r.visitas === undefined) ? '-' : fmtInt(r.visitas);
 
       return `
@@ -383,6 +402,8 @@
   async function pollJobUntilDone(jobId) {
     let wait = POLL_MIN_MS;
 
+    setJobStatusUI(true, 'Processando...');
+
     while (true) {
       const r = await fetchWithTimeout(API_JOBS_STATUS(jobId), { timeout: TIMEOUT_MS });
       const data = await r.json().catch(() => ({}));
@@ -399,11 +420,18 @@
       state.job_progress = Number.isFinite(progress) ? progress : 0;
 
       const pct = Math.max(0, Math.min(100, Math.round(state.job_progress)));
+
       setLoading(true, `Processando... ${pct}%`);
       renderLoadingRow(`Processando... <b>${pct}%</b> (pode demorar em contas grandes)`);
+      setJobStatusUI(true, `Processando... ${pct}%`);
 
-      if (status === 'concluido') return true;
+      if (status === 'concluido') {
+        setJobStatusUI(false);
+        return true;
+      }
+
       if (status === 'erro' || status === 'failed' || status === 'falhou') {
+        setJobStatusUI(false);
         throw new Error(data.error || 'Job falhou.');
       }
 
@@ -422,7 +450,6 @@
       const r = await fetchWithTimeout(url, { timeout: TIMEOUT_MS });
       const data = await r.json().catch(() => ({}));
 
-      // enquanto roda, backend pode responder 202
       if (r.status === 202) {
         await pollJobUntilDone(state.job_id);
         return await loadItemsPage();
@@ -439,6 +466,9 @@
 
       renderTable(state.rows);
       renderPager();
+
+      // ✅ só habilita CSV quando já carregou resultados do job (job concluído)
+      setCsvEnabled(!!state.job_id);
     } catch (e) {
       console.error('loadItemsPage:', e);
 
@@ -448,6 +478,9 @@
       renderTable([]);
       renderPager();
 
+      // em erro, mantém CSV desabilitado
+      setCsvEnabled(false);
+
       const msg = String(e?.name || '').toLowerCase().includes('abort')
         ? 'Timeout ao carregar dados. Tente reduzir o período e/ou filtrar Status.'
         : ('❌ Erro ao carregar dados: ' + (e.message || e));
@@ -455,6 +488,7 @@
       alert(msg);
     } finally {
       setLoading(false);
+      setJobStatusUI(false);
     }
   }
 
@@ -464,8 +498,12 @@
   async function runFilterFlow() {
     if (state.loading) return;
 
+    // ao iniciar novo job, CSV volta a ficar desabilitado
+    setCsvEnabled(false);
+
     setLoading(true, 'Criando job...');
     renderLoadingRow('Criando job...');
+    setJobStatusUI(true, 'Criando job...');
 
     try {
       const jobId = await createJob();
@@ -488,9 +526,13 @@
       renderTable([]);
       renderPager();
 
+      setCsvEnabled(false);
+      setJobStatusUI(false);
+
       alert('❌ Erro: ' + (e.message || e));
     } finally {
       setLoading(false);
+      setJobStatusUI(false);
     }
   }
 
@@ -599,12 +641,10 @@
     bind('fImprOp', 'impr_op');
     bind('fImprVal', 'impr_value');
 
-    // novos filtros
     bind('fEnvio', 'envio');
     bind('fTipo', 'tipo');
     bind('fDetalhes', 'detalhes');
 
-    // busca: só faz reload automático se já pesquisou pelo menos 1x
     const search = $('#fSearch');
     if (search) {
       search.addEventListener('input', debounce(() => {
@@ -661,8 +701,11 @@
     state.page = 1;
     state.hasSearched = true;
 
+    setCsvEnabled(false);
+
     setLoading(true, 'Retomando job...');
     renderLoadingRow('Retomando job pela URL...');
+    setJobStatusUI(true, 'Retomando job...');
 
     try {
       await pollJobUntilDone(jobFromUrl);
@@ -670,15 +713,20 @@
     } catch (e) {
       console.error('resumeJobIfPresent:', e);
       alert('⚠️ Não consegui retomar o job: ' + (e.message || e));
+
       updateJobIdInUrl(null);
       state.job_id = null;
       state.hasSearched = false;
       state.total = 0;
       state.rows = [];
+
+      setCsvEnabled(false);
+
       renderTable([]);
       renderPager();
     } finally {
       setLoading(false);
+      setJobStatusUI(false);
     }
   }
 
@@ -690,10 +738,13 @@
     bindFilters();
     carregarContaAtual();
 
-    // NÃO carrega dados aqui por padrão.
+    // estado inicial
     state.hasSearched = false;
     state.total = 0;
     state.rows = [];
+    setCsvEnabled(false);
+    setJobStatusUI(false);
+
     renderTable([]);
     renderPager();
 

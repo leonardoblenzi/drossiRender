@@ -16,6 +16,9 @@ function chunk(arr, size) {
   return out;
 }
 
+const upper = (v) => String(v || '').trim().toUpperCase();
+const datePart = (iso) => String(iso || '').slice(0, 10); // YYYY-MM-DD
+
 async function httpGetJson(url, headers = {}, retries = 3) {
   let last;
   for (let i = 0; i < retries; i++) {
@@ -47,7 +50,6 @@ async function getSellerId(token) {
 
 // SCAN recomendado (sem offset). Fallback: paginação normal até offset <= 1000.
 async function fetchAllItemIds({ token, sellerId, status }) {
-  // tentativa SCAN
   try {
     let scrollId = null;
     const all = [];
@@ -68,9 +70,8 @@ async function fetchAllItemIds({ token, sellerId, status }) {
       if (!scrollId || results.length === 0) break;
     }
 
-    return Array.from(new Set(all.map(x => String(x).toUpperCase())));
+    return Array.from(new Set(all.map(x => upper(x))));
   } catch {
-    // fallback offset (limit 50, offset máx ~1000)
     const all = [];
     let offset = 0;
     const limit = 50;
@@ -87,12 +88,12 @@ async function fetchAllItemIds({ token, sellerId, status }) {
       all.push(...results);
 
       offset += limit;
-      if (offset > 1000) break; // evita o 400 clássico
+      if (offset > 1000) break;
       const total = Number(j?.paging?.total || 0);
       if (!total || offset >= total) break;
     }
 
-    return Array.from(new Set(all.map(x => String(x).toUpperCase())));
+    return Array.from(new Set(all.map(x => upper(x))));
   }
 }
 
@@ -112,7 +113,6 @@ function mapDetalhes(item) {
 }
 
 async function fetchItemsBatch({ token, ids }) {
-  // /items?ids=... retorna array com { code, body }
   const url = new URL('https://api.mercadolibre.com/items');
   url.searchParams.set('ids', ids.join(','));
   const j = await httpGetJson(url.toString(), { Authorization: `Bearer ${token}` }, 3);
@@ -122,7 +122,11 @@ async function fetchItemsBatch({ token, ids }) {
     .map(x => x.body);
 }
 
-async function fetchSalesMap({ token, sellerId, date_from, date_to }) {
+/**
+ * Vendas agregadas "por anúncio".
+ * Se o order item vier num id "filho", e a gente souber o parent via itemToParent, agrega no pai.
+ */
+async function fetchSalesMap({ token, sellerId, date_from, date_to, itemToParent = null }) {
   let offset = 0;
   const limit = 50;
   const out = new Map();
@@ -142,8 +146,10 @@ async function fetchSalesMap({ token, sellerId, date_from, date_to }) {
 
     for (const order of results) {
       for (const it of (order.order_items || [])) {
-        const mlb = String(it?.item?.id || '').toUpperCase();
-        if (!mlb) continue;
+        const rawId = upper(it?.item?.id);
+        if (!rawId) continue;
+
+        const mlb = itemToParent?.get(rawId) || rawId; // <- agrupa no pai quando existir
 
         const qty = Number(it?.quantity || 0);
         const unit = Number(it?.unit_price || 0);
@@ -164,8 +170,7 @@ async function fetchSalesMap({ token, sellerId, date_from, date_to }) {
   return out;
 }
 
-// Visitas: 1 item por request. Concurrency control.
-// ⚠️ Isso é a parte "cara" (N requests). Por isso, só usamos quando o filtro estiver ativo.
+// Visitas: 1 item por request (N requests). Só usar quando filtro estiver ativo.
 async function fetchVisitsMap({ token, ids, date_from, date_to, concurrency = 4 }) {
   const out = new Map();
   const queue = ids.slice();
@@ -194,7 +199,7 @@ async function fetchVisitsMap({ token, ids, date_from, date_to, concurrency = 4 
         out.set(id, 0);
       }
 
-      await sleep(80); // micro-respiro pra não martelar
+      await sleep(80);
     }
   }
 
@@ -247,7 +252,6 @@ class FiltroAnunciosQueueService {
         const sellerId = await getSellerId(token);
         job.progress(6);
 
-        // 1) base: itens do seller (status)
         const wantedStatus = String(filters.status || 'all');
         const statuses = wantedStatus === 'all'
           ? ['active', 'paused']
@@ -261,7 +265,7 @@ class FiltroAnunciosQueueService {
         allIds = Array.from(new Set(allIds));
         job.progress(15);
 
-        // 2) detalhes do item (barato): shipping/listing_type/catalog
+        // 2) detalhes do item (barato)
         const items = [];
         const batches = chunk(allIds, 20);
         for (let i = 0; i < batches.length; i++) {
@@ -272,11 +276,44 @@ class FiltroAnunciosQueueService {
           await sleep(60);
         }
 
-        // normaliza estrutura base
-        let rows = items.map(it => {
-          const mlb = String(it.id || '').toUpperCase();
-          return {
-            mlb,
+        // Map item_id -> parent_id (se existir). Isso permite agregar VENDAS no pai.
+        const itemToParent = new Map();
+        for (const it of items) {
+          const itemId = upper(it?.id);
+          if (!itemId) continue;
+          const parentId = upper(it?.parent_item_id) || itemId;
+          itemToParent.set(itemId, parentId);
+          // também garante que pai aponta pra ele mesmo
+          if (!itemToParent.has(parentId)) itemToParent.set(parentId, parentId);
+        }
+
+        // normaliza estrutura base "por anúncio (pai)"
+        // - mlb = parentId (quando existir)
+        // - dedup por mlb (se vierem itens "filhos")
+        const byMlb = new Map();
+        const dateTo = String(filters.date_to || '').trim(); // YYYY-MM-DD
+
+        for (const it of items) {
+          const itemId = upper(it?.id);
+          if (!itemId) continue;
+
+          const parentId = upper(it?.parent_item_id) || itemId;
+          const created = datePart(it?.date_created); // YYYY-MM-DD
+
+          // ✅ REGRA: incluir apenas anúncios criados até date_to
+          // comparação por "YYYY-MM-DD" (sem dor com timezone)
+          if (dateTo && created && created > dateTo) {
+            continue;
+          }
+
+          const row = {
+            mlb: parentId,                 // <- anúncio (pai)
+            item_id: itemId,               // <- id original (debug/futuro)
+            parent_item_id: parentId !== itemId ? parentId : null,
+
+            date_created: created || null,
+            status: it?.status || null,
+
             sku: it?.seller_custom_field || it?.seller_sku || null,
             title: it?.title || '',
             listing_type_id: it?.listing_type_id || null,
@@ -286,14 +323,31 @@ class FiltroAnunciosQueueService {
             shipping_free: !!it?.shipping?.free_shipping,
             envio: mapEnvio(it?.shipping),
 
-            // vendas/visitas preenchidas depois
             sales_units: 0,
             sold_value_cents: 0,
-            visits: null, // ← IMPORTANTE: default null pra UI mostrar "-"
+            visits: null, // <- null pra UI mostrar "-"
           };
-        }).filter(r => r.mlb);
 
-        // 3) aplica filtros “baratos” primeiro: envio/tipo/detalhes
+          const cur = byMlb.get(parentId);
+          if (!cur) {
+            byMlb.set(parentId, row);
+          } else {
+            // merge leve: mantém o melhor/mais antigo date_created
+            if (!cur.date_created && row.date_created) cur.date_created = row.date_created;
+            if (cur.date_created && row.date_created && row.date_created < cur.date_created) cur.date_created = row.date_created;
+
+            // mantém title/sku se faltando
+            if (!cur.title && row.title) cur.title = row.title;
+            if (!cur.sku && row.sku) cur.sku = row.sku;
+
+            // status: se não tiver, pega
+            if (!cur.status && row.status) cur.status = row.status;
+          }
+        }
+
+        let rows = Array.from(byMlb.values()).filter(r => r.mlb);
+
+        // 3) filtros baratos
         if (filters.envio && filters.envio !== 'all') {
           rows = rows.filter(r => {
             if (filters.envio === 'free') return r.shipping_free === true;
@@ -311,6 +365,7 @@ class FiltroAnunciosQueueService {
           });
         }
 
+        // ⚠️ detalhes você pode manter mesmo sem exibir coluna; filtro continua útil
         if (filters.detalhes && filters.detalhes !== 'all') {
           rows = rows.filter(r => {
             if (filters.detalhes === 'catalog') return r.catalog_listing === true;
@@ -321,7 +376,7 @@ class FiltroAnunciosQueueService {
 
         job.progress(42);
 
-        // 4) vendas (orders) — mantém colunas + filtros + sort por sold_value
+        // 4) vendas agregadas "por anúncio (pai)"
         const needSales =
           (filters.sales_op && filters.sales_op !== 'all') ||
           (filters.sort_by === 'sold_value') ||
@@ -332,7 +387,8 @@ class FiltroAnunciosQueueService {
             token,
             sellerId,
             date_from: filters.date_from,
-            date_to: filters.date_to
+            date_to: filters.date_to,
+            itemToParent
           });
 
           for (const r of rows) {
@@ -357,7 +413,7 @@ class FiltroAnunciosQueueService {
         const needVisits = (filters.visits_op && filters.visits_op !== 'all');
 
         if (needVisits) {
-          const ids = rows.map(r => r.mlb);
+          const ids = rows.map(r => r.mlb); // pai
           const visitsMap = await fetchVisitsMap({
             token,
             ids,
@@ -376,13 +432,12 @@ class FiltroAnunciosQueueService {
             return true;
           });
         } else {
-          // NÃO buscamos visitas -> manter null (UI mostra "-")
           for (const r of rows) r.visits = null;
         }
 
         job.progress(86);
 
-        // 6) sort (mantém compat com seu front)
+        // 6) sort
         const dir = (String(filters.sort_dir || 'desc').toLowerCase() === 'asc') ? 1 : -1;
         const by = String(filters.sort_by || 'sold_value');
 
@@ -393,7 +448,6 @@ class FiltroAnunciosQueueService {
           if (by === 'sales_units') {
             return dir * ((a.sales_units || 0) - (b.sales_units || 0));
           }
-          // default sold_value
           return dir * ((a.sold_value_cents || 0) - (b.sold_value_cents || 0));
         });
 

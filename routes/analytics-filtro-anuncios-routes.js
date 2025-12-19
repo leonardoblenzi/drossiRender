@@ -1,8 +1,8 @@
 // routes/analytics-filtro-anuncios-routes.js
 // Jobs para Filtro de Anúncios (Export/Paginação)
 // Endpoints:
-//   POST /api/analytics/filtro-anuncios/jobs            -> cria job
-//   GET  /api/analytics/filtro-anuncios/jobs/:job_id    -> status
+//   POST /api/analytics/filtro-anuncios/jobs               -> cria job
+//   GET  /api/analytics/filtro-anuncios/jobs/:job_id       -> status
 //   GET  /api/analytics/filtro-anuncios/jobs/:job_id/items -> pagina resultados
 //   GET  /api/analytics/filtro-anuncios/jobs/:job_id/download.csv -> baixa CSV
 //
@@ -94,7 +94,7 @@ function parseFiltersFromReq(req) {
   const date_to   = String(src.date_to || '').trim();
   const status    = String(src.status || 'all').trim(); // all|active|paused
 
-  // novos filtros “baratos”
+  // filtros “baratos”
   const envio    = String(src.envio || 'all').trim();       // all | buyer | free
   const tipo     = String(src.tipo || 'all').trim();        // all | classic | premium
   const detalhes = String(src.detalhes || 'all').trim();    // all | catalog | normal
@@ -110,10 +110,10 @@ function parseFiltersFromReq(req) {
   const sort_by = String(src.sort_by || 'sold_value').trim();
   const sort_dir = (String(src.sort_dir || 'desc').toLowerCase() === 'asc') ? 'asc' : 'desc';
 
-  // campo de busca (aplicaremos no endpoint /items, não no job por enquanto)
+  // campo de busca (aplicamos no endpoint /items)
   const q = String(src.q || '').trim();
 
-  // extras (guardamos no metadata, mesmo que o job ainda não use)
+  // extras (guardados)
   const promo  = String(src.promo || 'all').trim();
   const ads    = String(src.ads || 'all').trim();
   const clicks_op = String(src.clicks_op || 'all').trim();
@@ -136,7 +136,6 @@ function parseFiltersFromReq(req) {
     sort_dir,
     q,
 
-    // guardados/compat
     promo,
     ads,
     clicks_op,
@@ -178,7 +177,6 @@ function toCSV(rows, fields) {
 
 /* =========================================================
  * ✅ Handler reutilizável: itens (paginação + busca)
- *    (isso elimina loop no compat ?job_id=...)
  * ========================================================= */
 async function handleJobItems(req, res) {
   try {
@@ -188,10 +186,8 @@ async function handleJobItems(req, res) {
     const page = clamp(toInt(req.query.page, 1), 1, 999999);
     const limit = clamp(toInt(req.query.limit, 50), 10, 200);
 
-    // busca local pós-job
     const q = String(req.query.q || '').trim().toLowerCase();
 
-    // status antes de ler o arquivo
     const st = await filtroQueue.getStatus(job_id);
     if (st.status !== 'concluido') {
       return res.status(202).json({
@@ -206,15 +202,16 @@ async function handleJobItems(req, res) {
     }
 
     const rows = await filtroQueue.getResults(job_id);
-
     let filtered = Array.isArray(rows) ? rows : [];
 
     if (q) {
-      filtered = filtered.filter(r =>
-        String(r.mlb || '').toLowerCase().includes(q) ||
-        String(r.sku || '').toLowerCase().includes(q) ||
-        String(r.title || '').toLowerCase().includes(q)
-      );
+      filtered = filtered.filter(r => {
+        const mlb = String(r.mlb || '').toLowerCase();
+        const sku = String(r.sku || '').toLowerCase();
+        const title = String(r.title || '').toLowerCase();
+        const created = String(r.date_created || '').toLowerCase();
+        return mlb.includes(q) || sku.includes(q) || title.includes(q) || created.includes(q);
+      });
     }
 
     const total = filtered.length;
@@ -222,7 +219,7 @@ async function handleJobItems(req, res) {
     const end = start + limit;
     const pageRows = filtered.slice(start, end);
 
-    // Formato “igual sua tela antiga”
+    // Formato “igual sua tela antiga” (8 colunas)
     const data = pageRows.map(r => ({
       mlb: r.mlb,
       sku: r.sku,
@@ -231,10 +228,13 @@ async function handleJobItems(req, res) {
       envios: r.envio,
       valor_venda: (r.sold_value_cents || 0) / 100,
       qnt_vendas: r.sales_units || 0,
-      // sem Ads por enquanto
+      // null => UI mostra "-"
       visitas: (r.visits === null || r.visits === undefined) ? null : (r.visits || 0),
-      promo_ativa: r.promo_active,
+
+      // extras (não exibidos agora, mas úteis)
+      date_created: r.date_created || null,
       status: r.status || null,
+      parent_item_id: r.parent_item_id || null,
     }));
 
     return res.json({
@@ -273,7 +273,6 @@ router.post('/filtro-anuncios/jobs', express.json({ limit: '1mb' }), async (req,
 
     const token = await resolveAccessToken(req, accountKey);
 
-    // ✅ Enfileira job
     const job_id = await filtroQueue.enqueue({ token, filters });
 
     return res.status(202).json({
@@ -348,8 +347,8 @@ router.get('/filtro-anuncios/jobs/:job_id/download.csv', async (req, res) => {
 
     const rows = await filtroQueue.getResults(job_id);
 
-    // campos padrão (você pode ajustar depois)
-    const fields = String(req.query.fields || 'mlb,sku,title,tipo,envio,sales_units,sold_value_cents,visits')
+    // ✅ defaults mais úteis agora (por anúncio)
+    const fields = String(req.query.fields || 'mlb,sku,title,date_created,status,parent_item_id,tipo,envio,sales_units,sold_value_cents,visits')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
@@ -378,7 +377,6 @@ router.get('/filtro-anuncios', async (req, res) => {
   try {
     const job_id = String(req.query.job_id || '').trim();
 
-    // ✅ se tiver job_id: chama handler diretamente (SEM router.handle)
     if (job_id) {
       req.params.job_id = job_id;
       return handleJobItems(req, res);

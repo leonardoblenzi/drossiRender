@@ -635,3 +635,132 @@ Exclusão de Anúncios (único + lote, com painel de processos)
 ├─ config/config.js
 │ • URLs base do ML (items, users_me, etc.) usadas em excluirAnuncioService.
 └─ TokenService e demais configs – dão suporte à autenticação e renovação de token usada pela exclusão.
+
+
+Filtro Avançado de Anúncios (COM JOBS)
+
+/ (raiz do projeto)
+├─ index.js
+│ ├─ Sobe o Express, registra middlewares globais (cookieParser, json, estáticos, etc.)
+│ ├─ app.use('/api/analytics', analyticsFiltroAnunciosRoutes) # (ou app.use(analyticsFiltroAnunciosRoutes) dependendo do seu padrão)
+│ └─ GET /filtro-anuncios (via htmlRoutes/rota direta) → abre a tela HTML
+│
+├─ routes/
+│ ├─ analytics-filtro-anuncios-routes.js # Rotas HTTP da feature "Filtro Avançado de Anúncios"
+│ │ • POST /api/analytics/filtro-anuncios/jobs
+│ │ -> cria um job Bull (enqueue) com { token, filters }
+│ │ -> responde 202: { job_id, endpoints, filters }
+│ │
+│ │ • GET /api/analytics/filtro-anuncios/jobs/:job_id
+│ │ -> lê status do job + metadata do arquivo
+│ │ -> responde JSON: { status, progress, total, error?, endpoints }
+│ │
+│ │ • GET /api/analytics/filtro-anuncios/jobs/:job_id/items
+│ │ -> pagina resultados salvos no disco (JSON)
+│ │ -> aplica busca local opcional: ?q=...
+│ │ -> responde JSON: { page, limit, total, data:[...] }
+│ │
+│ │ • GET /api/analytics/filtro-anuncios/jobs/:job_id/download.csv
+│ │ -> gera CSV server-side a partir do JSON final do job
+│ │ -> Content-Disposition attachment
+│ │
+│ │ • COMPAT: GET /api/analytics/filtro-anuncios
+│ │ - sem job_id: cria job e responde 202
+│ │ - com job_id: retorna items do job chamando handleJobItems (sem loop)
+│ │
+│ │ Helpers internos importantes:
+│ │ • pickAccountKey(req) -> conta via cookie/header/query
+│ │ • resolveAccessToken(req, accountKey) -> pega token (middleware / bearer / ml-auth fallback)
+│ │ • parseFiltersFromReq(req) -> normaliza filtros (datas, status, vendas, visitas, envio/tipo/detalhes...)
+│ │ • handleJobItems(req,res) -> paginação + busca “pós-job” (q) e shape pro front
+│ │ • CSV helpers: csvEscape(), toCSV()
+│ │
+│ └─ htmlRoutes.js (ou equivalente)
+│ • GET /filtro-anuncios -> views/filtro-anuncios.html
+│
+├─ services/
+│ ├─ filtroAnunciosQueueService.js # 💥 Núcleo do processamento assíncrono (Bull + ML APIs)
+│ │
+│ │ Infra:
+│ │ • Bull('Filtro Anuncios Export Queue') -> fila Redis
+│ │ • resultsDir = /results -> persiste meta + resultados por job
+│ │ • _metaPath(jobId) -> {jobId}_filtro_metadata.json
+│ │ • _dataPath(jobId) -> {jobId}_filtro_resultados.json
+│ │ • _writeMeta(jobId, patch) -> salva status/progresso/erro
+│ │
+│ │ Processador:
+│ │ • queue.process('export', 1, async(job)) -> executa pipeline de coleta+filtros
+│ │ Pipeline (ordem real):
+│ │ 1) getSellerId(token) -> /users/me
+│ │ 2) fetchAllItemIds({sellerId,status}) -> /users/:id/items/search (scan + fallback offset<=1000)
+│ │ 3) fetchItemsBatch({ids}) -> /items?ids=... (batch 20)
+│ │ -> normaliza “rows base”:
+│ │ { mlb, sku, title, listing_type_id, tipo, shipping_free, envio, catalog_listing, detalhes, visits:null, sales_units:0, sold_value_cents:0 }
+│ │ 4) Filtros baratos (sem período):
+│ │ - envio (free/buyer)
+│ │ - tipo (classic/premium via listing_type_id)
+│ │ - detalhes (catalog/normal via catalog_listing)
+│ │ 5) Vendas no período (sempre, para manter colunas e filtro):
+│ │ fetchSalesMap({date_from,date_to}) -> /orders/search (paid) paginado
+│ │ -> preenche sales_units e sold_value_cents
+│ │ -> aplica filtro sales_op (gt/lt) se ativo
+│ │ 6) Visitas (caro):
+│ │ - só busca se visits_op != all
+│ │ fetchVisitsMap({ids,date_from,date_to}) -> /items/visits (1 id por request) c/ concorrência
+│ │ -> aplica filtro visits_op (gt/lt) se ativo
+│ │ - se não ativo: visits = null (UI mostra "-")
+│ │ 7) Sort final:
+│ │ sort_by: sold_value | sales_units | title
+│ │ sort_dir: asc | desc
+│ │ 8) Persiste JSON final no disco + meta concluído
+│ │
+│ │ Helpers internos importantes:
+│ │ • httpGetJson(url, headers, retries) -> fetch com retry (429/5xx)
+│ │ • chunk(arr, size), sleep(ms)
+│ │ • mapTipo(), mapEnvio(), mapDetalhes()
+│ │
+│ │ API do service:
+│ │ • enqueue({token, filters}) -> job.id
+│ │ • getStatus(jobId) -> status + progress + meta.total/error
+│ │ • getResults(jobId) -> lê JSON final do disco
+│ │
+│ └─ lib/redisClient.js / services/ml-auth.js / tokenService.js
+│ • redisClient: conexão Bull/Redis
+│ • ml-auth/tokenService: usados pelo routes pra obter token (resolveAccessToken)
+│
+├─ views/
+│ ├─ filtro-anuncios.html # Tela “Filtro Avançado de Anúncios”
+│ │ • header padrão (conta atual + Status + Trocar Conta)
+│ │ • card de filtros (datas, vendas, status, envio/tipo/detalhes e filtros “cinza” guardados)
+│ │ • tabela com 8 colunas:
+│ │ MLB | SKU | Nome anúncio | Tipo | Envios | Valor venda | Qnt vendas | Visitas
+│ │ • inclui:
+│ │ <link rel="stylesheet" href="/css/dashboard.css">
+│ │ <link rel="stylesheet" href="/css/filtro-anuncios.css">
+│ │ <script src="/js/filtro-anuncios.js"></script>
+│ │
+│ └─ (partials/… se existirem)
+│
+└─ public/
+├─ js/
+│ ├─ filtro-anuncios.js # Frontend (orquestra JOBS + paginação + busca local)
+│ │ • Cria job: POST /api/analytics/filtro-anuncios/jobs
+│ │ • Poll status: GET /api/analytics/filtro-anuncios/jobs/:job_id
+│ │ • Carrega página: GET /api/analytics/filtro-anuncios/jobs/:job_id/items?page&limit&q
+│ │ • Exporta CSV: redireciona GET /api/analytics/filtro-anuncios/jobs/:job_id/download.csv
+│ │ • Mantém state (filtros, job_id, paginação, rows)
+│ │ • Render:
+│ │ - tabela (8 colunas; colspan=8)
+│ │ - pager
+│ │ - loading row e empty prompt
+│ │ • Retoma job por URL: ?job_id=...
+│ │
+│ └─ (outros JS globais: account-bar.js, etc.)
+│
+├─ css/
+│ ├─ filtro-anuncios.css # Estilos específicos da tela de filtro
+│ ├─ dashboard.css # Estilos globais
+│ └─ ...
+│
+└─ img/
+└─ ...
