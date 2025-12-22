@@ -1,0 +1,61 @@
+<!-- views/nao-autorizado.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <title>Acesso não autorizado</title>
+</head>
+<body>
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">🟡</span>
+      <span class="app-name">Acesso</span>
+    </div>
+    <div class="account-bar__right">
+      <a class="account-bar__switch" href="/dashboard" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+        ← Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="page-wrap">
+    <section class="tab-page active">
+      <div class="container">
+        <h1>⛔ Acesso não autorizado</h1>
+        <p class="subtitle">Você não tem permissão para acessar esta área.</p>
+
+        <div class="endpoints">
+          <div class="endpoint">
+            <h3>O que você pode fazer</h3>
+            <ul class="features">
+              <li>Voltar para o <strong>Dashboard</strong></li>
+              <li>Trocar de conta (se aplicável)</li>
+              <li>Falar com um <strong>administrador</strong> para liberar seu acesso</li>
+            </ul>
+
+            <div class="token-actions" style="margin-top:12px;">
+              <a class="btn-primary" href="/dashboard" style="display:inline-block; text-decoration:none;">🏠 Ir para o Dashboard</a>
+              <button class="btn-small btn-warning" id="btn-logout">🚪 Sair</button>
+            </div>
+
+            <p style="margin-top:12px; color:#666; font-size:13px;">
+              Código: <code>403</code>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('btn-logout')?.addEventListener('click', async () => {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (_) {}
+      window.location.href = '/login';
+    });
+  </script>
+</body>
+</html>

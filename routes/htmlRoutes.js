@@ -31,6 +31,22 @@ function noCache(_req, res, next) {
  * router.get('/', (req, res) => res.redirect('/dashboard'));
  */
 
+/* ================================
+ * NOVO: Seleção de plataforma (primeira tela)
+ * ================================ */
+router.get('/selecao-plataforma', noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'html', 'selecao-plataforma.html'));
+});
+
+/* ================================
+ * NOVO: Login Mercado Livre (tela do app)
+ * ================================ */
+router.get('/ml/login', noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'login.html'));
+});
+
+
+
 // Dashboard
 router.get('/dashboard', noCache, HtmlController.servirDashboard);
 

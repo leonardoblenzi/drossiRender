@@ -1,0 +1,401 @@
+html, body {
+  height: 100%;
+}
+
+body{
+  margin: 0;
+  background: var(--admin-bg);
+}
+
+
+
+/* Mantém o topo do dashboard.css e cria layout estilo "imagem 3" */
+:root{
+  --admin-bg: #f5f6f8;
+  --admin-card: #ffffff;
+  --admin-border: rgba(0,0,0,.08);
+  --admin-text: #1b1f24;
+  --admin-muted: #6b7280;
+
+  /* cores atuais (ajuste se você já tem variáveis no dashboard.css) */
+  --accent: #6d28d9;          /* roxo */
+  --accent-soft: rgba(109,40,217,.12);
+  --sidebar-bg: #111827;      /* quase preto */
+  --sidebar-text: #e5e7eb;
+  --sidebar-muted: rgba(229,231,235,.65);
+}
+
+.admin-layout{
+  display: flex;
+  /* grid-template-columns não faz efeito em display:flex -> pode remover */
+  min-height: 100vh;        /* ✅ cobre o documento sempre */
+  margin-top: 64px;         /* respeita header fixo */
+  background: var(--admin-bg);
+}
+
+/* Sidebar sticky rolando junto */
+.admin-sidebar{
+  width: 260px;             /* ✅ fixe a largura aqui */
+  flex: 0 0 260px;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  padding: 18px 14px;
+  border-right: 1px solid rgba(255,255,255,.06);
+
+  position: sticky;
+  top: 64px;
+  height: calc(100vh - 64px); /* ✅ ocupa a viewport abaixo do header */
+  overflow-y: auto;
+
+  align-self: flex-start;
+}
+
+.admin-sidebar__brand{
+  padding: 10px 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  margin-bottom: 12px;
+}
+
+.admin-sidebar__logo{
+  font-weight: 800;
+  letter-spacing: .5px;
+}
+
+.admin-sidebar__sub{
+  font-size: 12px;
+  color: var(--sidebar-muted);
+  margin-top: 4px;
+}
+
+.admin-menu{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 6px;
+}
+
+.admin-menu__item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--sidebar-text);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.admin-menu__item .ico{ width: 22px; text-align:center; }
+
+.admin-menu__item:hover{
+  background: rgba(255,255,255,.06);
+}
+
+.admin-menu__item.active{
+  background: rgba(109,40,217,.18);
+  border-color: rgba(109,40,217,.35);
+}
+
+/* ⚠️ Remover absolute: deixa footer no fluxo para não “cortar” no sticky */
+.admin-sidebar__footer{
+  position: static;     /* ✅ em vez de absolute */
+  margin-top: 14px;
+  padding: 10px;
+  color: var(--sidebar-muted);
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+/* Conteúdo */
+.admin-content{
+  flex: 1;
+  min-width: 0;          /* ✅ evita overflow estranho em flex */
+  padding: 26px 26px 40px;
+}
+
+.admin-content__header{
+  display:flex;
+  align-items:flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.admin-title{
+  margin: 0;
+  font-size: 28px;
+  color: var(--admin-text);
+}
+
+.admin-subtitle{
+  margin: 6px 0 0;
+  color: var(--admin-muted);
+}
+
+.admin-actions{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+}
+
+.btn-primary{
+  background: var(--accent);
+  border: 1px solid rgba(0,0,0,.08);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.btn-primary:hover{ filter: brightness(1.03); }
+
+.btn-lite{
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.btn-lite:hover{ background: rgba(0,0,0,.02); }
+
+.admin-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.search-box{
+  position: relative;
+  width: min(520px, 100%);
+}
+
+.search-box input{
+  width: 100%;
+  border: 1px solid var(--admin-border);
+  border-radius: 12px;
+  padding: 12px 40px 12px 14px;
+  outline: none;
+  background: #fff;
+}
+
+.search-clear{
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--admin-muted);
+  font-size: 14px;
+  padding: 6px;
+  border-radius: 8px;
+}
+.search-clear:hover{ background: rgba(0,0,0,.05); }
+
+.pill{
+  display:inline-flex;
+  align-items:center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.card{
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: 16px;
+  box-shadow: 0 10px 25px rgba(0,0,0,.06);
+  overflow: hidden;
+}
+
+.table-wrap{ overflow:auto; }
+
+.table{
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table thead th{
+  text-align: left;
+  font-size: 12px;
+  letter-spacing: .3px;
+  color: var(--admin-muted);
+  padding: 14px 14px;
+  border-bottom: 1px solid var(--admin-border);
+  background: #fafafa;
+}
+
+.table tbody td{
+  padding: 14px 14px;
+  border-bottom: 1px solid rgba(0,0,0,.05);
+  color: var(--admin-text);
+  font-size: 14px;
+}
+
+.table tbody tr:hover{
+  background: rgba(109,40,217,.04);
+}
+
+.table-empty{
+  text-align:center;
+  color: var(--admin-muted);
+  padding: 24px 14px !important;
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+.badge.admin{
+  background: rgba(109,40,217,.12);
+  color: var(--accent);
+}
+.badge.user{
+  background: rgba(0,0,0,.06);
+  color: #374151;
+}
+
+.actions{
+  display:flex;
+  justify-content:flex-end;
+  gap: 8px;
+}
+.icon-btn{
+  border: 1px solid var(--admin-border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.icon-btn:hover{ background: rgba(0,0,0,.03); }
+.icon-btn.danger{ border-color: rgba(220,38,38,.25); color: #dc2626; }
+
+.table-footer{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.table-footer__left{ color: var(--admin-muted); }
+.page-info{ padding: 0 10px; color: var(--admin-text); font-weight: 700; }
+
+.hint{
+  margin-top: 12px;
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
+/* Modal (reaproveita estética simples) */
+.modal{
+  position: fixed;
+  inset: 0;
+  display: none;
+  background: rgba(0,0,0,.45);
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 9999;
+}
+
+.modal-content{
+  width: min(720px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid rgba(0,0,0,.08);
+  box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  overflow: hidden;
+}
+
+.modal-header{
+  display:flex;
+  justify-content: space-between;
+  align-items:center;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0,0,0,.08);
+  background: #fafafa;
+}
+.modal-header h3{ margin: 0; }
+
+.close{
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+.close:hover{ background: rgba(0,0,0,.06); }
+
+.modal-body{ padding: 16px; }
+
+.form-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-group label{
+  display:block;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--admin-muted);
+  margin-bottom: 6px;
+}
+
+.form-group input, .form-group select{
+  width: 100%;
+  border: 1px solid var(--admin-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.help{
+  display:block;
+  margin-top: 6px;
+  color: var(--admin-muted);
+  font-size: 12px;
+}
+
+.form-error{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(220,38,38,.10);
+  color: #b91c1c;
+  border: 1px solid rgba(220,38,38,.20);
+}
+
+.modal-footer{
+  display:flex;
+  justify-content:flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid rgba(0,0,0,.08);
+  background: #fff;
+}
+
+/* Toast */
+.toast{
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  background: #111827;
+  color: #fff;
+  padding: 12px 14px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  z-index: 10000;
+}

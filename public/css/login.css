@@ -1,0 +1,113 @@
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+    height:100vh;
+    background:#050509;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-family:"Inter",sans-serif;
+    color:#fff;
+    overflow:hidden;
+    perspective:1400px;
+}
+
+/* ------------------- Entrada 3D ------------------- */
+.animated-entry{
+    opacity:0;
+    animation:entry3D 1.8s cubic-bezier(.13,.77,.38,1.02) forwards;
+}
+@keyframes entry3D{
+    0%{transform:translateY(40px) rotateX(35deg) scale(.85);filter:blur(20px);opacity:0;}
+    60%{transform:translateY(-8px) rotateX(8deg) scale(1.05);filter:blur(7px);opacity:1;}
+    100%{transform:none;filter:none;opacity:1;}
+}
+
+/* ------------------- Parallax ------------------- */
+.layer{position:absolute;inset:0;opacity:.22;}
+.layer1{z-index:1;background:radial-gradient(circle,#fff60033,transparent 70%);animation:m1 20s infinite alternate ease-in-out;}
+.layer2{z-index:2;background:radial-gradient(circle,#00eaff33,transparent 70%);animation:m2 26s infinite alternate ease-in-out;}
+.layer3{z-index:3;background:radial-gradient(circle,#ffee0033,transparent 70%);animation:m3 32s infinite alternate ease-in-out;}
+
+@keyframes m1{0%{transform:translate(-20px,-10px);}100%{transform:translate(20px,10px);}}
+@keyframes m2{0%{transform:translate(15px,20px);}100%{transform:translate(-15px,-20px);}}
+@keyframes m3{0%{transform:translate(-10px,25px);}100%{transform:translate(10px,-25px);}}
+
+/* ------------------- Raios Tech ------------------- */
+.tech-rays{position:absolute;inset:0;z-index:4;pointer-events:none;}
+.ray{
+    position:absolute;width:3px;height:200%;
+    background:linear-gradient(to bottom,transparent,#ffe600aa,transparent);
+    filter:blur(2px);opacity:.4;animation:ray 6s linear infinite;
+}
+.ray:nth-child(1){left:18%;animation-delay:0s;}
+.ray:nth-child(2){left:48%;animation-delay:2s;}
+.ray:nth-child(3){left:78%;animation-delay:4s;}
+
+@keyframes ray{0%{transform:translateY(-100%);}100%{transform:translateY(100%);}}
+
+/* ------------------- Circuitos ------------------- */
+.circuit-container{position:absolute;inset:0;z-index:5;pointer-events:none;opacity:.18;}
+.circuit{width:100%;height:100%;}
+.circuit-line{
+    stroke:#fff600;stroke-width:2px;fill:none;
+    stroke-dasharray:8 14;animation:flow 6s linear infinite;
+}
+@keyframes flow{to{stroke-dashoffset:-200;}}
+
+/* ------------------- Partículas ------------------- */
+.particles span{
+    position:absolute;width:5px;height:5px;border-radius:50%;
+    background:#fff600;opacity:.65;filter:blur(1px);
+    animation:pMove 14s linear infinite;
+}
+@keyframes pMove{
+    0%{transform:translateY(120vh);opacity:.3;}
+    100%{transform:translateY(-20vh);opacity:0;}
+}
+.particles span:nth-child(n){left:calc(100% * var(--x));animation-duration:calc(6s + var(--d));}
+
+/* ------------------- Login Card ------------------- */
+.login-card{
+    z-index:20;text-align:center;
+    padding:3rem 4rem;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,0,.35);
+    backdrop-filter:blur(22px);
+    border-radius:18px;
+    box-shadow:0 0 25px #ffe600aa;
+}
+
+.title{
+    font-size:2.8rem;
+    font-weight:900;
+    letter-spacing:6px;
+    margin-bottom:2rem;
+    color:#ffe600;
+}
+
+/* ------------------- Glitch ------------------- */
+.glitch{
+    animation:glitch 1.3s infinite;
+}
+@keyframes glitch{
+    0%,100%{text-shadow:2px 0 #00eaff,-2px 0 #ffe600;}
+    20%{text-shadow:-3px -2px #ffe600,3px 2px #00eaff;}
+    40%{text-shadow:3px -2px #ffe600,-3px 2px #00eaff;}
+    60%{text-shadow:-3px 0 #ffe600,3px 0 #00eaff;}
+    80%{text-shadow:3px 2px #ffe600,-3px -2px #00eaff;}
+}
+
+/* ------------------- Inputs / Botão ------------------- */
+.form{display:flex;flex-direction:column;gap:1.2rem;}
+.input{
+    padding:1rem;border-radius:10px;border:none;
+    background:rgba(255,255,255,0.1);color:white;
+    font-size:1.1rem;
+}
+.btn{
+    padding:1rem;font-size:1.2rem;color:black;
+    background:#ffe600;font-weight:700;
+    border:none;border-radius:10px;
+    cursor:pointer;transition:.25s;
+}
+.btn:hover{transform:scale(1.06);box-shadow:0 0 18px #ffe600;}

@@ -6,8 +6,9 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 // Middlewares próprios
-const ensureAccount = require('./middleware/ensureAccount');         // exige conta selecionada
-const { authMiddleware } = require('./middleware/authMiddleware');   // ✅ garante token válido
+const ensureAccount = require('./middleware/ensureAccount');         // exige conta selecionada (ml_account)
+const { authMiddleware } = require('./middleware/authMiddleware');   // garante token ML válido
+const { ensureAuth } = require('./middleware/ensureAuth');           // ✅ JWT do app (auth_token)
 
 const app = express();
 
@@ -22,8 +23,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Se você usa cookies (ml_account) e precisar CORS cross-site,
-// considere: app.use(cors({ origin: true, credentials: true }));
+// same-origin ok
 app.use(cors());
 
 app.use(cookieParser());
@@ -43,22 +43,58 @@ try {
 }
 
 // ==================================================
-// Seleção de conta (rotas ABERTAS)
+// (Opcional) Evita cache das páginas HTML
+// ==================================================
+function noCache(_req, res, next) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+    'Surrogate-Control': 'no-store'
+  });
+  next();
+}
+
+// ==================================================
+// ✅ Auth (JWT do APP) - rotas públicas
 // ==================================================
 try {
-  // Página de seleção (NÃO protegida)
-  app.get('/select-conta', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'select-conta.html'));
-  });
-
-  // API de conta (NÃO protegida)
-  const accountRoutes = require('./routes/accountRoutes');
-  app.use('/api/account', accountRoutes);
-
-  console.log('✅ Rotas de seleção de conta ativas');
-} catch (error) {
-  console.error('❌ Erro ao configurar seleção de conta:', error.message);
+  if (!process.env.JWT_SECRET) {
+    console.warn('⚠️ JWT_SECRET não definido no .env / Render. Login JWT não vai funcionar corretamente.');
+  }
+  const authRoutes = require('./routes/authRoutes');
+  app.use('/api/auth', authRoutes);
+  console.log('✅ AuthRoutes carregado');
+} catch (e) {
+  console.error('❌ Erro ao carregar AuthRoutes:', e.message);
 }
+
+// ==========================================
+// ✅ Páginas públicas (SEM LOGIN)
+// 1) Seleção de plataforma
+// 2) Login do app
+// ==========================================
+app.get('/', (req, res) => res.redirect('/selecao-plataforma'));
+
+app.get('/selecao-plataforma', noCache, (req, res) => {
+  return res.sendFile(path.join(__dirname, 'views', 'selecao-plataforma.html'));
+});
+
+app.get('/login', noCache, (req, res) => {
+  return res.sendFile(path.join(__dirname, 'views', 'login.html'));
+});
+
+// ✅ Página “Acesso não autorizado” (HTML de arquivo)
+app.get('/nao-autorizado', noCache, (req, res) => {
+  return res.status(403).sendFile(path.join(__dirname, 'views', 'nao-autorizado.html'));
+});
+
+// Logout "completo" (limpa JWT + conta selecionada) — opcional
+app.post('/api/ml/logout', noCache, (req, res) => {
+  res.clearCookie('auth_token', { path: '/' });
+  res.clearCookie('ml_account', { path: '/' });
+  return res.json({ ok: true });
+});
 
 // ==========================================
 // INICIALIZAR SISTEMA DE FILAS
@@ -76,7 +112,7 @@ try {
 }
 
 // ==========================================
-// Monitoramento/Debug (ABERTAS)
+// Monitoramento/Debug (ABERTAS / SEM LOGIN)
 // ==========================================
 app.get('/api/system/health', (req, res) => {
   try {
@@ -143,38 +179,63 @@ app.get('/test-basic', (req, res) => {
       access_token_configured: !!process.env.MERCADOLIBRE_ACCESS_TOKEN,
       queue_system_available: !!queueService,
       redis_configured: !!(process.env.REDIS_URL || process.env.REDIS_HOST)
-    },
-    features: [
-      'Token Management',
-      'Promoções',
-      'Pesquisa em Descrições',
-      'Keyword Analytics',
-      queueService ? 'Sistema de Filas' : 'Sistema de Filas (Indisponível)',
-      'Monitoramento em Tempo Real'
-    ]
+    }
   });
 });
 
 // ==========================================
-// ROOT: SEMPRE levar à seleção ou dashboard
+// ✅ DAQUI PRA BAIXO: TUDO EXIGE LOGIN (JWT auth_token)
 // ==========================================
-// Por padrão, força ir para /select-conta ao abrir o app.
-// Se quiser permitir pular quando já houver cookie, mude FORCE_ACCOUNT_SELECTION=false no .env
-const FORCE_ACCOUNT_SELECTION = String(process.env.FORCE_ACCOUNT_SELECTION || 'true').toLowerCase() === 'true';
+app.use(ensureAuth);
 
-app.get('/', (req, res) => {
-  const hasAccountCookie = !!req.cookies?.ml_account;
-  if (FORCE_ACCOUNT_SELECTION || !hasAccountCookie) {
-    return res.redirect('/select-conta');
-  }
-  return res.redirect('/dashboard');
+// Middleware: somente admin (usa req.user que o ensureAuth injeta)
+function ensureAdminOnly(req, res, next) {
+  const u = req.user || res.locals.user;
+  if (u && String(u.nivel) === 'administrador') return next();
+
+  const accept = String(req.headers.accept || '');
+  const wantsHtml = accept.includes('text/html');
+
+  if (wantsHtml) return res.redirect('/nao-autorizado');
+  return res.status(403).json({ ok: false, error: 'Acesso não autorizado.' });
+}
+
+// ✅ Admin: página de usuários (SOMENTE ADMIN)
+app.get('/admin/usuarios', noCache, ensureAdminOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, 'views', 'admin-usuarios.html'));
 });
 
+// ✅ Admin APIs
+try {
+  const adminUsuariosRoutes = require('./routes/adminUsuariosRoutes');
+  app.use('/api/admin', adminUsuariosRoutes);
+  console.log('✅ AdminUsuariosRoutes carregado');
+} catch (e) {
+  console.error('❌ Erro ao carregar AdminUsuariosRoutes:', e.message);
+}
+
 // ==========================================
-// PROTEÇÃO: exigir conta selecionada (APÓS root redirect)
+// Seleção de conta (AGORA já está protegida por ensureAuth)
 // ==========================================
 try {
-  app.use(ensureAccount); // ✅ aplicado uma ÚNICA vez
+  app.get('/select-conta', noCache, (req, res) => {
+    res.sendFile(path.join(__dirname, 'views', 'select-conta.html'));
+  });
+
+  const accountRoutes = require('./routes/accountRoutes');
+  app.use('/api/account', accountRoutes);
+
+  console.log('✅ Rotas de seleção de conta ativas (protegidas por login JWT)');
+} catch (error) {
+  console.error('❌ Erro ao configurar seleção de conta:', error.message);
+}
+
+// ==========================================
+// PROTEÇÃO: exigir conta selecionada (ml_account)
+// (APÓS login JWT + seleção de conta)
+// ==========================================
+try {
+  app.use(ensureAccount);
   console.log('✅ Middleware ensureAccount aplicado');
 } catch (error) {
   console.error('❌ Erro ao aplicar ensureAccount:', error.message);
@@ -188,20 +249,21 @@ app.get('/api/account/whoami', (req, res) => {
     accountKey: res.locals.accountKey || null,
     accountLabel: res.locals.accountLabel || null,
     hasCreds: !!res.locals.mlCreds,
+    user: req.user || null, // ✅ mostra usuário do JWT (nivel, email...)
   });
 });
 
 // ==========================================
-// 🔒 GARANTIR TOKEN VÁLIDO PARA AS ROTAS ABAIXO
+// 🔒 GARANTIR TOKEN ML VÁLIDO PARA AS ROTAS ABAIXO
 // ==========================================
-app.use(authMiddleware); // ✅ injeta req.access_token e atualiza res.locals.mlCreds.access_token
+app.use(authMiddleware);
 console.log('✅ AuthMiddleware aplicado');
 
 // ==========================================
 // Rotas PROTEGIDAS do app
 // ==========================================
 
-// Análise de anúncios (usa ML) — agora após authMiddleware
+// Análise de anúncios (usa ML)
 const adAnalysisRoutes = require('./routes/adAnalysisRoutes');
 app.use('/api/analise-anuncios', adAnalysisRoutes);
 
@@ -222,16 +284,16 @@ try {
   console.error('❌ Erro ao carregar ValidarDimensoesRoutes:', error.message);
 }
 
-// Exclusão de anúncios
+// ✅ Exclusão de anúncios (SOMENTE ADMIN)
 try {
   const excluirAnuncioRoutes = require('./routes/excluirAnuncioRoutes');
-  app.use(excluirAnuncioRoutes);
-  console.log('✅ ExcluirAnuncioRoutes carregado');
+  app.use(ensureAdminOnly, excluirAnuncioRoutes);
+  console.log('✅ ExcluirAnuncioRoutes carregado (ADMIN ONLY)');
 } catch (error) {
   console.error('❌ Erro ao carregar ExcluirAnuncioRoutes:', error.message);
 }
 
-// Promoção (API já existente no seu projeto)
+// Promoção
 try {
   const promocaoRoutes = require('./routes/removerPromocaoRoutes');
   app.use(promocaoRoutes);
@@ -294,7 +356,7 @@ try {
   console.error('❌ Erro ao carregar interface de pesquisa:', error.message);
 }
 
-// ✅ Interface Validar Dimensões
+// Interface Validar Dimensões
 try {
   app.get('/validar-dimensoes', (req, res) => {
     res.sendFile(path.join(__dirname, 'views', 'validar-dimensoes.html'));
@@ -322,18 +384,16 @@ try {
   console.error('❌ Erro ao carregar interface de keyword analytics:', error.message);
 }
 
-// ==========================================
-// 🔹 Curva ABC — Rotas de API
-// ==========================================
+// Curva ABC — Rotas de API
 try {
-  const analyticsAbcRoutes = require('./routes/analytics-abc-Routes'); // API
+  const analyticsAbcRoutes = require('./routes/analytics-abc-Routes');
   app.use('/api/analytics', analyticsAbcRoutes);
   console.log('✅ Analytics ABC Routes carregado');
 } catch (error) {
   console.error('❌ Erro ao carregar Analytics ABC Routes:', error.message);
 }
 
-// ✅ NOVO: Filtro Avançado de Anúncios (API)
+// Filtro Avançado de Anúncios (API)
 try {
   const filtroAnunciosRoutes = require('./routes/analytics-filtro-anuncios-routes');
   app.use('/api/analytics', filtroAnunciosRoutes);
@@ -342,10 +402,10 @@ try {
   console.error('❌ Erro ao carregar Filtro Anúncios Routes:', error.message);
 }
 
-// Produtos Estratégicos (JSON por conta)
+// Produtos Estratégicos
 try {
   const estrategicosRoutes = require('./routes/estrategicosRoutes');
-  app.use(estrategicosRoutes); // já expõe /api/estrategicos/*
+  app.use(estrategicosRoutes);
   console.log('✅ EstrategicosRoutes carregado');
 } catch (error) {
   console.error('❌ Erro ao carregar EstrategicosRoutes:', error.message);
@@ -360,9 +420,7 @@ try {
   console.error('❌ Erro ao carregar FullRoutes:', error.message);
 }
 
-// ==========================================
-// 🟡 Publicidade / Product Ads (API + HTML)
-// ==========================================
+// Publicidade / Product Ads
 try {
   const publicidadeRoutes = require('./routes/publicidadeRoutes');
   app.use('/api/publicidade', publicidadeRoutes);
@@ -399,52 +457,7 @@ app.use((req, res) => {
     success: false,
     error: 'Rota não encontrada',
     path: req.originalUrl,
-    method: req.method,
-    available_routes: {
-      interfaces: [
-        'GET /select-conta - Selecionar conta',
-        'GET /dashboard - Dashboard principal',
-        'GET /analise-anuncios - Análise de anúncios',
-        'GET /criar-promocao - Criar promoções',
-        'GET /remover-promocao - Remover promoções',
-        'GET /excluir-anuncio - Exclusão de anúncios',
-        'GET /estrategicos - Produtos Estratégicos',
-        'GET /full - FULL',
-        'GET /ia-analytics/curva-abc - Curva ABC (tempo real)',
-        'GET /filtro-anuncios - Filtro Avançado de Anúncios',
-        'GET /publicidade - Painel de Product Ads',
-        'GET /pesquisa-descricao - Interface de pesquisa',
-        'GET /keyword-analytics - Interface de analytics'
-      ],
-      apis: [
-        'GET /api/account/list - Listar contas',
-        'GET /api/account/current - Conta atual',
-        'POST /api/account/select - Selecionar conta',
-        'POST /api/account/clear - Limpar seleção',
-        'GET /api/system/health - Health check',
-        'GET /api/system/stats - Estatísticas do sistema',
-        'POST /api/pesquisa-descricao/pesquisar - Pesquisa rápida',
-        'POST /api/pesquisa-descricao/processar-massa - Processamento em massa',
-        'GET /api/pesquisa-descricao/jobs - Listar jobs',
-        'GET /api/pesquisa-descricao/status/:job_id - Status de job',
-        'GET /api/keyword-analytics/* - APIs de keyword analytics',
-        'GET /api/analytics/abc-ml/summary - Curva ABC resumo (ML tempo real)',
-        'GET /api/analytics/abc-ml/items - Curva ABC itens (ML tempo real)',
-        'GET /api/analytics/filtro-anuncios - Filtro Avançado de Anúncios',
-        'GET /api/publicidade/product-ads/campaigns - Listar campanhas de Product Ads',
-        'GET /api/publicidade/product-ads/campaigns/:id/items - Itens da campanha',
-        'GET /api/estrategicos - Listar produtos estratégicos',
-        'POST /api/estrategicos - Upsert produto estratégico',
-        'DELETE /api/estrategicos/:mlb - Remover produto estratégico',
-        'POST /api/estrategicos/replace - Substituir lista',
-        'POST /api/estrategicos/apply - Aplicar promoções',
-        'POST /api/estrategicos/upload - Processar upload CSV/XLSX'
-      ],
-      debug: [
-        'GET /test-basic - Teste básico',
-        'GET /debug/routes - Debug de rotas'
-      ]
-    }
+    method: req.method
   });
 });
 
@@ -457,56 +470,17 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 ================================');
 
   console.log('📋 Interfaces Web:');
-  console.log(`    • http://localhost:${PORT}/select-conta - Selecionar conta (obrigatório ao abrir)`);
-  console.log(`    • http://localhost:${PORT}/dashboard - Dashboard principal`);
-  console.log(`    • http://localhost:${PORT}/analise-anuncios - Análise de anúncios`);
-  console.log(`    • http://localhost:${PORT}/criar-promocao - Criar promoções`);
-  console.log(`    • http://localhost:${PORT}/remover-promocao - Remover promoções`);
-  console.log(`    • http://localhost:${PORT}/excluir-anuncio - Exclusão de anúncios`);
-  console.log(`    • http://localhost:${PORT}/estrategicos - Produtos Estratégicos`);
-  console.log(`    • http://localhost:${PORT}/full - FULL`);
-  console.log(`    • http://localhost:${PORT}/ia-analytics/curva-abc - Curva ABC (Analytics)`);
-  console.log(`    • http://localhost:${PORT}/filtro-anuncios - Filtro Avançado de Anúncios`);
-  console.log(`    • http://localhost:${PORT}/publicidade - Painel de Product Ads`);
-  console.log(`    • http://localhost:${PORT}/pesquisa-descricao - Pesquisa em massa`);
-  console.log(`    • http://localhost:${PORT}/keyword-analytics - Análise de palavras-chave`);
-
+  console.log(`    • http://localhost:${PORT}/selecao-plataforma - Seleção de plataforma`);
+  console.log(`    • http://localhost:${PORT}/login - Login`);
+  console.log(`    • http://localhost:${PORT}/select-conta - Selecionar conta (após login)`);
+  console.log(`    • http://localhost:${PORT}/nao-autorizado - Acesso negado`);
   console.log('🚀 ================================');
-  console.log('📊 APIs Principais:');
-  console.log(`    • http://localhost:${PORT}/api/account/* - Seleção de conta`);
-  console.log(`    • http://localhost:${PORT}/api/token/* - Gerenciamento de token`);
-  console.log(`    • http://localhost:${PORT}/api/promocao/* - Promoções`);
-  console.log(`    • http://localhost:${PORT}/api/analise-anuncios/* - Análise de anúncios (API)`);
-  console.log(`    • http://localhost:${PORT}/api/analytics/abc-ml/* - Curva ABC (ML tempo real)`);
-  console.log(`    • http://localhost:${PORT}/api/analytics/filtro-anuncios - Filtro Avançado de Anúncios`);
-  console.log(`    • http://localhost:${PORT}/api/publicidade/* - Product Ads (campanhas + itens)`);
-  console.log(`    • http://localhost:${PORT}/api/pesquisa-descricao/* - Sistema de pesquisa`);
-  console.log(`    • http://localhost:${PORT}/api/keyword-analytics/* - Keyword analytics`);
-  console.log(`    • http://localhost:${PORT}/api/full/* - FULL`);
-  console.log(`    • http://localhost:${PORT}/api/estrategicos/* - Estratégicos`);
 
-  console.log('🚀 ================================');
-  console.log('🔧 Sistema de Monitoramento:');
-  console.log(`    • http://localhost:${PORT}/api/system/health - Health check`);
-  console.log(`    • http://localhost:${PORT}/api/system/stats - Estatísticas`);
-  console.log(`    • http://localhost:${PORT}/test-basic - Teste básico`);
-
-  console.log('🚀 ================================');
-  console.log('⚙️ Configuração:');
-  console.log(`    • Porta: ${PORT}`);
-  console.log(`    • Ambiente: ${process.env.NODE_ENV || 'development'}`);
-
-  const acc = (process.env.SELECTED_ACCOUNT || process.env.DEFAULT_ACCOUNT || '').toLowerCase();
-  if (acc) {
-    const U = acc.toUpperCase();
-    const hasToken = !!process.env[`ML_${U}_ACCESS_TOKEN`];
-    console.log(`    • Conta default: ${acc} (${hasToken ? '✅ token presente' : '⚠️ sem token em .env'})`);
-  } else {
-    console.log('    • Conta default: (nenhuma)');
-  }
-
-  console.log(`    • Sistema de Filas: ${queueService ? '✅ Ativo' : '❌ Indisponível'}`);
-  console.log(`    • Redis: ${process.env.REDIS_URL || process.env.REDIS_HOST ? '✅ Configurado' : '❌ Não configurado'}`);
+  console.log('📊 APIs Auth:');
+  console.log(`    • POST http://localhost:${PORT}/api/auth/login - Login (gera JWT cookie)`);
+  console.log(`    • GET  http://localhost:${PORT}/api/auth/me - Quem sou eu (JWT)`);
+  console.log(`    • POST http://localhost:${PORT}/api/auth/logout - Logout (limpa JWT)`);
+  console.log(`    • POST http://localhost:${PORT}/api/ml/logout - Logout completo (JWT + conta)`);
   console.log('🚀 ================================');
 });
 

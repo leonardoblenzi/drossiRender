@@ -1,0 +1,201 @@
+/* RESET */
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+    height:100vh;
+    overflow:hidden;
+    background:#050509;
+    font-family:"Inter",sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    position:relative;
+    color:white;
+    perspective:1400px;
+}
+
+/* ================================
+   FIX: ANIMAÇÃO 3D QUE NÃO SOME
+================================ */
+.animated-entry{
+    animation: entry3D 1.8s cubic-bezier(.13,.77,.38,1.02);
+    opacity:0;
+    animation-fill-mode:forwards;
+}
+@keyframes entry3D {
+    0%{
+        transform:translateY(40px) rotateX(35deg) scale(0.85);
+        filter:blur(20px);
+        opacity:0;
+    }
+    60%{
+        transform:translateY(-8px) rotateX(8deg) scale(1.05);
+        filter:blur(6px);
+        opacity:1;
+    }
+    100%{
+        transform:translateY(0) rotateX(0) scale(1);
+        filter:blur(0);
+        opacity:1;
+    }
+}
+
+/* CAMADAS VISUAIS (com z-index corrigido) */
+.layer1{ z-index:1; }
+.layer2{ z-index:2; }
+.layer3{ z-index:3; }
+
+.tech-rays{ z-index:4; }
+.circuit-lines{ z-index:5; }
+.particles{ z-index:6; }
+
+.falling-logos{ z-index:7; }
+
+.container{ z-index:20; }
+
+/* ================================
+   PARALLAX BACKGROUND
+================================ */
+.bg-parallax{
+    position:absolute;
+    inset:0;
+    opacity:0.22;
+    background-size:160%;
+}
+
+.layer1{background:radial-gradient(circle,#00eaff33,transparent 70%);animation:move1 18s ease-in-out infinite alternate;}
+.layer2{background:radial-gradient(circle,#ff00ff33,transparent 70%);animation:move2 22s ease-in-out infinite alternate;}
+.layer3{background:radial-gradient(circle,#00ff8833,transparent 70%);animation:move3 26s ease-in-out infinite alternate;}
+
+@keyframes move1{0%{transform:translate(-30px,-20px);}100%{transform:translate(30px,20px);}}
+@keyframes move2{0%{transform:translate(20px,10px);}100%{transform:translate(-20px,-10px);}}
+@keyframes move3{0%{transform:translate(-15px,30px);}100%{transform:translate(15px,-30px);}}
+
+/* ================================
+   RAIOS TECNOLÓGICOS (agora visíveis)
+================================ */
+.tech-rays {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+}
+
+.ray {
+    position: absolute;
+    width: 2px;
+    height: 200%;
+    background: linear-gradient(to bottom, transparent, #00eaffaa, transparent);
+    filter: blur(2px);
+    opacity: 0.35;
+    animation: rayMove 6s linear infinite;
+}
+
+.ray:nth-child(1){ left: 20%; animation-delay:0s; }
+.ray:nth-child(2){ left: 50%; animation-delay:2s; }
+.ray:nth-child(3){ left: 80%; animation-delay:4s; }
+
+@keyframes rayMove {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+}
+
+/* ================================
+   PARTÍCULAS
+================================ */
+.particles span {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #00eaff;
+    opacity: 0.6;
+    filter: blur(1px);
+    animation: particleMove 12s linear infinite;
+}
+
+@keyframes particleMove {
+    0% { transform: translateY(0); opacity: 0.4; }
+    100% { transform: translateY(-120vh); opacity: 0; }
+}
+
+.particles span:nth-child(n) {
+    left: calc(random() * 100%);
+    animation-delay: calc(random() * 5s);
+    animation-duration: calc(6s + random() * 12s);
+}
+
+/* ================================
+   LOGOS CAINDO
+================================ */
+.falling-logos{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+}
+.logo{
+    position:absolute;
+    top:-180px;
+    width:120px;
+    opacity:0.12;
+    animation:fall 12s linear infinite;
+    filter:blur(1px);
+}
+.logo:nth-child(1){left:12%;animation-delay:0s;}
+.logo:nth-child(2){left:45%;animation-delay:3s;width:145px;}
+.logo:nth-child(3){left:70%;animation-delay:6s;}
+.logo:nth-child(4){left:88%;animation-delay:9s;width:135px;}
+
+@keyframes fall{
+    0%{transform:translateY(-200px) rotate(0deg);}
+    100%{transform:translateY(110vh) rotate(360deg);}
+}
+
+/* ================================
+   TEXTO + GLITCH
+================================ */
+.title{
+    font-size:4rem;
+    font-weight:800;
+    letter-spacing:8px;
+}
+
+.glitch{
+    animation:glitchAnim 1.2s infinite;
+}
+@keyframes glitchAnim{
+    0%,100%{text-shadow:2px 0 #ff00ff, -2px 0 #00eaff;}
+    20%{text-shadow:-2px -2px #ff00ff, 2px 2px #00eaff;}
+    40%{text-shadow:2px -2px #ff00ff, -2px 2px #00eaff;}
+    60%{text-shadow:-2px 0 #ff00ff, 2px 0 #00eaff;}
+    80%{text-shadow:2px 2px #ff00ff, -2px -2px #00eaff;}
+}
+
+/* ================================
+   BOTÕES
+================================ */
+.buttons{
+    margin-top:3rem;
+    display:flex;
+    gap:2rem;
+}
+.btn{
+    display:flex;
+    align-items:center;
+    gap:1rem;
+    padding:1rem 2.4rem;
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.15);
+    backdrop-filter:blur(14px);
+    border-radius:14px;
+    cursor:pointer;
+    font-size:1.3rem;
+    transition:0.25s ease;
+    color:white;
+}
+.btn:hover{
+    transform:translateY(-6px) scale(1.07);
+    backdrop-filter:blur(24px);
+}
+.btn img{width:34px;}
+.ml-btn{box-shadow:0 0 22px #00eaff55;}
+.sh-btn{box-shadow:0 0 22px #ff00ff55;}

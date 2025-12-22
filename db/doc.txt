@@ -1,0 +1,181 @@
+GUIA RÁPIDO — Banco de Dados (PostgreSQL no Render) + como funciona “antes”
+
+============================================================
+1) O QUE A GENTE CONFIGUROU AGORA
+============================================================
+
+✅ Você criou um PostgreSQL no Render e gerou uma DATABASE_URL.
+✅ Você criou um script de migração (migrate.js) e uma migration SQL:
+   db/001_create_usuarios.sql
+
+Isso criou no banco a tabela:
+
+usuarios
+- id (bigserial, PK)
+- nome (text)
+- email (text, unique, not null)
+- senha_hash (text, not null)       -> senha NUNCA é salva em texto puro
+- nivel (text) default 'usuario'    -> 'usuario' | 'administrador'
+- criado_em (timestamptz) default now()
+- ultimo_login_em (timestamptz)
+
+Com constraint:
+- nivel IN ('usuario', 'administrador')
+
+============================================================
+2) COMO O PROJETO “ENXERGA” O BANCO
+============================================================
+
+A regra é simples:
+
+O seu app sempre usa o banco apontado pela variável:
+DATABASE_URL
+
+• Rodando LOCAL:
+  - Se o seu .env local tem DATABASE_URL apontando pro Render:
+    -> seu localhost grava/lê no banco do Render (REMOTO).
+
+  - Se o seu .env local tem DATABASE_URL apontando pro Postgres local:
+    -> seu localhost grava/lê no banco do SEU PC (LOCAL).
+
+• Rodando NO RENDER:
+  - O Render injeta DATABASE_URL no Environment:
+    -> o app no Render grava/lê no banco do Render.
+
+============================================================
+3) COMO RODAR AS MIGRAÇÕES (CRIAR/ATUALIZAR TABELAS)
+============================================================
+
+Pré-requisitos:
+- Node instalado
+- DATABASE_URL configurada (no .env local ou no Render)
+
+Passo a passo local:
+1) Abra o terminal na raiz do projeto
+2) Garanta que o .env tem:
+   DATABASE_URL=postgresql://... (de preferência com sslmode=require)
+3) Rode:
+   node db/migrate.js
+4) Resultado esperado:
+   - “Aplicando: 001_create_usuarios.sql”
+   - “OK”
+   - “Migrações finalizadas com sucesso”
+
+⚠️ Importante:
+- Você NÃO precisa do app “rodando” (localhost) pra executar migration.
+- Migration só precisa de acesso ao banco via DATABASE_URL.
+
+============================================================
+4) COMO VISUALIZAR O BANCO (DBeaver / Render)
+============================================================
+
+No Render:
+- Abra o seu PostgreSQL (Resource)
+- Procure por “Connect” / “Connections”
+- Use o “External Database URL” ou os campos Host/User/Password/DB
+
+No DBeaver (via URL):
+- Driver: PostgreSQL
+- Marque “Use URL”
+- Cole:
+  postgresql://USUARIO:SENHA@HOST:5432/NOME_DB?sslmode=require
+
+Exemplo (o seu):
+  postgresql://davantti_user:SENHA@dpg-...oregon-postgres.render.com:5432/davantti_db?sslmode=require
+
+Dica:
+- A “senha” é a do banco (a que aparece no Render), não é do seu app.
+
+============================================================
+5) COMO INSERIR USUÁRIOS (TESTE / ADMIN) PELO DBEAVER
+============================================================
+
+Você pode inserir manualmente, mas lembre:
+
+❌ NÃO insira senha em texto puro
+✅ senha_hash precisa ser um hash bcrypt válido
+
+Opções:
+A) Inserir pelo próprio sistema (recomendado)
+- você cria um endpoint/rota “criar usuário”
+- o backend faz bcrypt e salva senha_hash
+
+B) Inserir no DBeaver (só se você já tiver o hash)
+- Gere um hash bcrypt (por script Node)
+- Depois faça INSERT na tabela usuarios
+
+Exemplo INSERT (com hash pronto):
+INSERT INTO usuarios (nome, email, senha_hash, nivel)
+VALUES ('Admin', 'admin@davantti.com', '<HASH_BCRYPT_AQUI>', 'administrador');
+
+============================================================
+6) COMO VAI FUNCIONAR O LOGIN (VISÃO GERAL)
+============================================================
+
+Fluxo que você pediu:
+1) /  -> redireciona para /selecao-plataforma
+2) clicou Mercado Livre -> vai para /login (login.html)
+3) login OK -> backend gera JWT + seta cookie (httpOnly)
+4) após login OK -> redirect para /select-conta
+5) depois disso, segue fluxo normal do app
+
+JWT em cookie:
+- Cookie ex: auth_token
+- Conteúdo: token JWT assinado
+- O backend valida o JWT em cada request que precisa de login
+
+Níveis:
+- usuario: acesso normal
+- administrador: acesso a telas/ações restritas (futuro)
+
+============================================================
+7) COMO FUNCIONAVA “ANTES” (ANTES DO BANCO / LOGIN)
+============================================================
+
+Antes:
+- Seu app se baseava em cookie de conta (ml_account) e/ou tokens do ML
+- O usuário “entrava” direto no app e escolhia conta em /select-conta
+- Não existia:
+  - tabela de usuários
+  - login/senha do seu sistema
+  - papéis (usuario/administrador)
+
+Agora:
+- O app passa a ter um “gate” de autenticação do SEU sistema:
+  - sem JWT válido -> não entra no fluxo do Mercado Livre
+  - só depois do login -> vai para /select-conta e aí sim escolhe conta ML
+
+============================================================
+8) BOAS PRÁTICAS IMPORTANTES
+============================================================
+
+- Nunca commitar DATABASE_URL no GitHub
+- .env no Git = NÃO
+- Em produção: usar sslmode=require (Render geralmente exige)
+- Cookies:
+  - httpOnly = true (não acessível por JS)
+  - sameSite = 'lax' (ok pro seu caso)
+  - secure = true em HTTPS (Render em prod)
+
+============================================================
+9) CHECKLIST RÁPIDO (TUDO CERTO?)
+============================================================
+
+[ ] DATABASE_URL no .env local (apontando pro Render ou local)
+[ ] migration rodou e criou tabela usuarios
+[ ] DBeaver conecta e mostra schema/public -> table usuarios
+[ ] Próximo passo: criar conexão PG no app + rotas de auth (login/register)
+[ ] Depois: middleware de JWT + controle de nível (usuario/admin)
+
+============================================================
+10) PRÓXIMO PASSO (se você quiser seguir)
+============================================================
+
+Arquivo 1 (próximo): db/conn.js (ou services/db.js)
+- cria um pool do pg usando DATABASE_URL
+- exporta query()
+
+Aí depois:
+- routes/authRoutes.js
+- services/authService.js (bcrypt + jwt)
+- middleware/ensureAuth.js (valida JWT)

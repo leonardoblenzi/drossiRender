@@ -764,3 +764,173 @@ Filtro Avançado de Anúncios (COM JOBS)
 │
 └─ img/
 └─ ...
+
+Login (JWT do app)
+
+/ (raiz do projeto)
+├─ index.js
+│ ├─ Sobe o Express, registra middlewares globais (json/urlencoded, cookieParser, estáticos)
+│ ├─ Rotas públicas:
+│ │ • GET /selecao-plataforma -> views/selecao-plataforma.html
+│ │ • GET /login -> views/login.html
+│ │ • app.use('/api/auth', authRoutes) -> rotas de autenticação (JWT)
+│ ├─ app.use(ensureAuth) # ✅ A PARTIR DAQUI tudo exige login (cookie auth_token)
+│ ├─ GET /select-conta -> views/select-conta.html (já autenticado)
+│ └─ app.use(ensureAccount) -> exige conta escolhida (cookie ml_account) p/ seguir no app
+
+├─ routes/
+│ ├─ authRoutes.js # ✅ Rotas HTTP do login (JWT do app)
+│ │ • POST /api/auth/login
+│ │ -> recebe { email, senha }
+│ │ -> busca usuário no banco (tabela usuarios)
+│ │ -> valida senha:
+│ │ - bcrypt.compare(senha, senha_hash) (quando senha_hash existe)
+│ │ -> gera JWT (12h) com { uid, email, nivel, nome }
+│ │ -> seta cookie httpOnly: auth_token
+│ │ -> responde { ok:true, user, redirect:'/select-conta' }
+│ │
+│ │ • POST /api/auth/logout
+│ │ -> res.clearCookie('auth_token')
+│ │ -> responde { ok:true }
+│ │
+│ │ • GET /api/auth/me
+│ │ -> lê cookie auth_token
+│ │ -> jwt.verify()
+│ │ -> responde { logged:true, user } ou { logged:false }
+│ │
+│ └─ accountRoutes.js
+│ • GET /api/account/current -> retorna conta selecionada (para header)
+│ • POST /api/account/select -> grava ml_account
+│ • POST /api/account/clear -> limpa ml_account
+
+├─ middleware/
+│ ├─ ensureAuth.js # ✅ Gate do sistema (login do app)
+│ │ • Lê cookie auth_token
+│ │ • jwt.verify(JWT_SECRET)
+│ │ • injeta req.user / res.locals.user
+│ │ • se não logado:
+│ │ - HTML -> redirect /login
+│ │ - API -> 401 JSON
+│ │
+│ ├─ ensureAccount.js # ✅ Exige conta selecionada (ml_account)
+│ │ • valida cookie ml_account
+│ │ • injeta res.locals.accountKey / accountLabel / mlCreds
+│ │ • se não tiver conta -> redirect /select-conta (ou 400/401 em API)
+│ │
+│ └─ (seu authMiddleware ML) middleware/authMiddleware.js
+│ • garante token do Mercado Livre válido para rotas ML do app (após conta selecionada)
+
+├─ db/
+│ ├─ db.js # pool/conexão Postgres
+│ └─ (tabela usuarios)
+│ • usuarios(id, nome, email, senha_hash, nivel, criado_em, ultimo_login_em)
+
+├─ views/
+│ ├─ selecao-plataforma.html # botão “Mercado Livre” -> /login
+│ ├─ login.html # form do login (frontend)
+│ └─ select-conta.html # seleção de conta após login
+
+└─ public/
+├─ css/
+│ ├─ selecao-plataforma.css
+│ └─ login.css
+└─ js/
+├─ login.js (se existir / recomendado)
+│ • intercepta submit
+│ • POST /api/auth/login com email/senha
+│ • se ok -> window.location = redirect
+│ • se erro -> mostra msg
+└─ (JS globais do dashboard etc.)
+
+Admin • Usuários (listagem + CRUD)
+
+/ (raiz do projeto)
+├─ index.js
+│ ├─ app.use(ensureAuth) # ✅ tudo abaixo exige login (JWT)
+│ ├─ /nao-autorizado (HTML)
+│ ├─ ensureAdminOnly (middleware inline ou separado)
+│ ├─ Rotas de página (HTML):
+│ │ • GET /admin/usuarios -> views/admin-usuarios.html (protegida)
+│ │ -> se não admin: redirect /nao-autorizado
+│ └─ Rotas API admin:
+│ • app.use('/api/admin', adminUsuariosRoutes)
+│ -> router usa ensureAuthApi + ensureAdmin
+
+├─ routes/
+│ ├─ adminUsuariosRoutes.js # ✅ Rotas HTTP da feature "Admin Usuários"
+│ │ (router.use(ensureAuthApi, ensureAdmin)) # só admin
+│ │
+│ │ • GET /api/admin/usuarios
+│ │ -> lista usuários (id, nome, email, nivel, criado_em, ultimo_login_em)
+│ │ -> responde { ok:true, usuarios:[...] }
+│ │
+│ │ • POST /api/admin/usuarios
+│ │ -> cria usuário com senha em HASH
+│ │ -> bcrypt.hash(senha, 10)
+│ │ -> insert em usuarios
+│ │ -> responde { ok:true, usuario }
+│ │
+│ │ • PUT /api/admin/usuarios/:id
+│ │ -> edita nome/email/nivel
+│ │ -> opcional: se senha veio, gera bcrypt.hash e atualiza senha_hash
+│ │ -> responde { ok:true, usuario }
+│ │
+│ │ • DELETE /api/admin/usuarios/:id
+│ │ -> remove usuário
+│ │ -> (opcional) bloqueia apagar a si mesmo
+│ │ -> responde { ok:true }
+│ │
+│ │ (melhoria recomendada p/ paginação server-side)
+│ │ • GET /api/admin/usuarios?page=1&limit=25&q=abc
+│ │ -> retorna { ok:true, page, limit, total, usuarios:[...] }
+│ │ -> reduz carga e facilita paginação real
+│ │
+│ └─ (htmlRoutes.js se você centraliza views)
+│ • GET /admin/usuarios -> views/admin-usuarios.html
+
+├─ middleware/
+│ ├─ jwtAuth.js # ✅ versão para API (JSON)
+│ │ • ensureAuthApi
+│ │ -> valida cookie auth_token
+│ │ -> injeta req.user
+│ │ -> se não logado: 401 JSON
+│ │
+│ │ • ensureAdmin
+│ │ -> req.user.nivel === 'administrador'
+│ │ -> se não: 403 JSON
+│ │
+│ └─ ensureAuth.js # gate para páginas HTML (redirect /login)
+
+├─ views/
+│ ├─ admin.html (se existir: card “Usuários” no dashboard/tab Admin)
+│ └─ admin-usuarios.html # Tela “Listagem de usuários” (estilo imagem 3)
+│ • sidebar + header + search + tabela
+│ • paginação (25 por página)
+│ • botões: Atualizar, + Cadastrar, Editar, Remover
+│ • inclui:
+│ <link rel="stylesheet" href="/css/dashboard.css?v=2">
+│ <link rel="stylesheet" href="/css/admin-usuarios.css?v=1"> (ou tudo no dashboard.css)
+│ <script src="/js/admin-usuarios.js?v=1"></script>
+
+└─ public/
+├─ js/
+│ └─ admin-usuarios.js # Frontend (orquestra listagem + CRUD)
+│ • loadUsers():
+│ - GET /api/admin/usuarios (ou com ?page&limit&q)
+│ • renderTable(rows)
+│ • paginação:
+│ - mantém state { page, limit=25, total }
+│ • criar usuário:
+│ - POST /api/admin/usuarios { nome, email, senha, nivel }
+│ - server faz hash (bcrypt) ✅
+│ • editar:
+│ - PUT /api/admin/usuarios/:id { nome,email,nivel, senha? }
+│ • remover:
+│ - DELETE /api/admin/usuarios/:id
+│ • tratamento de erro:
+│ - 401 -> redirect /login
+│ - 403 -> redirect /nao-autorizado
+│
+└─ css/
+├─ dashboard.css # estilos globais
+└─ admin-usuarios.css # estilos da tela (sidebar sticky, tabela, etc.)

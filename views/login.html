@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login Mercado Livre</title>
+  <!-- ✅ como seu express expõe /public, use caminho absoluto -->
+  <link rel="stylesheet" href="/css/login.css">
+</head>
+
+<body>
+  <!-- Camadas -->
+  <div class="layer layer1"></div>
+  <div class="layer layer2"></div>
+  <div class="layer layer3"></div>
+
+  <div class="tech-rays">
+    <div class="ray"></div>
+    <div class="ray"></div>
+    <div class="ray"></div>
+  </div>
+
+  <div class="circuit-container">
+    <svg class="circuit" viewBox="0 0 800 600">
+      <path d="M10 300 H200 V100 H400 V250 H700" class="circuit-line"/>
+      <path d="M100 550 V350 H450 V150 H780" class="circuit-line"/>
+    </svg>
+  </div>
+
+  <div class="particles">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="login-card animated-entry">
+    <h1 class="title glitch">MERCADO LIVRE</h1>
+
+    <!-- ✅ mensagem de erro/sucesso -->
+    <div id="login-msg" style="display:none; margin: 10px 0; font-size: 0.95rem;"></div>
+
+    <form class="form" id="login-form" autocomplete="on">
+      <input
+        id="email"
+        name="email"
+        type="email"
+        placeholder="E-mail"
+        class="input"
+        autocomplete="email"
+        required
+      >
+      <input
+        id="senha"
+        name="senha"
+        type="password"
+        placeholder="Senha"
+        class="input"
+        autocomplete="current-password"
+        required
+      >
+
+      <button class="btn" id="btn-entrar" type="submit">Entrar</button>
+    </form>
+  </div>
+
+  <script>
+    (function () {
+      const form = document.getElementById('login-form');
+      const msg  = document.getElementById('login-msg');
+      const btn  = document.getElementById('btn-entrar');
+
+      function showMsg(text, type) {
+        msg.style.display = 'block';
+        msg.textContent = text;
+        // sem depender do CSS: verde p/ ok, vermelho p/ erro
+        msg.style.color = (type === 'ok') ? '#2ecc71' : '#ff5a5a';
+      }
+
+      function setLoading(isLoading) {
+        btn.disabled = isLoading;
+        btn.textContent = isLoading ? 'Entrando...' : 'Entrar';
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById('email').value.trim();
+        const senha = document.getElementById('senha').value;
+
+        msg.style.display = 'none';
+
+        if (!email || !senha) {
+          showMsg('Preencha e-mail e senha.', 'err');
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const resp = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', // ✅ garante cookie JWT/ sessão
+            body: JSON.stringify({ email, senha })
+          });
+
+          let data = null;
+          try { data = await resp.json(); } catch (_) {}
+
+          if (!resp.ok || !data || data.ok !== true) {
+            const m = (data && (data.message || data.error)) ? (data.message || data.error) : 'Falha no login.';
+            showMsg(m, 'err');
+            return;
+          }
+
+          // ✅ login OK → vai para select-conta
+          const redirect = data.redirect || '/select-conta';
+          window.location.href = redirect;
+
+        } catch (err) {
+          showMsg('Erro de rede ao tentar logar. Verifique o servidor e tente novamente.', 'err');
+        } finally {
+          setLoading(false);
+        }
+      });
+    })();
+  </script>
+
+</body>
+</html>
