@@ -25,13 +25,13 @@
 
   const fmtMoney = (v) => {
     const n = Number(v);
-    if (!isFinite(n)) return "R$ 0,00";
+    if (!isFinite(n)) return "—";
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   };
 
   const fmtNumber = (v, d = 0) => {
     const n = Number(v);
-    if (!isFinite(n)) return "0";
+    if (!isFinite(n)) return "—";
     return n.toLocaleString("pt-BR", {
       minimumFractionDigits: d,
       maximumFractionDigits: d,
@@ -40,8 +40,14 @@
 
   const fmtPct = (v, d = 2) => {
     const n = Number(v);
-    if (!isFinite(n)) return "0,00%";
+    if (!isFinite(n)) return "—";
     return `${n.toFixed(d).replace(".", ",")}%`;
+  };
+
+  const fmtRatioX = (v, d = 2) => {
+    const n = Number(v);
+    if (!isFinite(n)) return "—";
+    return `${fmtNumber(n, d)}x`;
   };
 
   const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -50,6 +56,16 @@
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
   };
+
+  function parseDateBr(isoLike) {
+    if (!isoLike) return null;
+    // aceita "YYYY-MM-DD" ou "YYYY-MM-DDTHH:mm:ssZ"
+    const s = String(isoLike);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const [, y, mm, dd] = m;
+    return `${dd}/${mm}/${y}`;
+  }
 
   function getDateRange() {
     const inpFrom = qs("#dateFrom");
@@ -137,7 +153,6 @@
     const tbody = $campBody();
     if (!tbody || !trEl) return;
 
-    // limpa anterior
     qsa(
       'tr[data-camp-id].is-selected, tr[data-camp-id][aria-selected="true"]',
       tbody
@@ -212,10 +227,9 @@
     setText("rankingPeriod", `Período: ${from} a ${to}`);
     setLoadingTable(tbody, `Carregando campanhas de ${from} até ${to}…`);
 
-    const url =
-      `/api/publicidade/product-ads/campaigns?date_from=${encodeURIComponent(
-        from
-      )}` + `&date_to=${encodeURIComponent(to)}`;
+    const url = `/api/publicidade/product-ads/campaigns?date_from=${encodeURIComponent(
+      from
+    )}&date_to=${encodeURIComponent(to)}`;
 
     try {
       const r = await fetch(url, { credentials: "same-origin" });
@@ -248,14 +262,12 @@
         return;
       }
 
-      // mantém seleção se existir, senão seleciona a primeira
       const hasSelected = campaigns.some(
         (c) => String(c.id) === String(state.selectedCampaignId)
       );
       if (!state.selectedCampaignId || !hasSelected) {
         selecionarCampanha(campaigns[0].id, { scroll: false });
       } else {
-        // re-marca visualmente a linha selecionada
         const tbodyNow = $campBody();
         const tr = tbodyNow?.querySelector(
           `tr[data-camp-id="${CSS.escape(String(state.selectedCampaignId))}"]`
@@ -277,7 +289,8 @@
 
     const list = state.campaigns || [];
     if (!list.length) {
-      tbody.innerHTML = `<tr><td colspan="18" class="muted">Nenhuma campanha para o período selecionado.</td></tr>`;
+      // ajuste o colspan conforme a quantidade REAL de colunas do seu <thead>
+      tbody.innerHTML = `<tr><td colspan="13" class="muted">Nenhuma campanha para o período selecionado.</td></tr>`;
       return;
     }
 
@@ -286,17 +299,11 @@
         const m = c.metrics || {};
         const isSelected = String(state.selectedCampaignId) === String(c.id);
 
-        // métricas
         const acosObj = c.acos_target != null ? fmtPct(c.acos_target) : "—";
         const acosVal = m.acos != null ? fmtPct(m.acos) : "—";
 
-        // TACOS/LISB/LISAR/Participação ainda não disponíveis => mantém “—”
-        const tacos = "—";
-
-        // CPI aqui = custo por impressão (quando existir prints)
         const prints = Number(m.prints || 0);
         const cost = Number(m.cost || 0);
-        const cpi = prints > 0 ? fmtMoney(cost / prints) : "—";
 
         const vendasPublicidade = fmtNumber(m.units_quantity ?? 0);
         const investimento = fmtMoney(cost);
@@ -307,12 +314,44 @@
         const receita = m.total_amount != null ? fmtMoney(m.total_amount) : "—";
         const roas =
           m.roas != null
-            ? `${fmtNumber(m.roas, 2)}x`
+            ? fmtRatioX(m.roas, 2)
             : cost > 0
-            ? `${fmtNumber(Number(m.total_amount || 0) / cost || 0, 2)}x`
+            ? fmtRatioX(Number(m.total_amount || 0) / cost || 0, 2)
             : "—";
 
-        // acessibilidade / seleção
+        // ======================================================
+        // ✅ NOVO: adgroups_count + created_at (vindos do backend)
+        // Backend recomendado: c.created_at e c.adgroups_count
+        // ======================================================
+        const adgroupsCountRaw =
+          c.adgroups_count ??
+          c.adgroupsCount ??
+          c.ad_groups_count ??
+          c.adGroupsCount ??
+          null;
+
+        const adgroupsCount =
+          adgroupsCountRaw != null && isFinite(Number(adgroupsCountRaw))
+            ? Number(adgroupsCountRaw)
+            : null;
+
+        const createdRaw =
+          c.created_at ??
+          c.date_created ??
+          c.created_at ??
+          c.createdAt ??
+          c.meliCreatedAt ??
+          null;
+
+        const createdBr = parseDateBr(createdRaw);
+
+        const sub1 =
+          adgroupsCount != null ? `${adgroupsCount} adgroups` : "— adgroups";
+
+        const sub2 = createdBr
+          ? `Data de criação: ${createdBr}`
+          : "Data de criação: —";
+
         const trAttrs = [
           `data-camp-id="${esc(c.id)}"`,
           `role="row"`,
@@ -326,6 +365,12 @@
           <td class="sticky-col">
             <div class="camp-name">
               <span class="camp-title">${esc(c.name || c.id || "—")}</span>
+
+              <!-- sublinhas estilo "minimalista" -->
+              <div class="camp-sub">
+                <span class="camp-sub__line">${esc(sub1)}</span>
+                <span class="camp-sub__line">${esc(sub2)}</span>
+              </div>
             </div>
           </td>
 
@@ -334,11 +379,8 @@
 
           <td class="num">${acosObj}</td>
           <td class="num">${acosVal}</td>
-          <td class="num">${tacos}</td>
-          <td class="num">${cpi}</td>
-          <td class="num">—</td>
-          <td class="num">—</td>
-          <td class="num">—</td>
+
+          <!-- ✅ aqui ficam só as colunas que você manteve -->
           <td class="num">${vendasPublicidade}</td>
           <td class="num">${fmtNumber(prints)}</td>
           <td class="num">${fmtNumber(m.clicks ?? 0)}</td>
@@ -412,16 +454,15 @@
     state.selectedCampaignId = id;
     state.itemsPage = 1;
 
-    // marca visualmente na tabela (usa classe/aria que o CSS já entende)
     const tbody = $campBody();
     const rowEl =
       opts.rowEl ||
       tbody?.querySelector(`tr[data-camp-id="${CSS.escape(id)}"]`) ||
       null;
+
     if (rowEl) {
       setSelectedCampaignRow(rowEl);
       if (opts.scroll !== false) {
-        // mantém um “micro scroll” só se estiver muito fora
         rowEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       }
     }
@@ -442,14 +483,13 @@
     if (!tbody) return;
 
     if (!campaignId) {
-      tbody.innerHTML = `<tr><td colspan="99" class="muted">Selecione uma campanha.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="16" class="muted">Selecione uma campanha.</td></tr>`;
       return;
     }
 
     const from = state.date_from || addDays(-30);
     const to = state.date_to || todayISO();
 
-    // cache em memória
     const cached = state.itemsByCampaign.get(String(campaignId));
     if (cached && cached.date_from === from && cached.date_to === to) {
       renderItens(cached.items);
@@ -458,13 +498,11 @@
 
     setLoadingTable(tbody, "Carregando itens da campanha…");
 
-    const url =
-      `/api/publicidade/product-ads/campaigns/${encodeURIComponent(
-        campaignId
-      )}/items` +
-      `?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(
-        to
-      )}`;
+    const url = `/api/publicidade/product-ads/campaigns/${encodeURIComponent(
+      campaignId
+    )}/items?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(
+      to
+    )}`;
 
     try {
       const r = await fetch(url, { credentials: "same-origin" });
@@ -472,7 +510,7 @@
 
       if (!r.ok) {
         console.error("Erro ao carregar itens da campanha:", r.status, txt);
-        tbody.innerHTML = `<tr><td colspan="99" class="muted">Falha ao carregar itens (HTTP ${r.status}).</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="16" class="muted">Falha ao carregar itens (HTTP ${r.status}).</td></tr>`;
         return;
       }
 
@@ -489,7 +527,7 @@
       renderItens(items);
     } catch (e) {
       console.error("Erro inesperado ao buscar itens da campanha:", e);
-      tbody.innerHTML = `<tr><td colspan="99" class="muted">Erro ao buscar itens (ver console).</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="16" class="muted">Erro ao buscar itens (ver console).</td></tr>`;
     }
   }
 
@@ -531,8 +569,6 @@
   }
 
   function detectQuality(it) {
-    // tenta achar um campo de qualidade (se existir)
-    // exemplos comuns: publication_quality, quality, health, listing_quality...
     const raw =
       it.publication_quality ??
       it.quality ??
@@ -542,7 +578,6 @@
 
     if (raw == null) return { cls: "quality-badge--na", label: "N/D" };
 
-    // se vier número 0-100:
     const n = Number(raw);
     if (isFinite(n)) {
       if (n >= 80)
@@ -565,7 +600,7 @@
     if (!tbody) return;
 
     if (!items || !items.length) {
-      tbody.innerHTML = `<tr><td colspan="12" class="muted">Nenhum item com métricas para esta campanha no período.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="16" class="muted">Nenhum item com métricas para esta campanha no período.</td></tr>`;
       renderItensPagination(0);
       return;
     }
@@ -584,14 +619,60 @@
       .map((it) => {
         const m = it.metrics || {};
 
-        const ctrVal = m.ctr != null ? fmtPct(m.ctr) : "—";
-        const acosVal = m.acos != null ? fmtPct(m.acos) : "—";
-        const tacosVal = "—";
+        // Base
+        const prints = Number(m.prints ?? 0);
+        const clicks = Number(m.clicks ?? 0);
 
-        const clicks = Number(m.clicks || 0);
-        const unitsQ = Number(m.units_quantity || 0);
-        const convPub =
-          clicks > 0 && unitsQ > 0 ? fmtPct((unitsQ / clicks) * 100) : "—";
+        const ctrVal =
+          m.ctr != null
+            ? fmtPct(m.ctr)
+            : prints > 0
+            ? fmtPct((clicks / prints) * 100)
+            : "—";
+        const cpcVal =
+          m.cpc != null
+            ? fmtMoney(m.cpc)
+            : it.cpc != null
+            ? fmtMoney(it.cpc)
+            : "—";
+
+        const acosVal = m.acos != null ? fmtPct(m.acos) : "—";
+        const tacosVal = m.tacos != null ? fmtPct(m.tacos) : "—";
+        const roasVal = m.roas != null ? fmtRatioX(m.roas, 2) : "—";
+
+        // Conversão publicitária (units/clicks)
+        const unitsQ = Number(m.units_quantity ?? 0);
+        const convRate =
+          m.conversion_rate != null
+            ? fmtPct(Number(m.conversion_rate) * 100)
+            : clicks > 0 && unitsQ >= 0
+            ? fmtPct((unitsQ / clicks) * 100)
+            : "—";
+
+        // Vendas (valores) — tenta várias chaves comuns
+        const vendasPublicidadeVal =
+          m.total_amount != null ? fmtMoney(m.total_amount) : "—";
+        const vendasDiretasVal =
+          m.direct_amount != null ? fmtMoney(m.direct_amount) : "—";
+        const vendasAssistidasVal =
+          m.indirect_amount != null ? fmtMoney(m.indirect_amount) : "—";
+
+        // Aporte de publicidade (unidades anunciadas) — fallback: units_quantity
+        const aportePublicidade =
+          m.organic_units_amount != null
+            ? fmtNumber(m.organic_units_amount)
+            : m.units_quantity != null
+            ? fmtNumber(m.units_quantity)
+            : "—";
+
+        // Renda por publicidade (receita por unidade) — total_amount / units_quantity
+        const rendaPublicidade =
+          Number(m.total_amount ?? NaN) > 0 && Number(m.units_quantity ?? 0) > 0
+            ? fmtMoney(Number(m.total_amount) / Number(m.units_quantity))
+            : "—";
+
+        // Investimento
+        const investimentoVal = m.cost != null ? fmtMoney(m.cost) : "—";
 
         const statusRaw = it.status || it.item_status || "—";
         const statusClass =
@@ -614,8 +695,6 @@
               title
             )}" style="width:100%;height:100%;object-fit:cover;display:block;" loading="lazy">`
           : `<span style="font-weight:800;">${esc(firstLetter)}</span>`;
-
-        const cpcVal = m.cpc != null ? fmtMoney(m.cpc) : "—";
 
         return `
         <tr class="ads-item-row" data-item-id="${esc(mlb)}">
@@ -645,16 +724,24 @@
             </div>
           </td>
 
+          <!-- ordem solicitada -->
           <td class="num">${acosVal}</td>
           <td class="num">${tacosVal}</td>
-          <td class="num">${fmtNumber(m.prints ?? 0)}</td>
+          <td class="num">${roasVal}</td>
+
+          <td class="num">${fmtNumber(prints)}</td>
           <td class="num">${fmtNumber(clicks)}</td>
           <td class="num">${ctrVal}</td>
           <td class="num">${cpcVal}</td>
-          <td class="num">${convPub}</td>
-          <td class="num">${fmtNumber(unitsQ)}</td>
-          <td class="num">—</td>
-          <td class="num">—</td>
+
+          <td class="num">${convRate}</td>
+          <td class="num">${vendasPublicidadeVal}</td>
+          <td class="num">${vendasDiretasVal}</td>
+          <td class="num">${vendasAssistidasVal}</td>
+
+          <td class="num">${aportePublicidade}</td>
+          <td class="num">${rendaPublicidade}</td>
+          <td class="num">${investimentoVal}</td>
         </tr>
       `;
       })
@@ -676,10 +763,9 @@
     state.date_to = to;
     setText("rankingPeriod", `Período: ${from} a ${to}`);
 
-    const url =
-      `/api/publicidade/product-ads/metrics/daily?date_from=${encodeURIComponent(
-        from
-      )}` + `&date_to=${encodeURIComponent(to)}`;
+    const url = `/api/publicidade/product-ads/metrics/daily?date_from=${encodeURIComponent(
+      from
+    )}&date_to=${encodeURIComponent(to)}`;
 
     try {
       const r = await fetch(url, { credentials: "same-origin" });
@@ -808,9 +894,7 @@
             },
           },
         },
-        plugins: {
-          legend: { position: "bottom" },
-        },
+        plugins: { legend: { position: "bottom" } },
       },
     });
   }
@@ -845,14 +929,17 @@
         if (!id) return;
 
         const { from, to } = getDateRange();
+
+        // NOVO endpoint (botão no topo da tabela de anúncios)
         const url =
           `/api/publicidade/product-ads/campaigns/${encodeURIComponent(
             id
-          )}/export` +
+          )}/items/export.csv` +
           `?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(
             to
           )}`;
 
+        // baixa em nova aba (simples e confiável)
         window.open(url, "_blank");
       });
     }

@@ -169,11 +169,9 @@
                 <th>Estratégia</th>
                 <th class="num">ACOS objetivo</th>
                 <th class="num">ACOS</th>
-                <th class="num">TACOS</th>
-                <th class="num">CPI</th>
-                <th class="num">LISB</th>
-                <th class="num">LISAR</th>
-                <th class="num">Participação</th>
+
+                <!-- removidas: TACOS, CPI, LISB, LISAR, Participação -->
+
                 <th class="num">Vendas publicidade</th>
                 <th class="num">Impressões</th>
                 <th class="num">Cliques</th>
@@ -186,7 +184,7 @@
             </thead>
             <tbody id="tbodyCampaigns">
               <tr>
-                <td colspan="18" class="muted">
+                <td colspan="13" class="muted">
                   Nenhuma campanha carregada. Clique em <strong>Atualizar métricas</strong>.
                 </td>
               </tr>
@@ -199,28 +197,49 @@
     <!-- DETALHE -->
     <section class="ads-detail">
       <div class="table-wrapper table-wrapper--wide table-shell ads-items-wrapper">
+        <!-- Toolbar (botão Exportar CSV no canto superior direito) -->
+        <div class="ads-items-toolbar">
+          <div class="ads-items-toolbar__left">
+            <strong id="itemsTitle">Anúncios da campanha</strong>
+            <span id="itemsSubtitle" class="muted">Selecione uma campanha no ranking acima.</span>
+          </div>
+          <div class="ads-items-toolbar__right">
+            <button id="btnExportCsv" type="button" class="btn" disabled>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+
         <table class="table ads-items-table" id="tblItems">
           <thead>
             <tr>
               <th class="sticky-col">Nome da campanha</th>
-              
               <th>Qualidade da publicação</th>
-              <th class="num">ACOS</th>
 
+              <!-- ordem solicitada -->
+              <th class="num">ACOS</th>
               <th class="num">TACOS</th>
+              <th class="num">ROAS</th>
+
               <th class="num">Impressões</th>
               <th class="num">Cliques</th>
               <th class="num">CTR</th>
               <th class="num">CPC</th>
+
               <th class="num">Conversão publicitária</th>
               <th class="num">Vendas publicidade</th>
               <th class="num">Vendas diretas</th>
               <th class="num">Vendas assistidas</th>
+
+              <th class="num">Aporte de publicidade</th>
+              <th class="num">Renda por publicidade</th>
+              <th class="num">Investimento</th>
             </tr>
           </thead>
+
           <tbody id="tbodyItems">
             <tr>
-              <td colspan="12" class="muted">Nenhuma campanha selecionada.</td>
+              <td colspan="16" class="muted">Nenhuma campanha selecionada.</td>
             </tr>
           </tbody>
         </table>

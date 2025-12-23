@@ -145,6 +145,7 @@
   min-width: 980px; /* evita esmagar */
 }
 
+/* headers */
 .table-ranking thead th,
 .ads-items-table thead th{
   position: sticky;
@@ -169,7 +170,7 @@
   color: #111827;
 }
 
-/* zebra */
+/* Zebra */
 .table-ranking tbody tr:nth-child(even) td,
 .ads-items-table tbody tr:nth-child(even) td{
   background: var(--row-alt);
@@ -239,6 +240,36 @@
   box-shadow: inset 0 0 0 2px rgba(52,131,250,.35);
 }
 
+/* ===================== CAMPANHA: nome + subtexto minimalista ===================== */
+.camp-name{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+}
+
+.camp-title{
+  font-size: 13px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.15;
+}
+
+.camp-sub{
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+.camp-sub__line{
+  font-size: 11px;
+  line-height: 1.1;
+  color: var(--ml-muted);
+  font-weight: 600;
+  letter-spacing: .1px;
+}
+
 /* ===================== PILLS (opcional p/ status/estratégia) ===================== */
 .pill{
   display:inline-flex;
@@ -260,6 +291,93 @@
 /* ===================== ITENS (produto) ===================== */
 .ads-items-wrapper { margin-top: 12px; }
 
+/* Toolbar do topo da tabela de itens (Exportar CSV) */
+.ads-items-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148,163,184,.25);
+  background: linear-gradient(#ffffff, #fbfcff);
+  position: sticky;
+  top: 0;
+  z-index: 5; /* acima do header da tabela */
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+
+.ads-items-toolbar__left{
+  display:flex;
+  flex-direction:column;
+  gap: 2px;
+  min-width: 220px;
+}
+
+.ads-items-toolbar__left strong{
+  font-size: 13px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.ads-items-toolbar__left .muted{
+  font-size: 11px;
+  line-height: 1.1;
+  color: var(--ml-muted);
+  font-weight: 600;
+}
+
+.ads-items-toolbar__right{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+}
+
+/* Botão Exportar CSV (mesma “pegada” do print: amarelo ML, clean) */
+#btnExportCsv{
+  appearance: none;
+  border: 1px solid rgba(148,163,184,.45);
+  cursor: pointer;
+  background: #fbbf24;               /* amarelo */
+  color: #111827;
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 900;
+  letter-spacing: .2px;
+  box-shadow: 0 8px 18px rgba(0,0,0,.08);
+  transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
+}
+
+#btnExportCsv:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+  box-shadow: 0 12px 24px rgba(0,0,0,.10);
+}
+
+#btnExportCsv:active{
+  transform: translateY(0);
+  box-shadow: 0 8px 18px rgba(0,0,0,.08);
+}
+
+#btnExportCsv:focus-visible{
+  outline: none;
+  box-shadow:
+    0 0 0 4px rgba(255, 230, 0, .45),
+    0 12px 24px rgba(0,0,0,.10);
+}
+
+#btnExportCsv:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+  background: #fde68a;
+}
+
+/* Produto */
 .ads-item-product {
   display: flex;
   align-items: center;
@@ -370,7 +488,9 @@
 /* responsivo */
 @media (max-width: 768px){
   .publicidade-wrap{ padding: 0 12px 28px; }
+  .ads-items-toolbar{ position: static; }
 }
+
 /* ===== Botão: Atualizar métricas (Publicidades) ===== */
 #btnReloadAds{
   appearance: none;

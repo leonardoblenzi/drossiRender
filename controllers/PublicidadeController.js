@@ -1,5 +1,5 @@
 // controllers/PublicidadeController.js
-const ProductAdsService = require('../services/productAdsService');
+const ProductAdsService = require("../services/productAdsService");
 
 /**
  * Helper para mapear o resultado do service -> HTTP response
@@ -19,27 +19,36 @@ function sendFromResult(res, result, context) {
 
   const payload = {
     success: false,
-    error: result.error || 'Erro desconhecido',
+    error: result.error || "Erro desconhecido",
     code: result.code || null,
   };
 
   // Mapeamento básico por código (vindo do ProductAdsService)
   switch (result.code) {
-    case 'NO_ADVERTISER':
-      // Sem advertiser configurado / habilitado
+    case "NO_ADVERTISER":
       return res.status(404).json(payload);
 
-    case 'CAMPAIGNS_ERROR':
-    case 'ITEMS_ERROR':
-    case 'METRICS_ERROR':
-    case 'ML_NOT_FOUND':
-      // Erros vindo da API do Mercado Livre (404 resource not found, etc.)
+    case "CAMPAIGNS_ERROR":
+    case "ITEMS_ERROR":
+    case "METRICS_ERROR":
+    case "ML_NOT_FOUND":
       return res.status(502).json(payload);
 
     default:
-      // Qualquer erro de uso/parâmetro
       return res.status(400).json(payload);
   }
+}
+
+function sendCsv(res, { csv, filename }) {
+  // BOM UTF-8 para Excel/PT-BR abrir acentos corretamente
+  const body = `\ufeff${csv || ""}`;
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${filename || "export.csv"}"`
+  );
+  return res.send(body);
 }
 
 module.exports = {
@@ -57,12 +66,12 @@ module.exports = {
         { mlCreds, accountKey }
       );
 
-      return sendFromResult(res, result, 'listarCampanhas');
+      return sendFromResult(res, result, "listarCampanhas");
     } catch (err) {
-      console.error('Erro em listarCampanhas:', err);
+      console.error("Erro em listarCampanhas:", err);
       return res.status(500).json({
         success: false,
-        error: err.message || 'Erro interno em listarCampanhas',
+        error: err.message || "Erro interno em listarCampanhas",
       });
     }
   },
@@ -83,21 +92,22 @@ module.exports = {
         { mlCreds, accountKey }
       );
 
-      return sendFromResult(res, result, 'listarItensCampanha');
+      return sendFromResult(res, result, "listarItensCampanha");
     } catch (err) {
-      console.error('Erro em listarItensCampanha:', err);
+      console.error("Erro em listarItensCampanha:", err);
       return res.status(500).json({
         success: false,
-        error: err.message || 'Erro interno em listarItensCampanha',
+        error: err.message || "Erro interno em listarItensCampanha",
       });
     }
   },
 
   // ==========================================
-  // EXPORTAR ITENS DA CAMPANHA EM CSV
-  // GET /api/publicidade/product-ads/campaigns/:id/export
+  // EXPORTAR CSV (NOVO)
+  // GET /api/publicidade/product-ads/campaigns/:id/items/export.csv
+  // -> CSV com: mlb, campanha
   // ==========================================
-  async exportarItensCampanha(req, res) {
+  async exportarItensCampanhaCsv(req, res) {
     try {
       const { id } = req.params;
       const { date_from, date_to } = req.query;
@@ -110,22 +120,29 @@ module.exports = {
       );
 
       if (!result || !result.success) {
-        return sendFromResult(res, result, 'exportarItensCampanha');
+        return sendFromResult(res, result, "exportarItensCampanhaCsv");
       }
 
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="product-ads-campanha-${id}.csv"`
-      );
-      return res.send(result.csv);
+      const filename = result.filename || `product-ads-campanha-${id}.csv`;
+
+      return sendCsv(res, { csv: result.csv, filename });
     } catch (err) {
-      console.error('Erro em exportarItensCampanha:', err);
+      console.error("Erro em exportarItensCampanhaCsv:", err);
       return res.status(500).json({
         success: false,
-        error: err.message || 'Erro interno em exportarItensCampanha',
+        error: err.message || "Erro interno em exportarItensCampanhaCsv",
       });
     }
+  },
+
+  // ==========================================
+  // EXPORTAR CSV (LEGADO / compat)
+  // GET /api/publicidade/product-ads/campaigns/:id/export
+  // -> aponta para o mesmo export do novo
+  // ==========================================
+  async exportarItensCampanha(req, res) {
+    // Reutiliza exatamente o mesmo handler
+    return module.exports.exportarItensCampanhaCsv(req, res);
   },
 
   // ==========================================
@@ -142,12 +159,12 @@ module.exports = {
         { mlCreds, accountKey }
       );
 
-      return sendFromResult(res, result, 'metricasDiarias');
+      return sendFromResult(res, result, "metricasDiarias");
     } catch (err) {
-      console.error('Erro em metricasDiarias:', err);
+      console.error("Erro em metricasDiarias:", err);
       return res.status(500).json({
         success: false,
-        error: err.message || 'Erro interno em metricasDiarias',
+        error: err.message || "Erro interno em metricasDiarias",
       });
     }
   },
