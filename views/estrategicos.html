@@ -13,20 +13,68 @@
 <body>
   <!-- TOPO FIXO (mesmo padrão das outras telas) -->
   <header class="account-bar">
-    <div class="account-bar__left">
-      <span class="logo">⭐</span>
-      <span class="app-name">Produtos Estratégicos</span>
+  <div class="account-bar__left">
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
+  </div>
+
+  <div class="account-bar__right">
+    <div class="account-bar__current">
+      <span class="lbl">Conta:</span>
+
+      <!-- ✅ account-bar.js normalmente atualiza este data-account-label -->
+      <span
+        id="account-current"
+        class="val"
+        data-account-label
+      >Carregando...</span>
     </div>
-    <div class="account-bar__right">
-      <div class="account-bar__current">
-        <span class="lbl">Conta:</span>
-        <span class="val" data-account-label>carregando…</span>
-      </div>
-      <button id="account-switch" class="account-bar__switch" type="button" data-account-switch>
-        Trocar Conta
-      </button>
-    </div>
-  </header>
+
+    <!-- ✅ mantém id (se você usa em outras páginas) + adiciona data-account-status -->
+    <button
+      id="btn-status"
+      class="account-bar__status"
+      title="Ver status do token"
+      type="button"
+      data-account-status
+    >Status</button>
+
+    <!-- ✅ mantém id + adiciona data-account-switch -->
+    <button
+      id="account-switch"
+      class="account-bar__switch"
+      title="Trocar de conta"
+      type="button"
+      data-account-switch
+    >Trocar Conta</button>
+  </div>
+</header>
+
+
+
+<!-- navegacao com abas-->
+<nav class="main-nav">
+  <div class="tabs">
+    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+    <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+  </div>
+</nav>
 
   <div class="wrap estrategicos-wrap">
     <!-- CABEÇALHO DA PÁGINA -->

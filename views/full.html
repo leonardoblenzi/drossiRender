@@ -6,6 +6,8 @@
     <title>Full - Produtos Fulfillment</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+      <link rel="stylesheet" href="/css/dashboard.css">
+
     <style>
         .header-actions {
             display: flex;
@@ -80,6 +82,47 @@
     </style>
 </head>
 <body>
+     <header class="account-bar">
+    <div class="account-bar__left">
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
+  </div>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val">Carregando...</span>
+      </div>
+      <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+      <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+    </div>
+  </header>
+
+  <!-- navegacao com abas-->
+<nav class="main-nav">
+  <div class="tabs">
+    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#produtos'">Produtos</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+    <button class="nav-tab active" onclick="location.href='/dashboard#full'">FULL</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+  </div>
+</nav>
+    
+
+
     <!-- Loading Overlay -->
     <div class="loading-overlay" id="loadingOverlay">
         <div class="text-center text-white">

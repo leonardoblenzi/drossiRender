@@ -13,8 +13,17 @@
 
 <header class="account-bar">
   <div class="account-bar__left">
-    <span class="logo">🟡</span>
-    <span class="app-name">API Mercado Livre</span>
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
   </div>
   <div class="account-bar__right">
     <div class="account-bar__current">
@@ -26,16 +35,21 @@
   </div>
 </header>
 
+<!-- navegacao com abas-->
 <nav class="main-nav">
   <div class="tabs">
-    <a class="nav-tab" data-tab="dashboard" href="/dashboard">Dashboard</a>
-    <a class="nav-tab" data-tab="produtos" href="/criar-promocao">Produtos</a>
-    <a class="nav-tab" data-tab="ia" href="/analise-anuncios">IA &amp; Analytics</a>
-    <a class="nav-tab" data-tab="benchmarking" href="/benchmarking">Benchmarking</a>
-    <a class="nav-tab" data-tab="alertas" href="/alertas">Alertas</a>
-    <a class="nav-tab" data-tab="ml" href="/debug/routes">ML</a>
+    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+    <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
   </div>
 </nav>
+
 
 <div id="modal-status" class="modal">
   <div class="modal-content">

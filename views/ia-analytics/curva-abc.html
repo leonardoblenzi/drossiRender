@@ -10,9 +10,18 @@
 <body class="curva-abc">
   <header class="account-bar">
     <div class="account-bar__left">
-      <span class="logo">🟡</span>
-      <span class="app-name">API Mercado Livre</span>
-    </div>
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
+  </div>
     <div class="account-bar__right">
       <div class="account-bar__current">
         <span class="lbl">Conta:</span>
@@ -22,6 +31,21 @@
       <button id="account-switch" class="account-bar__switch" title="Trocar de conta" type="button">Trocar Conta</button>
     </div>
   </header>
+
+  <!-- navegacao com abas-->
+<nav class="main-nav">
+  <div class="tabs">
+    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#produtos'">Produtos</button>
+    <button class="nav-tab active" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+  </div>
+</nav>
 
   <div class="page-header">
     <h1>Curva ABC</h1>

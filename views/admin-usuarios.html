@@ -13,17 +13,29 @@
 <body>
   <!-- TOPO FIXO (mantém seu padrão) -->
   <header class="account-bar">
+
     <div class="account-bar__left">
-      <span class="logo">🛡️</span>
-      <span class="app-name">Admin</span>
-    </div>
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
+  </div>
+
+
     <div class="account-bar__right">
       <a class="account-bar__switch" href="/dashboard" style="text-decoration:none; display:inline-flex; align-items:center;">
         Voltar
       </a>
     </div>
   </header>
-
+  
   <main class="admin-layout">
     <!-- Sidebar -->
     <aside class="admin-sidebar">
