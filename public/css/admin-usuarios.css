@@ -1,15 +1,6 @@
-html, body {
-  height: 100%;
-}
+/* public/css/admin-usuarios.css */
 
-body{
-  margin: 0;
-  background: var(--admin-bg);
-}
-
-
-
-/* Mantém o topo do dashboard.css e cria layout estilo "imagem 3" */
+/* ===== Base / Variáveis ===== */
 :root{
   --admin-bg: #f5f6f8;
   --admin-card: #ffffff;
@@ -17,37 +8,55 @@ body{
   --admin-text: #1b1f24;
   --admin-muted: #6b7280;
 
-  /* cores atuais (ajuste se você já tem variáveis no dashboard.css) */
-  --accent: #6d28d9;          /* roxo */
+  --accent: #6d28d9;
   --accent-soft: rgba(109,40,217,.12);
-  --sidebar-bg: #111827;      /* quase preto */
+
+  --sidebar-bg: #111827;
   --sidebar-text: #e5e7eb;
   --sidebar-muted: rgba(229,231,235,.65);
+
+  --topbar-h: 64px;   /* altura da account-bar */
+  --sidebar-w: 260px; /* largura sidebar */
 }
 
-.admin-layout{
-  display: flex;
-  /* grid-template-columns não faz efeito em display:flex -> pode remover */
-  min-height: 100vh;        /* ✅ cobre o documento sempre */
-  margin-top: 64px;         /* respeita header fixo */
+html, body{
+  height: 100%;
+}
+
+body{
+  margin: 0;
   background: var(--admin-bg);
+  overflow: hidden !important; /* ✅ trava o scroll do body (ganha do dashboard.css) */
 }
 
-/* Sidebar sticky rolando junto */
+/* ===== Layout principal (fixo abaixo do header) ===== */
+.admin-layout{
+  position: fixed;
+  top: var(--topbar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  display: flex;
+  background: var(--admin-bg);
+  overflow: hidden; /* ✅ nada fora do content rola */
+}
+
+/* ===== Sidebar (não rola junto com a página) ===== */
 .admin-sidebar{
-  width: 260px;             /* ✅ fixe a largura aqui */
-  flex: 0 0 260px;
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
+
   padding: 18px 14px;
   border-right: 1px solid rgba(255,255,255,.06);
 
-  position: sticky;
-  top: 64px;
-  height: calc(100vh - 64px); /* ✅ ocupa a viewport abaixo do header */
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 
-  align-self: flex-start;
+  overflow: hidden; /* ✅ impede sumiços/bug de layout */
 }
 
 .admin-sidebar__brand{
@@ -67,11 +76,17 @@ body{
   margin-top: 4px;
 }
 
+/* Menu rola dentro da sidebar */
 .admin-menu{
   display: flex;
   flex-direction: column;
   gap: 8px;
+
   padding: 10px 6px;
+
+  flex: 1;           /* ✅ ocupa o meio */
+  min-height: 0;     /* ✅ importante em flex + overflow */
+  overflow-y: auto;  /* ✅ rolagem aqui */
 }
 
 .admin-menu__item{
@@ -85,7 +100,10 @@ body{
   border: 1px solid transparent;
 }
 
-.admin-menu__item .ico{ width: 22px; text-align:center; }
+.admin-menu__item .ico{
+  width: 22px;
+  text-align: center;
+}
 
 .admin-menu__item:hover{
   background: rgba(255,255,255,.06);
@@ -96,22 +114,26 @@ body{
   border-color: rgba(109,40,217,.35);
 }
 
-/* ⚠️ Remover absolute: deixa footer no fluxo para não “cortar” no sticky */
+/* Footer fixo no final da sidebar */
 .admin-sidebar__footer{
-  position: static;     /* ✅ em vez de absolute */
-  margin-top: 14px;
+  margin-top: auto; /* ✅ prende no rodapé */
   padding: 10px;
   color: var(--sidebar-muted);
   border-top: 1px solid rgba(255,255,255,.06);
 }
 
-/* Conteúdo */
+/* ===== Conteúdo (rola só aqui) ===== */
 .admin-content{
   flex: 1;
-  min-width: 0;          /* ✅ evita overflow estranho em flex */
+  min-width: 0;
+
+  height: 100%;
+  overflow: auto; /* ✅ scroll do conteúdo */
+
   padding: 26px 26px 40px;
 }
 
+/* ===== Cabeçalho / ações ===== */
 .admin-content__header{
   display:flex;
   align-items:flex-start;
@@ -146,6 +168,7 @@ body{
   cursor: pointer;
   font-weight: 700;
 }
+
 .btn-primary:hover{ filter: brightness(1.03); }
 
 .btn-lite{
@@ -156,8 +179,10 @@ body{
   border-radius: 10px;
   cursor: pointer;
 }
+
 .btn-lite:hover{ background: rgba(0,0,0,.02); }
 
+/* ===== Toolbar ===== */
 .admin-toolbar{
   display:flex;
   align-items:center;
@@ -193,6 +218,7 @@ body{
   padding: 6px;
   border-radius: 8px;
 }
+
 .search-clear:hover{ background: rgba(0,0,0,.05); }
 
 .pill{
@@ -205,6 +231,7 @@ body{
   font-weight: 700;
 }
 
+/* ===== Card + tabela ===== */
 .card{
   background: var(--admin-card);
   border: 1px solid var(--admin-border);
@@ -247,6 +274,7 @@ body{
   padding: 24px 14px !important;
 }
 
+/* Badges */
 .badge{
   display:inline-flex;
   align-items:center;
@@ -256,20 +284,24 @@ body{
   font-weight: 800;
   letter-spacing: .2px;
 }
+
 .badge.admin{
   background: rgba(109,40,217,.12);
   color: var(--accent);
 }
+
 .badge.user{
   background: rgba(0,0,0,.06);
   color: #374151;
 }
 
+/* Actions */
 .actions{
   display:flex;
   justify-content:flex-end;
   gap: 8px;
 }
+
 .icon-btn{
   border: 1px solid var(--admin-border);
   background: #fff;
@@ -277,9 +309,11 @@ body{
   padding: 8px 10px;
   cursor: pointer;
 }
+
 .icon-btn:hover{ background: rgba(0,0,0,.03); }
 .icon-btn.danger{ border-color: rgba(220,38,38,.25); color: #dc2626; }
 
+/* Footer da tabela */
 .table-footer{
   display:flex;
   align-items:center;
@@ -291,13 +325,14 @@ body{
 .table-footer__left{ color: var(--admin-muted); }
 .page-info{ padding: 0 10px; color: var(--admin-text); font-weight: 700; }
 
+/* Hint */
 .hint{
   margin-top: 12px;
   color: var(--admin-muted);
   font-size: 13px;
 }
 
-/* Modal (reaproveita estética simples) */
+/* ===== Modal ===== */
 .modal{
   position: fixed;
   inset: 0;
@@ -326,6 +361,7 @@ body{
   border-bottom: 1px solid rgba(0,0,0,.08);
   background: #fafafa;
 }
+
 .modal-header h3{ margin: 0; }
 
 .close{
@@ -336,6 +372,7 @@ body{
   padding: 6px 10px;
   border-radius: 10px;
 }
+
 .close:hover{ background: rgba(0,0,0,.06); }
 
 .modal-body{ padding: 16px; }
@@ -354,7 +391,8 @@ body{
   margin-bottom: 6px;
 }
 
-.form-group input, .form-group select{
+.form-group input,
+.form-group select{
   width: 100%;
   border: 1px solid var(--admin-border);
   border-radius: 12px;
@@ -387,7 +425,7 @@ body{
   background: #fff;
 }
 
-/* Toast */
+/* ===== Toast ===== */
 .toast{
   position: fixed;
   right: 16px;
