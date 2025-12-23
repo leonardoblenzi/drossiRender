@@ -7,72 +7,55 @@
 
   <!-- Reaproveita estilos globais -->
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
-  <link rel="stylesheet" href="/css/publicidade.css?v=1">
+  <link rel="stylesheet" href="/css/publicidade.css?v=2">
 </head>
 <body>
-  <!-- TOPO FIXO (mesmo padrão Promoções / Full) -->
+  <!-- TOPO FIXO -->
   <header class="account-bar">
-  <div class="account-bar__left">
-    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
-      <img
-        src="/img/davantti.png"
-        alt="DAVANTTI"
-        class="brand__logo"
-        width="170"
-        height="42"
-        decoding="async"
-        loading="eager"
-      />
-    </a>
-  </div>
-
-  <div class="account-bar__right">
-    <div class="account-bar__current">
-      <span class="lbl">Conta:</span>
-
-      <!-- ✅ account-bar.js normalmente atualiza este data-account-label -->
-      <span
-        id="account-current"
-        class="val"
-        data-account-label
-      >Carregando...</span>
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
     </div>
 
-    <!-- ✅ mantém id (se você usa em outras páginas) + adiciona data-account-status -->
-    <button
-      id="btn-status"
-      class="account-bar__status"
-      title="Ver status do token"
-      type="button"
-      data-account-status
-    >Status</button>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val" data-account-label>Carregando...</span>
+      </div>
 
-    <!-- ✅ mantém id + adiciona data-account-switch -->
-    <button
-      id="account-switch"
-      class="account-bar__switch"
-      title="Trocar de conta"
-      type="button"
-      data-account-switch
-    >Trocar Conta</button>
-  </div>
-</header>
+      <button id="btn-status" class="account-bar__status" title="Ver status do token" type="button" data-account-status>
+        Status
+      </button>
 
+      <button id="account-switch" class="account-bar__switch" title="Trocar de conta" type="button" data-account-switch>
+        Trocar Conta
+      </button>
+    </div>
+  </header>
 
-  <!-- navegacao com abas-->
-<nav class="main-nav">
-  <div class="tabs">
-    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#produtos'">Produtos</button>
-    <button class="nav-tab " onclick="location.href='/dashboard#ia'">IA & Analytics</button>
-    <button class="nav-tab active" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
-  </div>
-</nav>
+  <!-- navegacao com abas -->
+  <nav class="main-nav">
+    <div class="tabs">
+      <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#produtos'">Produtos</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+      <button class="nav-tab active" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+    </div>
+  </nav>
 
   <div class="wrap publicidade-wrap">
     <header class="page-header">
@@ -83,7 +66,6 @@
         </p>
       </div>
 
-      <!-- Filtros de período -->
       <form id="ads-filters" class="ads-filters" autocomplete="off">
         <div class="ads-filters__group">
           <label for="dateFrom">De</label>
@@ -150,7 +132,7 @@
       </div>
     </section>
 
-    <!-- Gráfico de métricas (diário) -->
+    <!-- Gráfico -->
     <section class="ads-chart">
       <div class="card">
         <header class="card-header">
@@ -168,40 +150,38 @@
       </div>
     </section>
 
-     <!-- ===================== RANKING DE CAMPANHAS ===================== -->
+    <!-- RANKING -->
     <section class="ads-ranking">
       <div class="card">
         <header class="card-header ads-ranking-header">
           <div>
             <h3>Ranking de campanhas</h3>
-            <p id="rankingPeriod" class="muted">
-              Período: —
-            </p>
+            <p id="rankingPeriod" class="muted">Período: —</p>
           </div>
         </header>
 
-        <div class="table-wrapper table-wrapper--wide">
-          <table class="table table-ranking" id="tblCampaigns">
+        <div class="table-wrapper table-wrapper--wide table-shell">
+          <table class="table table-ranking" id="tblCampaigns" data-table="campaigns">
             <thead>
               <tr>
                 <th class="sticky-col">Nome da campanha</th>
                 <th>Status</th>
                 <th>Estratégia</th>
-                <th>ACOS objetivo</th>
-                <th>ACOS</th>
-                <th>TACOS</th>
-                <th>CPI</th>
-                <th>LISB</th>
-                <th>LISAR</th>
-                <th>Participação</th>
-                <th>Vendas publicidade</th>
-                <th>Impressões</th>
-                <th>Cliques</th>
-                <th>Investimento</th>
-                <th>CPC</th>
-                <th>CTR</th>
-                <th>Receita</th>
-                <th>Retornos</th>
+                <th class="num">ACOS objetivo</th>
+                <th class="num">ACOS</th>
+                <th class="num">TACOS</th>
+                <th class="num">CPI</th>
+                <th class="num">LISB</th>
+                <th class="num">LISAR</th>
+                <th class="num">Participação</th>
+                <th class="num">Vendas publicidade</th>
+                <th class="num">Impressões</th>
+                <th class="num">Cliques</th>
+                <th class="num">Investimento</th>
+                <th class="num">CPC</th>
+                <th class="num">CTR</th>
+                <th class="num">Receita</th>
+                <th class="num">Retornos</th>
               </tr>
             </thead>
             <tbody id="tbodyCampaigns">
@@ -216,46 +196,42 @@
       </div>
     </section>
 
-    <!-- ===================== DETALHE DA CAMPANHA ===================== -->
+    <!-- DETALHE -->
     <section class="ads-detail">
-              <!-- ITENS DA CAMPANHA (MLBs) -->
-        <div class="table-wrapper table-wrapper--wide ads-items-wrapper">
-          <table class="table ads-items-table" id="tblItems">
-            <thead>
-              <tr>
-                <th class="sticky-col">Produto</th>
-                <th>Qualidade da publicação</th>
-                <th>ACOS</th>
-                <th>TACOS</th>
-                <th>Impressões</th>
-                <th>Cliques</th>
-                <th>CTR</th>
-                <th>CPC</th>
-                <th>Conversão publicitária</th>
-                <th>Vendas publicidade</th>
-                <th>Vendas diretas</th>
-                <th>Vendas assistidas</th>
-              </tr>
-            </thead>
-            <tbody id="tbodyItems">
-              <tr>
-                <td colspan="12" class="muted">
-                  Nenhuma campanha selecionada.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="ads-pagination" id="adsPagination"></div>
+      <div class="table-wrapper table-wrapper--wide table-shell ads-items-wrapper">
+        <table class="table ads-items-table" id="tblItems">
+          <thead>
+            <tr>
+              <th class="sticky-col">Nome da campanha</th>
+              
+              <th>Qualidade da publicação</th>
+              <th class="num">ACOS</th>
 
-        </div>
+              <th class="num">TACOS</th>
+              <th class="num">Impressões</th>
+              <th class="num">Cliques</th>
+              <th class="num">CTR</th>
+              <th class="num">CPC</th>
+              <th class="num">Conversão publicitária</th>
+              <th class="num">Vendas publicidade</th>
+              <th class="num">Vendas diretas</th>
+              <th class="num">Vendas assistidas</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyItems">
+            <tr>
+              <td colspan="12" class="muted">Nenhuma campanha selecionada.</td>
+            </tr>
+          </tbody>
+        </table>
 
+        <div class="ads-pagination" id="adsPagination"></div>
+      </div>
     </section>
+  </div>
 
-  <!-- Chart.js para o gráfico -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <!-- Scripts globais -->
   <script src="/js/account-bar.js" defer></script>
-  <!-- Script específico da página (carrega campanhas / itens / gráfico) -->
   <script src="/js/publicidade.js" defer></script>
 </body>
 </html>

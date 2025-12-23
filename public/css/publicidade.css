@@ -1,13 +1,32 @@
 /* public/css/publicidade.css */
 
-/* Container geral da página de publicidade */
+/* ===================== TOKENS ===================== */
+:root{
+  --ml-yellow:#ffe600;
+  --ml-blue:#3483fa;
+  --ml-dark:#111827;
+  --ml-text:#2f2f2f;
+  --ml-muted:#6b7280;
+  --ml-bg:#f5f5f5;
+  --ml-card:#ffffff;
+  --border:#e5e7eb;
+
+  --row:#ffffff;
+  --row-alt:#fbfcfe;
+  --row-hover:#f4f8ff;
+
+  --focus: rgba(52,131,250,.22);
+  --shadow: 0 10px 30px rgba(0,0,0,.08);
+}
+
+/* Container geral */
 .publicidade-wrap {
   max-width: 1200px;
-  margin: 80px auto 40px; /* respeita o header fixo */
+  margin: 80px auto 40px;
   padding: 0 16px 32px;
 }
 
-/* Cabeçalho da página */
+/* Cabeçalho */
 .page-header {
   display: flex;
   flex-wrap: wrap;
@@ -17,11 +36,9 @@
   margin-bottom: 24px;
 }
 
-.page-header h2 {
-  margin: 0 0 4px;
-}
+.page-header h2 { margin: 0 0 4px; }
 
-/* Filtros de data */
+/* filtros */
 .ads-filters {
   display: flex;
   flex-wrap: wrap;
@@ -37,21 +54,26 @@
 
 .ads-filters__group label {
   font-size: 0.78rem;
-  font-weight: 600;
-  color: #555;
+  font-weight: 700;
+  color: #374151;
 }
 
 .ads-filters__group input[type="date"] {
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-  font-size: 0.85rem;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+  background: #fff;
+  outline: none;
 }
 
-/* Resumo numérico */
-.ads-summary {
-  margin-bottom: 24px;
+.ads-filters__group input[type="date"]:focus{
+  border-color: var(--ml-blue);
+  box-shadow: 0 0 0 3px var(--focus);
 }
+
+/* resumo */
+.ads-summary { margin-bottom: 24px; }
 
 .ads-summary-grid {
   display: grid;
@@ -61,53 +83,33 @@
 
 .ads-summary-card {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 14px;
   padding: 12px 14px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.30);
 }
 
 .ads-summary-card h3 {
   font-size: 0.9rem;
   margin: 0 0 4px;
   color: #111827;
+  font-weight: 800;
 }
 
 .ads-summary__value {
   font-size: 1.2rem;
-  font-weight: 700;
+  font-weight: 800;
   margin: 0 0 4px;
+  color: #0f172a;
 }
 
 .ads-summary__hint {
   margin: 0;
   font-size: 0.78rem;
-  color: #6b7280;
+  color: var(--ml-muted);
 }
 
-/* Layout principal: duas colunas */
-.ads-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
-  gap: 16px;
-}
-
-.ads-main__col {
-  min-width: 0;
-}
-
-.ads-main__col--detail {
-  min-width: 0;
-}
-
-/* Deixa responsivo em telas menores */
-@media (max-width: 1024px) {
-  .ads-main {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* Header de cards reutilizável */
+/* card header */
 .card-header {
   display: flex;
   align-items: flex-start;
@@ -118,161 +120,146 @@
 
 .card-header h3 {
   margin: 0 0 4px;
+  font-weight: 900;
 }
 
-/* Tabela com scroll horizontal se necessário */
-.table-wrapper {
+/* wrappers */
+.table-wrapper { width: 100%; overflow-x: auto; }
+.table-wrapper--wide { overflow-x: auto; }
+
+/* “casca” bonita para tabelas com scroll */
+.table-shell{
+  border-radius: 14px;
+  border: 1px solid rgba(148,163,184,.35);
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(15,23,42,.06);
+}
+
+/* ===================== TABELAS ===================== */
+.table-ranking,
+.ads-items-table{
   width: 100%;
-  overflow-x: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  min-width: 980px; /* evita esmagar */
 }
 
-/* Detalhes da campanha selecionada */
-.ads-detail-header {
-  align-items: center;
+.table-ranking thead th,
+.ads-items-table thead th{
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: linear-gradient(#ffffff, #fbfcff);
+  color: #0f172a;
+  font-weight: 900;
+  letter-spacing: .2px;
+  border-bottom: 1px solid rgba(148,163,184,.45);
+  padding: 10px 12px;
+  white-space: nowrap;
 }
 
-.ads-detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* Grid das métricas da campanha */
-.ads-detail-metrics {
-  margin: 4px 0 8px;
-}
-
-.ads-detail-metrics__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px 12px;
-}
-
-.metric {
-  background: #f9fafb;
-  border-radius: 6px;
-  padding: 6px 8px;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-}
-
-.metric-label {
-  display: block;
-  font-size: 0.72rem;
-  color: #6b7280;
-  margin-bottom: 2px;
-}
-
-.metric-value {
-  font-size: 0.95rem;
-  font-weight: 600;
+/* células */
+.table-ranking td,
+.ads-items-table td{
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148,163,184,.18);
+  background: var(--row);
+  white-space: nowrap;
   color: #111827;
 }
 
-/* Ajuste em botões (caso necessário, reaproveita estilos globais) */
-.btn.primary {
-  background-color: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+/* zebra */
+.table-ranking tbody tr:nth-child(even) td,
+.ads-items-table tbody tr:nth-child(even) td{
+  background: var(--row-alt);
 }
 
-.btn.primary:hover {
-  filter: brightness(0.95);
+/* hover */
+.table-ranking tbody tr:hover td,
+.ads-items-table tbody tr:hover td{
+  background: var(--row-hover);
 }
 
-.btn[disabled] {
-  opacity: 0.6;
-  cursor: not-allowed;
+/* números */
+.table-ranking th.num,
+.table-ranking td.num,
+.ads-items-table th.num,
+.ads-items-table td.num{
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Pequenas melhorias visuais para a tabela */
-#tblCampaigns tbody tr:hover,
-#tblItems tbody tr:hover {
-  background-color: #f9fafb;
-}
-/* container geral já vem do dashboard.css (wrap) */
-
-.ads-ranking,
-.ads-detail {
-  margin-top: 24px;
-}
-
-.ads-ranking .card,
-.ads-detail .card {
-  width: 100%;
-}
-
-.ads-ranking-header h3 {
-  font-size: 18px;
-  margin-bottom: 4px;
-}
-
-.ads-ranking-header #rankingPeriod {
-  font-size: 13px;
-}
-
-/* tabela larga com scroll horizontal, igual ML */
-.table-wrapper--wide {
-  overflow-x: auto;
-}
-
-/* ranking de campanhas = fonte um pouco menor */
-.table-ranking th,
-.table-ranking td {
-  white-space: nowrap;
-  font-size: 13px;
-  padding: 8px 10px;
-}
-
-/* primeira coluna fixa na esquerda para facilitar leitura */
-.table-ranking .sticky-col {
+/* primeira coluna sticky */
+.table-ranking .sticky-col,
+.ads-items-table .sticky-col{
   position: sticky;
   left: 0;
+  z-index: 4;
   background: #fff;
-  z-index: 2;
 }
 
-/* status/estratégia centralizados */
-.table-ranking td.num {
-  text-align: right;
+/* sombra na sticky col para separar do resto quando rolar */
+.table-ranking .sticky-col::after,
+.ads-items-table .sticky-col::after{
+  content:'';
+  position:absolute;
+  top:0;
+  right:-10px;
+  width:10px;
+  height:100%;
+  pointer-events:none;
+  background: linear-gradient(90deg, rgba(0,0,0,.10), rgba(0,0,0,0));
+  opacity:.08;
 }
 
-/* badge simples para status se quiser depois
-.table-ranking .status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
+/* ===================== SELEÇÃO DE CAMPANHA ===================== */
+/* funciona com classe OU aria-selected */
+.table-ranking tbody tr{
+  cursor: pointer;
+}
+
+.table-ranking tbody tr.is-selected td,
+.table-ranking tbody tr[aria-selected="true"] td{
+  background: #eef6ff !important;
+  border-bottom-color: rgba(52,131,250,.25);
+}
+
+/* “barrinha” azul na esquerda para destacar */
+.table-ranking tbody tr.is-selected td:first-child,
+.table-ranking tbody tr[aria-selected="true"] td:first-child{
+  box-shadow: inset 4px 0 0 0 var(--ml-blue);
+}
+
+/* focus teclado */
+.table-ranking tbody tr:focus{
+  outline: none;
+}
+.table-ranking tbody tr:focus td{
+  box-shadow: inset 0 0 0 2px rgba(52,131,250,.35);
+}
+
+/* ===================== PILLS (opcional p/ status/estratégia) ===================== */
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px;
-  background: #eef6ff;
-  color: #1d4ed8;
+  font-weight: 800;
+  border: 1px solid rgba(148,163,184,.35);
+  background:#f8fafc;
+  color:#0f172a;
 }
-*/
-/* ========================= ITENS (MLBs) ========================= */
+.pill--active{ background:#ecfdf3; border-color:#bbf7d0; color:#166534; }
+.pill--paused{ background:#fff1f2; border-color:#fecdd3; color:#9f1239; }
+.pill--profit{ background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; }
+.pill--inc{ background:#fff7ed; border-color:#fed7aa; color:#9a3412; }
 
-.ads-items-wrapper {
-  margin-top: 12px;
-}
+/* ===================== ITENS (produto) ===================== */
+.ads-items-wrapper { margin-top: 12px; }
 
-.ads-items-table th,
-.ads-items-table td {
-  font-size: 13px;
-  white-space: nowrap;
-  padding: 8px 10px;
-}
-
-.ads-items-table tbody tr:nth-child(odd) {
-  background-color: #fafafa;
-}
-
-/* primeira coluna fixa (Produto) */
-.ads-items-table .sticky-col {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  background-color: #fff;
-}
-
-/* bloco "Produto" com foto + textos */
 .ads-item-product {
   display: flex;
   align-items: center;
@@ -281,17 +268,18 @@
 }
 
 .ads-item-thumb {
-  width: 56px;
-  height: 56px;
-  border-radius: 8px;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
   background: #f3f4f6;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   color: #6b7280;
   overflow: hidden;
+  border: 1px solid rgba(148,163,184,.35);
 }
 
 .ads-item-info {
@@ -302,8 +290,11 @@
 
 .ads-item-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 800;
   color: #111827;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ads-item-meta {
@@ -315,23 +306,17 @@
 }
 
 .ads-item-status {
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 800;
+  border: 1px solid rgba(148,163,184,.35);
 }
 
-.ads-item-status.is-active {
-  background-color: #ecfdf3;
-  color: #15803d;
-}
+.ads-item-status.is-active { background-color: #ecfdf3; color: #15803d; border-color:#bbf7d0; }
+.ads-item-status.is-paused { background-color: #fff1f2; color: #b91c1c; border-color:#fecdd3; }
 
-.ads-item-status.is-paused {
-  background-color: #fee2e2;
-  color: #b91c1c;
-}
-
-/* "Qualidade da publicação" no estilo badge circular */
+/* qualidade */
 .quality-badge {
   display: inline-flex;
   align-items: center;
@@ -341,60 +326,95 @@
   border-radius: 999px;
   border: 3px solid #e5e7eb;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 900;
   color: #6b7280;
   margin: 0 auto;
+  background: #fff;
 }
+.quality-badge--good   { border-color: #22c55e; color: #16a34a; }
+.quality-badge--medium { border-color: #f59e0b; color: #d97706; }
+.quality-badge--na     { border-color: #e5e7eb; color: #6b7280; }
 
-.quality-badge--good {
-  border-color: #22c55e;
-  color: #16a34a;
-}
-
-.quality-badge--medium {
-  border-color: #f59e0b;
-  color: #d97706;
-}
-
-.quality-badge--na {
-  border-color: #e5e7eb;
-  color: #6b7280;
-}
-
-/* alinhar números à direita */
-.ads-items-table td.num {
-  text-align: right;
-}
-
-/* deixa o scroll horizontal igual ao do ranking */
-.table-wrapper--wide {
-  overflow-x: auto;
-}
-/* ===== Paginação ===== */
-
+/* paginação */
 .ads-pagination {
   margin-top: 12px;
   display: flex;
   gap: 6px;
   justify-content: center;
+  padding: 8px 0 14px;
 }
 
 .ads-pagination button {
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148,163,184,.45);
   background: #fff;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 800;
+  color:#0f172a;
 }
-
+.ads-pagination button:hover{
+  box-shadow: 0 6px 16px rgba(15,23,42,.08);
+}
 .ads-pagination button.active {
-  background: #2563eb;
-  border-color: #2563eb;
+  background: var(--ml-blue);
+  border-color: var(--ml-blue);
   color: #fff;
 }
-
 .ads-pagination button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* responsivo */
+@media (max-width: 768px){
+  .publicidade-wrap{ padding: 0 12px 28px; }
+}
+/* ===== Botão: Atualizar métricas (Publicidades) ===== */
+#btnReloadAds{
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+
+  background: linear-gradient(180deg, #3483fa 0%, #2563eb 100%);
+  color: #fff;
+
+  padding: 10px 16px;
+  border-radius: 12px;
+
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: .2px;
+
+  box-shadow: 0 10px 22px rgba(37, 99, 235, .22);
+  transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
+}
+
+#btnReloadAds:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+  box-shadow: 0 14px 28px rgba(37, 99, 235, .28);
+}
+
+#btnReloadAds:active{
+  transform: translateY(0);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, .18);
+}
+
+#btnReloadAds:focus-visible{
+  outline: none;
+  box-shadow:
+    0 0 0 4px rgba(255, 230, 0, .45),  /* amarelo ML */
+    0 14px 28px rgba(37, 99, 235, .22);
+}
+
+/* opcional: estado "carregando" / desabilitado */
+#btnReloadAds[disabled],
+#btnReloadAds.is-loading{
+  opacity: .65;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
 }
