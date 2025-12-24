@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vincular conta Mercado Livre</title>
+
+  <!-- reaproveita seu visual -->
+  <link rel="stylesheet" href="/css/login.css" />
+</head>
+
+<body>
+  <!-- Fundo (mesmo do login) -->
+  <div class="layer layer1"></div>
+  <div class="layer layer2"></div>
+  <div class="layer layer3"></div>
+
+  <div class="tech-rays">
+    <div class="ray"></div>
+    <div class="ray"></div>
+    <div class="ray"></div>
+  </div>
+
+  <div class="circuit-container">
+    <svg class="circuit" viewBox="0 0 800 600">
+      <path d="M10 300 H200 V100 H400 V250 H700" class="circuit-line"></path>
+      <path d="M100 550 V350 H450 V150 H780" class="circuit-line"></path>
+    </svg>
+  </div>
+
+  <div class="particles">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="login-card animated-entry" style="max-width:760px;">
+    <h1 class="title glitch" style="letter-spacing:3px;">VINCULAR CONTA</h1>
+
+    <div id="msg" style="display:none; margin:10px 0; font-size:0.95rem;"></div>
+
+    <div style="text-align:left; line-height:1.5; opacity:0.95;">
+      <p style="margin-bottom:12px;">
+        Para usar o app, você precisa vincular sua conta do <b>Mercado Livre</b>.
+      </p>
+
+      <ul style="margin:0 0 14px 18px;">
+        <li>Faça login com a <b>conta principal</b> da loja (não colaborador/operador).</li>
+        <li>Você pode repetir esse processo para vincular <b>outras contas</b> (ex.: 3 logins diferentes).</li>
+      </ul>
+
+      <p style="margin-bottom:18px;">
+        Ao clicar no botão abaixo, você será redirecionado para a tela oficial do Mercado Livre para autorizar.
+      </p>
+    </div>
+
+    <button class="btn" id="btn-vincular" type="button">Vincular conta Mercado Livre</button>
+
+    <button
+      class="btn"
+      id="btn-ir-app"
+      type="button"
+      style="margin-top:10px; background:rgba(255,255,255,.10); color:#fff; border:1px solid rgba(255,255,0,.35);"
+    >
+      Ir para seleção de contas
+    </button>
+  </div>
+
+  <script>
+    (function () {
+      const btn = document.getElementById('btn-vincular');
+      const btnIr = document.getElementById('btn-ir-app');
+      const msg = document.getElementById('msg');
+
+      function showMsg(text, type) {
+        msg.style.display = 'block';
+        msg.textContent = text;
+        msg.style.color = (type === 'ok') ? '#2ecc71' : '#ff5a5a';
+      }
+
+      function setLoading(on) {
+        btn.disabled = on;
+        btn.textContent = on ? 'Redirecionando...' : 'Vincular conta Mercado Livre';
+      }
+
+      btnIr.addEventListener('click', () => {
+        window.location.href = '/select-conta';
+      });
+
+      btn.addEventListener('click', async () => {
+        msg.style.display = 'none';
+        setLoading(true);
+
+        try {
+          // Esse endpoint a gente cria no próximo passo.
+          // Ele vai responder com { ok:true, url:"https://auth.mercadolivre...." }
+          const resp = await fetch('/api/meli/oauth/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ return_to: '/vincular-conta' })
+          });
+
+          let data = null;
+          try { data = await resp.json(); } catch (_) {}
+
+          if (!resp.ok || !data || data.ok !== true || !data.url) {
+            const m = (data && (data.error || data.message)) ? (data.error || data.message) : 'Falha ao iniciar vinculação.';
+            showMsg(m, 'err');
+            return;
+          }
+
+          window.location.href = data.url;
+        } catch (e) {
+          showMsg('Erro de rede ao iniciar vinculação. Tente novamente.', 'err');
+        } finally {
+          setLoading(false);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

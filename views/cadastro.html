@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cadastro</title>
+
+  <link rel="stylesheet" href="/css/login.css" />
+</head>
+
+<body>
+  <!-- Camadas / fundo (reaproveita seu login.css) -->
+  <div class="layer layer1"></div>
+  <div class="layer layer2"></div>
+  <div class="layer layer3"></div>
+
+  <div class="tech-rays">
+    <div class="ray"></div>
+    <div class="ray"></div>
+    <div class="ray"></div>
+  </div>
+
+  <div class="circuit-container">
+    <svg class="circuit" viewBox="0 0 800 600">
+      <path d="M10 300 H200 V100 H400 V250 H700" class="circuit-line"></path>
+      <path d="M100 550 V350 H450 V150 H780" class="circuit-line"></path>
+    </svg>
+  </div>
+
+  <div class="particles">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="login-card animated-entry">
+    <h1 class="title glitch" style="letter-spacing:4px;">CADASTRO</h1>
+
+    <div id="cad-msg" style="display:none; margin: 10px 0; font-size: 0.95rem;"></div>
+
+    <form class="form" id="cad-form" autocomplete="on">
+      <input
+        id="empresa_nome"
+        name="empresa_nome"
+        type="text"
+        placeholder="Nome da empresa"
+        class="input"
+        autocomplete="organization"
+        required
+      />
+
+      <input
+        id="nome"
+        name="nome"
+        type="text"
+        placeholder="Seu nome (opcional)"
+        class="input"
+        autocomplete="name"
+      />
+
+      <input
+        id="email"
+        name="email"
+        type="email"
+        placeholder="E-mail"
+        class="input"
+        autocomplete="email"
+        required
+      />
+
+      <input
+        id="senha"
+        name="senha"
+        type="password"
+        placeholder="Senha (mín. 6 caracteres)"
+        class="input"
+        autocomplete="new-password"
+        required
+      />
+
+      <button class="btn" id="btn-cadastrar" type="submit">Criar conta</button>
+
+      <button
+        class="btn"
+        type="button"
+        id="btn-voltar"
+        style="background:rgba(255,255,255,.10); color:#fff; border:1px solid rgba(255,255,0,.35);"
+      >
+        Já tenho conta (voltar)
+      </button>
+    </form>
+  </div>
+
+  <script>
+    (function () {
+      const form = document.getElementById('cad-form');
+      const msg  = document.getElementById('cad-msg');
+      const btn  = document.getElementById('btn-cadastrar');
+      const btnVoltar = document.getElementById('btn-voltar');
+
+      function showMsg(text, type) {
+        msg.style.display = 'block';
+        msg.textContent = text;
+        msg.style.color = (type === 'ok') ? '#2ecc71' : '#ff5a5a';
+      }
+
+      function setLoading(isLoading) {
+        btn.disabled = isLoading;
+        btn.textContent = isLoading ? 'Criando...' : 'Criar conta';
+      }
+
+      btnVoltar.addEventListener('click', () => {
+        window.location.href = '/login';
+      });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const empresa_nome = document.getElementById('empresa_nome').value.trim();
+        const nome  = document.getElementById('nome').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const senha = document.getElementById('senha').value;
+
+        msg.style.display = 'none';
+
+        if (!empresa_nome || !email || !senha) {
+          showMsg('Preencha nome da empresa, e-mail e senha.', 'err');
+          return;
+        }
+
+        if (senha.length < 6) {
+          showMsg('A senha deve ter no mínimo 6 caracteres.', 'err');
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const resp = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ empresa_nome, nome, email, senha })
+          });
+
+          let data = null;
+          try { data = await resp.json(); } catch (_) {}
+
+          if (!resp.ok || !data || data.ok !== true) {
+            const m = (data && (data.error || data.message)) ? (data.error || data.message) : 'Falha no cadastro.';
+            showMsg(m, 'err');
+            return;
+          }
+
+          const redirect = data.redirect || '/vincular-conta';
+          window.location.href = redirect;
+
+        } catch (err) {
+          showMsg('Erro de rede ao cadastrar. Verifique o servidor e tente novamente.', 'err');
+        } finally {
+          setLoading(false);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
