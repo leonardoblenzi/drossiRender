@@ -335,11 +335,16 @@ try {
   console.error("❌ Erro ao carregar ValidarDimensoesRoutes:", error.message);
 }
 
-// ✅ Exclusão de anúncios (SOMENTE ADMIN)
+// ✅ Exclusão de anúncios (SOMENTE ADMIN) - aplique APENAS no prefixo do router
 try {
   const excluirAnuncioRoutes = require("./routes/excluirAnuncioRoutes");
-  app.use(ensureAdminOnly, excluirAnuncioRoutes);
-  console.log("✅ ExcluirAnuncioRoutes carregado (ADMIN ONLY)");
+
+  // ✅ escolha um prefixo (recomendado)
+  app.use("/api/excluir-anuncio", ensureAdminOnly, excluirAnuncioRoutes);
+
+  console.log(
+    "✅ ExcluirAnuncioRoutes carregado em /api/excluir-anuncio (ADMIN ONLY)"
+  );
 } catch (error) {
   console.error("❌ Erro ao carregar ExcluirAnuncioRoutes:", error.message);
 }
