@@ -534,5 +534,48 @@ router.get("/oauth/callback", async (req, res) => {
       .send(`Erro ao vincular conta: ${err?.message || "erro desconhecido"}`);
   }
 });
+// GET /api/meli/current
+router.get("/current", async (req, res) => {
+  try {
+    const uid = Number(req.user?.uid);
+    if (!Number.isFinite(uid)) return res.status(401).json({ ok: false });
+
+    const contaId = Number(req.cookies?.meli_conta_id || 0);
+    if (!Number.isFinite(contaId) || contaId <= 0) {
+      return res.json({ ok: true, selected: false });
+    }
+
+    const pack = await db.withClient(async (client) => {
+      // mesma lógica do ensureAccount (empresa + conta)
+      const emp = await getEmpresaDoUsuario(client, uid);
+      if (!emp) return null;
+
+      const c = await client.query(
+        `select id, meli_user_id, apelido, site_id, status
+           from meli_contas
+          where id = $1 and empresa_id = $2
+          limit 1`,
+        [contaId, emp.empresa_id]
+      );
+      return c.rows[0] || null;
+    });
+
+    if (!pack) return res.json({ ok: true, selected: false });
+
+    return res.json({
+      ok: true,
+      selected: true,
+      meli_conta_id: pack.id,
+      meli_user_id: pack.meli_user_id,
+      label: pack.apelido || `Conta ${pack.meli_user_id}`,
+      site_id: pack.site_id || "MLB",
+      status: pack.status || "ativa",
+    });
+  } catch (e) {
+    return res
+      .status(500)
+      .json({ ok: false, error: "Erro ao ler conta atual" });
+  }
+});
 
 module.exports = router;
