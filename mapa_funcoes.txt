@@ -937,62 +937,226 @@ Admin • Usuários (listagem + CRUD)
 
 
 //SISTEMA NOVO MODELO
-OAuth Mercado Livre + Seleção de Conta (novo fluxo) + Segurança de Acesso (fix do 403)
+OAuth Mercado Livre + Seleção de Conta (novo fluxo) + Segurança de Acesso + Fix do 403 (mapa atualizado)
 / (raiz do projeto)
 
 ├─ index.js
-│ ├─ app.use(ensureAuth) # ✅ tudo abaixo exige login (JWT cookie auth_token)
-│ ├─ GET /nao-autorizado (HTML) # página 403
-│ ├─ ensureAdminOnly (middleware inline) # gate de admin para páginas/rotas específicas
+│ ├─ Middlewares básicos (público)
+│ │ ├─ express.json / express.urlencoded
+│ │ ├─ cors()  (⚠️ se tiver cross-origin + cookies, usar origin + credentials)
+│ │ ├─ cookieParser()
+│ │ └─ express.static(/public)
 │ │
-│ ├─ OAuth Mercado Livre
-│ │ ├─ app.use('/api/meli', meliOAuthRoutes) # start/callback + contas no banco
+│ ├─ Rotas públicas (SEM LOGIN)
+│ │ ├─ GET /                -> redirect /selecao-plataforma
+│ │ ├─ GET /selecao-plataforma -> views/selecao-plataforma.html
+│ │ ├─ GET /login           -> views/login.html
+│ │ ├─ GET /cadastro        -> views/cadastro.html
+│ │ ├─ GET /nao-autorizado  -> views/nao-autorizado.html (HTML 403)
+│ │ ├─ app.use('/api/auth', authRoutes)  # login/logout/me (JWT do app)
+│ │ │
+│ │ ├─ POST /api/ml/logout (logout “completo”)
+│ │ │ ├─ clearCookie('auth_token')
+│ │ │ ├─ clearCookie('meli_conta_id')   ✅ OAuth (NOVO)
+│ │ │ └─ clearCookie('ml_account')      ✅ Legacy (se existir)
+│ │ │
+│ │ └─ Monitoramento/Debug ABERTOS
+│ │   ├─ GET /api/system/health
+│ │   ├─ GET /api/system/stats
+│ │   └─ GET /test-basic
+│ │
+│ ├─ ✅ app.use(ensureAuth)  # daqui pra baixo TUDO exige login do app (JWT cookie auth_token)
+│ │
+│ ├─ OAuth Mercado Livre (vincular contas via autorização)
+│ │ ├─ app.use('/api/meli', meliOAuthRoutes)   # PKCE start/callback + contas/seleção no DB
 │ │ └─ GET /vincular-conta -> views/vincular-conta.html
 │ │
-│ ├─ Seleção de conta (após login, sempre cai aqui)
-│ │ ├─ GET /select-conta -> views/select-conta.html (novo padrão)
-│ │ └─ (LEGADO ainda existe no código em alguns lugares) app.use('/api/account', accountRoutes) (antigo)
+│ ├─ ensureAdminOnly (middleware inline no index.js)
+│ │ ├─ usado para páginas/rotas específicas (ex: /admin/usuarios e /api/excluir-anuncio)
+│ │ └─ HTML -> redirect /nao-autorizado | API -> 403 JSON
 │ │
-│ ├─ Proteção por conta selecionada
-│ │ ├─ app.use(ensureAccount) # ✅ exige cookie meli_conta_id e injeta res.locals.mlCreds
-│ │ └─ Debug: GET /api/account/whoami -> mostra conta + usuário do JWT
+│ ├─ Admin (SOMENTE ADMIN)
+│ │ ├─ GET /admin/usuarios -> views/admin-usuarios.html (ensureAdminOnly)
+│ │ └─ app.use('/api/admin', adminUsuariosRoutes)
 │ │
-│ ├─ Proteção por token ML
-│ │ └─ app.use(authMiddleware) # ✅ garante access_token válido (renova se preciso)
+│ ├─ Seleção de conta (APÓS LOGIN)
+│ │ ├─ GET /select-conta -> views/select-conta.html
+│ │ └─ app.use('/api/account', accountRoutes)  # ✅ seleção/list/current/clear (OAuth + Legacy)
+│ │
+│ ├─ Proteção por conta selecionada (OAuth)
+│ │ ├─ app.use(ensureAccount)  # ✅ exige cookie meli_conta_id e injeta res.locals.mlCreds
+│ │ └─ Debug: GET /api/account/whoami -> mostra conta + usuário do JWT + hasCreds
+│ │
+│ ├─ Proteção por token ML válido
+│ │ └─ app.use(authMiddleware)  # ✅ garante access_token válido (renova se preciso)
 │ │
 │ ├─ Fix crítico do 403 (Admin-only aplicado errado)
-│ │ └─ ✅ montar admin-only com prefixo:
-│ │ app.use('/api/excluir-anuncio', ensureAdminOnly, excluirAnuncioRoutes)
-│ │ (antes estava sem path e derrubava tudo após esse ponto)
+│ │ └─ ✅ correto: aplicar admin-only SOMENTE no prefixo:
+│ │     app.use('/api/excluir-anuncio', ensureAdminOnly, excluirAnuncioRoutes)
+│ │     (antes, quando era “sem prefixo”, derrubava tudo após esse ponto)
 │ │
-│ └─ Logout
-│ ├─ POST /api/ml/logout -> limpa auth_token + meli_conta_id (+ legado ml_account)
-│ └─ (recomendado manter os dois clears)
+│ └─ Rotas protegidas do app (após JWT + conta + token ML)
+│   ├─ /api/analise-anuncios           -> adAnalysisRoutes
+│   ├─ tokenRoutes                    -> (prefixo conforme seu router)
+│   ├─ /api/validar-dimensoes         -> validarDimensoesRoutes
+│   ├─ /api/excluir-anuncio           -> excluirAnuncioRoutes (ADMIN ONLY no index)
+│   ├─ removerPromocaoRoutes          -> promocaoRoutes (prefixo conforme seu router)
+│   ├─ /api/criar-promocao            -> criarPromocaoRoutes
+│   ├─ itemsRoutes                    -> (prefixo conforme seu router)
+│   ├─ promocoesRoutes                -> (prefixo conforme seu router)
+│   ├─ htmlRoutes                     -> páginas do dashboard (protegidas)
+│   ├─ /api/pesquisa-descricao        -> pesquisaDescricaoRoutes
+│   ├─ /api/keyword-analytics         -> keywordAnalyticsRoutes
+│   ├─ /api/analytics                 -> analyticsAbcRoutes + filtroAnunciosRoutes
+│   ├─ estrategicosRoutes             -> (prefixo conforme seu router)
+│   ├─ /api/full                      -> fullRoutes
+│   ├─ /api/publicidade               -> publicidadeRoutes
+│   └─ GETs auxiliares (HTML) servidos via sendFile (onde você colocou)
+│
+│ ├─ Errors
+│ │ ├─ handler 500 (json)
+│ │ └─ handler 404 (json)
+│ │
+│ └─ Graceful shutdown + queueService
 
-1) OAuth Mercado Livre (PKCE + state + DB)
+
+1) Middleware: Login do app (JWT) com HTML/JSON seguro
+middleware/
+
+└─ ensureAuth.js  ✅ (atualizado)
+├─ lê cookie: auth_token
+├─ valida JWT_SECRET + jwt.verify()
+├─ injeta:
+│ ├─ req.user = payload { uid, email, nivel, nome, iat, exp }
+│ └─ res.locals.user = payload
+├─ comportamento correto:
+│ ├─ PÁGINA (GET + Accept html): redirect /login
+│ └─ API/FETCH (/api/* ou Accept JSON ou X-Requested-With): 401 JSON { ok:false, redirect:'/login' }
+└─ requireNivel/ensureAdmin:
+  ├─ se não admin:
+  │ ├─ HTML: redirect /nao-autorizado
+  │ └─ API: 403 JSON
+
+
+2) Middleware: Exigir conta selecionada (OAuth) + compat legado comentado
+middleware/
+
+└─ ensureAccount.js  ✅ (novo padrão OAuth)
+├─ cookie OAuth: meli_conta_id
+├─ OPEN_PREFIXES:
+│ ├─ páginas públicas (/login, /cadastro, /selecao-plataforma, /nao-autorizado)
+│ ├─ auth do app (/api/auth)
+│ ├─ seleção/vinculação (/select-conta, /vincular-conta)
+│ ├─ OAuth ML (/api/meli/*)
+│ ├─ system/health/debug
+│ └─ estáticos (/public, /css, /js, /img, etc.)
+├─ exige req.user.uid (ensureAuth deve rodar antes)
+├─ se cookie ausente/inválido:
+│ ├─ HTML GET: redirect /select-conta
+│ └─ API: 401 JSON { ok:false, redirect:'/select-conta' }
+├─ carrega dados do DB:
+│ ├─ empresa do usuário: empresa_usuarios -> empresas
+│ ├─ valida se meli_conta_id pertence à empresa: meli_contas
+│ └─ carrega tokens 1:1: meli_tokens (por meli_conta_id)
+├─ injeta identidade (UI/log):
+│ ├─ res.locals.accountMode = 'oauth'
+│ ├─ res.locals.accountKey = '<meli_conta_id>'
+│ ├─ res.locals.accountLabel = apelido || `Conta <meli_user_id>`
+│ ├─ res.locals.empresaId / empresaNome
+│ └─ res.locals.mlCreds (bag central)
+│    ├─ app_id / client_secret / redirect_uri (do ENV)
+│    ├─ account_key / meli_conta_id / meli_user_id / site_id / status
+│    └─ access_token / refresh_token / access_expires_at / scope (do DB; pode vir null)
+└─ LEGADO permanece comentado no final (cookie ml_account + env ML_<KEY>_*)
+
+
+3) Seleção de Conta (novo padrão com compat de front)
 routes/
 
-├─ meliOAuthRoutes.js # ✅ Rotas HTTP do OAuth ML (novo)
+└─ accountRoutes.js  ✅ (atualizado)
+├─ Cookies (tem que bater com ensureAccount.js)
+│ ├─ COOKIE_OAUTH  = 'meli_conta_id'  ✅
+│ └─ COOKIE_LEGACY = 'ml_account'
 │
-│ GET /api/meli/contas
+├─ GET /api/account/list
+│ ├─ exige req.user.uid
+│ ├─ lista contas OAuth do DB (empresa do usuário)
+│ │ └─ join meli_tokens p/ has_tokens
+│ ├─ lista contas legacy (env) opcional
+│ ├─ retorna:
+│ │ ├─ { oauth:[...], legacy:[...], current }
+│ │ └─ + compat navbar/front:
+│ │    accountType, accountKey, label, success:true
+│
+├─ GET /api/account/current
+│ ├─ lê cookie meli_conta_id (ou legacy)
+│ ├─ valida contra DB (empresa + conta)
+│ ├─ se cookie inválido: clearCookie(meli_conta_id)
+│ └─ retorna payload “flat” compat:
+│    { current, accountType, accountKey, label, ok:true, success:true }
+│
+├─ POST /api/account/select
+│ ├─ OAuth: body { meliContaId }
+│ │ ├─ valida se pertence à empresa
+│ │ ├─ seta cookie meli_conta_id
+│ │ └─ limpa cookie ml_account
+│ ├─ Legacy: body { accountKey }
+│ │ ├─ seta cookie ml_account
+│ │ └─ limpa cookie meli_conta_id
+│ └─ retorna buildCurrentPayload(...) (flat + current)
+│
+└─ POST /api/account/clear
+  ├─ clearCookie(meli_conta_id)
+  ├─ clearCookie(ml_account)
+  └─ { ok:true, success:true }
+
+Observação: Você agora tem 2 formas de “selecionar conta”:
+- via /api/account/select (recomendado manter como padrão do front)
+- e também existe seleção em /api/meli/selecionar (no meliOAuthRoutes)
+O ideal é o front escolher 1 padrão e ficar só nele (pra não confundir).
+
+
+4) OAuth Mercado Livre (PKCE + state + DB)
+routes/
+
+└─ meliOAuthRoutes.js  ✅
+├─ Cookie da conta selecionada (padrão novo)
+│ └─ COOKIE_MELI_CONTA = 'meli_conta_id' ✅
+│
+├─ GET /api/meli/contas
 │ ├─ exige req.user.uid (ensureAuth)
-│ ├─ busca empresa do usuário (empresa_usuarios → empresas)
-│ └─ lista contas em meli_contas (por empresa_id)
-│ -> { ok:true, contas:[...] }
+│ ├─ busca empresa do usuário
+│ ├─ lista meli_contas por empresa
+│ └─ retorna { ok:true, contas:[...], current_meli_conta_id }
 │
-│ POST /api/meli/oauth/start
+├─ POST /api/meli/selecionar
+│ ├─ body { meli_conta_id }
+│ ├─ valida se pertence à empresa
+│ ├─ seta cookie meli_conta_id
+│ └─ retorna { ok:true, meli_conta_id }
+│
+├─ POST /api/meli/limpar-selecao
+│ └─ clear cookie meli_conta_id
+│
+├─ POST /api/meli/oauth/start
 │ ├─ gera state + code_verifier + code_challenge (PKCE S256)
-│ ├─ salva em oauth_states com expiração (10 min)
-│ ├─ monta URL https://auth.mercadolivre.com.br/authorization?...
+│ ├─ salva oauth_states (10 min)
+│ ├─ monta URL AUTH_BASE (auth.mercadolivre.com.br/authorization)
 │ └─ responde { ok:true, url }
 │
-│ GET /api/meli/oauth/callback?code&state
-│ ├─ valida state no banco + expiração
-│ ├─ troca code por token em https://api.mercadolibre.com/oauth/token
-│ ├─ upsert em meli_contas (por empresa + meli_user_id)
-│ ├─ upsert em meli_tokens (1:1 por meli_conta_id)
-│ ├─ apaga state (uso único)
+├─ GET /api/meli/oauth/callback?code&state
+│ ├─ valida state no DB + expiração
+│ ├─ troca code por token em TOKEN_URL (api.mercadolibre.com/oauth/token)
+│ ├─ upsert meli_contas (empresa + meli_user_id)
+│ ├─ upsert meli_tokens (1:1 por meli_conta_id)
+│ ├─ apaga oauth_states (uso único)
+│ ├─ seta cookie meli_conta_id (opcional, mas você fez ✅)
 │ └─ redirect para return_to (sanitizado)
+│
+└─ GET /api/meli/current
+  ├─ lê cookie meli_conta_id
+  ├─ valida conta na empresa
+  └─ retorna { ok:true, selected:true/false, label, site_id, status, ... }
 
 tabelas (banco)
 
@@ -1007,130 +1171,93 @@ tabelas (banco)
 │ └─ criado_em, atualizado_em, ultimo_uso_em
 │
 └─ meli_tokens
-├─ meli_conta_id (unique / FK)
-├─ access_token, access_expires_at
-├─ refresh_token, scope
-└─ refresh_obtido_em, ultimo_refresh_em
+  ├─ meli_conta_id (unique / FK)
+  ├─ access_token, access_expires_at
+  ├─ refresh_token, scope
+  └─ refresh_obtido_em, ultimo_refresh_em
 
-2) Seleção de Conta (sempre cair na tela, mesmo com 1 conta)
+
+5) UI: Seleção de Conta (tela)
 views/
 
-├─ select-conta.html
-│ ├─ lista cards de contas do ML vindas do backend (OAuth)
-│ ├─ ao clicar num card: seleciona cookie meli_conta_id
-│ ├─ botões: “Vincular Conta”, “Limpar seleção”, “Sair”
-│ └─ (modo legado fica comentado no JS)
+└─ select-conta.html
+├─ lista cards de contas (OAuth) vindas do backend
+├─ ao clicar num card: seleciona cookie meli_conta_id
+├─ botões: “Vincular Conta”, “Limpar seleção”, “Sair”
+└─ (modo legacy pode existir/ficar oculto)
 
 public/js/
 
-└─ select-conta.js
+└─ select-conta.js (esperado)
 ├─ loadContas():
-│ - GET /api/meli/contas
-│ - renderiza cards
+│ ├─ (opção A) GET /api/account/list
+│ └─ (opção B) GET /api/meli/contas
 ├─ selectConta(id):
-│ - POST /api/meli/select (ou endpoint equivalente) -> seta cookie meli_conta_id
-│ - redirect /dashboard
+│ ├─ (opção A) POST /api/account/select { meliContaId }
+│ └─ (opção B) POST /api/meli/selecionar { meli_conta_id }
+│ └─ redirect /dashboard
 ├─ clearConta():
-│ - POST /api/meli/clear -> limpa cookie
-│ - reload
-└─ LEGADO comentado
-- endpoints /api/account/*
-- cookie ml_account
+│ ├─ (opção A) POST /api/account/clear
+│ └─ (opção B) POST /api/meli/limpar-selecao
+└─ Observação importante:
+  - escolha UM padrão (accountRoutes OU meliOAuthRoutes) para reduzir confusão.
 
-Observação: no seu network ainda aparece ml_account=drossi. Isso indica que ainda existe algum fluxo antigo setando esse cookie. O novo fluxo deve depender só de meli_conta_id.
 
-3) Middleware: Login do app (JWT)
-middleware/
-
-└─ ensureAuth.js
-├─ valida cookie auth_token
-├─ injeta req.user (uid/email/nivel/nome)
-├─ HTML: redirect /login se não autenticado
-└─ (para API: normalmente retorna 401 JSON)
-
-4) Middleware: Exigir conta selecionada (OAuth) + compat legado comentado
-middleware/
-
-└─ ensureAccount.js # ✅ novo padrão (OAuth)
-├─ cookie novo: meli_conta_id
-├─ OPEN_PREFIXES: rotas públicas / seleção / oauth / estáticos
-├─ exige req.user.uid (já logado)
-├─ lê cookie meli_conta_id
-├─ busca empresa do usuário
-├─ valida se meli_conta_id pertence à empresa
-├─ carrega tokens em meli_tokens
-├─ injeta:
-│ - res.locals.accountMode = 'oauth'
-│ - res.locals.accountKey = <id>
-│ - res.locals.accountLabel = apelido || Conta <meli_user_id>
-│ - res.locals.mlCreds com app_id/secret/redirect + tokens + ids
-└─ LEGADO comentado no final
-- cookie ml_account
-- tokens via .env ML_<KEY>_REFRESH_TOKEN etc.
-
-5) Middleware: Garantir token ML válido para rotas protegidas
+6) Middleware: Garantir token ML válido para rotas que chamam ML
 middleware/
 
 └─ authMiddleware.js
-├─ SKIP_PATHS: ignora rotas que não precisam token ML
-│ - /api/meli/* (contas, select, clear, oauth start/callback)
-│ - health/system
-│ - polling jobs específicos (filtro-anuncios)
-│ - (legado comentado)
-├─ authMiddleware (obrigatório)
-│ - chama TokenService.renovarTokenSeNecessario(res.locals.mlCreds)
-│ - se falhar:
-│ - HTML: redirect /select-conta
-│ - API: 401 JSON + redirect
-│ - injeta req.ml com { accessToken, creds, accountKey/Label/Mode }
-└─ authMiddlewareOptional (não bloqueia, só injeta contexto)
+├─ SKIP_PATHS (deve ignorar o que não precisa token ML)
+│ ├─ /api/meli/* (oauth start/callback/contas/selecionar/limpar)
+│ ├─ /api/account/* (list/current/select/clear)
+│ ├─ /api/system/*, /api/health, /health
+│ └─ assets/páginas se necessário
+├─ fluxo:
+│ ├─ lê credenciais de res.locals.mlCreds (injetado pelo ensureAccount)
+│ ├─ chama TokenService.renovarTokenSeNecessario(creds)
+│ ├─ se falhar:
+│ │ ├─ HTML: redirect /select-conta (ou /vincular-conta se tokens ausentes)
+│ │ └─ API: 401 JSON { ok:false, redirect:'/select-conta' }
+│ └─ injeta req.ml com { accessToken, creds, accountKey/Label/Mode }
 
-6) Token Service (renovação) — pronto para evoluir p/ persistir no banco
+
+7) Token Service (renovação) — pronto para persistir no banco quando quiser
 services/
 
 └─ tokenService.js
-├─ resolveCreds() unifica leitura de credenciais:
-│ - app_id/client_secret/refresh_token/access_token/redirect_uri
-│ - account_key (para logs/cache)
+├─ resolveCreds() unifica leitura:
+│ ├─ app_id/client_secret/redirect_uri
+│ ├─ refresh_token/access_token/access_expires_at
+│ ├─ account_key / meli_conta_id (para logs e persistência)
 ├─ renovarTokenSeNecessario(creds)
-│ - testa access_token em /users/me
-│ - se inválido: chama renovarToken()
+│ ├─ valida access_token (ex: /users/me)
+│ └─ se inválido/expirado -> renovarToken(creds)
 ├─ renovarToken(creds)
-│ - refresh_token grant em oauth/token
-│ - atualiza process.env.ACCESS_TOKEN
-│ - (legado) também atualiza ML_<ACCOUNT>_ACCESS_TOKEN se existir
-├─ testarToken(creds) -> /users/me
-└─ Observação: com OAuth real, o ideal é:
-- se creds.meli_conta_id existir, salvar novo access_token + expires_at no banco
-- (isso ainda não está no seu tokenService atual pelo que você colou)
+│ ├─ refresh_token grant em /oauth/token
+│ ├─ atualiza credenciais em memória (e possivelmente process.env por compat)
+│ └─ (evolução ideal) se creds.meli_conta_id existir:
+│    -> persistir novo access_token + access_expires_at no DB (meli_tokens)
+└─ testarToken(creds) -> /users/me
 
-7) Fix do “cai em /nao-autorizado” após selecionar conta (403)
+
+8) Fix do “cai em /nao-autorizado” (403) após selecionar conta
 index.js (ponto crítico)
 
-Erro anterior: app.use(ensureAdminOnly, excluirAnuncioRoutes) sem prefixo
+Erro anterior (clássico):
+- aplicar ensureAdminOnly “global” (sem prefixo) e derrubar tudo abaixo.
 
-isso aplicava ensureAdminOnly em todas as rotas seguintes
-
-Correção (obrigatória):
-
+Correção (obrigatória, você já fez):
 app.use('/api/excluir-anuncio', ensureAdminOnly, excluirAnuncioRoutes)
 
-e/ou proteger só o HTML /excluir-anuncio com ensureAdminOnly
+Fluxo final esperado (usuário)
 
-Fluxo final esperado (do usuário)
+1) /login -> autentica -> cookie auth_token
+2) redirect /select-conta
+3) /select-conta -> lista contas (GET /api/account/list ou /api/meli/contas)
+4) seleciona conta -> seta cookie meli_conta_id (POST /api/account/select ou /api/meli/selecionar)
+5) redirect /dashboard
+6) a partir daí:
+   - ensureAccount injeta mlCreds/tokens
+   - authMiddleware garante access_token válido (renova se preciso)
+   - rotas que chamam ML funcionam
 
-/login → autentica → recebe cookie auth_token
-
-Redirect para /select-conta
-
-/select-conta chama GET /api/meli/contas
-
-usuário clica no card → POST /api/meli/select → seta cookie meli_conta_id
-
-redirect para /dashboard
-
-a partir daí:
-
-ensureAccount injeta credenciais/tokens
-
-authMiddleware garante access token válido
