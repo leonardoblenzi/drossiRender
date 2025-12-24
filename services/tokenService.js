@@ -8,7 +8,7 @@ const config = require("../config/config"); // ok
 let db = null;
 try {
   db = require("../db/db");
-} catch (e) {
+} catch (_e) {
   db = null;
 }
 
@@ -96,6 +96,18 @@ async function safeErrorPayload(resp) {
   return null;
 }
 
+function pickMlErrorMessage(errorData, status) {
+  if (!errorData) return `HTTP ${status}`;
+  if (typeof errorData === "string") return errorData;
+
+  return (
+    errorData.error_description ||
+    errorData.message ||
+    errorData.error ||
+    `HTTP ${status}`
+  );
+}
+
 function logPrefix(credsInput = {}) {
   const { account_key, meli_conta_id } = resolveCreds(credsInput);
   // prioriza OAuth id para facilitar debug
@@ -117,48 +129,105 @@ async function persistOAuthTokensIfPossible(credsInput, tokenData, opts = {}) {
   // - tem access_token
   const { meli_conta_id } = resolveCreds(credsInput);
   const access_token = tokenData?.access_token;
-  if (!db || !meli_conta_id || !access_token) return false;
 
-  // refresh_token pode vir vazio em alguns fluxos; mantém o anterior se não vier
-  const refresh_token =
-    tokenData?.refresh_token || resolveCreds(credsInput).refresh_token || null;
+  if (!db || !meli_conta_id || !access_token) return false;
 
   const access_expires_at = computeAccessExpiresAt(tokenData?.expires_in);
 
-  try {
-    await db.query(
-      `insert into meli_tokens
-        (meli_conta_id, access_token, access_expires_at, refresh_token, scope, refresh_obtido_em, ultimo_refresh_em)
-       values ($1, $2, $3, $4, $5, now(), now())
-       on conflict (meli_conta_id)
-       do update set
-         access_token = excluded.access_token,
-         access_expires_at = excluded.access_expires_at,
-         refresh_token = excluded.refresh_token,
-         scope = excluded.scope,
-         ultimo_refresh_em = now()`,
-      [
-        meli_conta_id,
-        String(access_token),
-        access_expires_at.toISOString(),
-        refresh_token ? String(refresh_token) : null,
-        tokenData?.scope ? String(tokenData.scope) : null,
-      ]
-    );
+  // refresh_token pode vir vazio em alguns fluxos; NÃO PODE virar null no banco
+  // então: se não vier, a query vai manter o existente
+  const refresh_token_from_api =
+    tokenData?.refresh_token != null && String(tokenData.refresh_token).trim()
+      ? String(tokenData.refresh_token).trim()
+      : null;
 
-    // (opcional) marca último uso da conta
-    if (opts.touchConta) {
-      await db.query(
-        `update meli_contas
-            set ultimo_uso_em = now(),
-                atualizado_em = now(),
-                status = 'ativa'
-          where id = $1`,
-        [meli_conta_id]
-      );
+  const scope =
+    tokenData?.scope != null && String(tokenData.scope).trim()
+      ? String(tokenData.scope).trim()
+      : null;
+
+  try {
+    // ✅ Seu db no projeto usa withClient; não assume db.query
+    if (typeof db.withClient === "function") {
+      await db.withClient(async (client) => {
+        await client.query(
+          `insert into meli_tokens
+            (meli_conta_id, access_token, access_expires_at, refresh_token, scope, refresh_obtido_em, ultimo_refresh_em)
+           values ($1, $2, $3, $4, $5, now(), now())
+           on conflict (meli_conta_id)
+           do update set
+             access_token = excluded.access_token,
+             access_expires_at = excluded.access_expires_at,
+             refresh_token = coalesce(excluded.refresh_token, meli_tokens.refresh_token),
+             scope = excluded.scope,
+             ultimo_refresh_em = now()`,
+          [
+            meli_conta_id,
+            String(access_token),
+            access_expires_at.toISOString(),
+            refresh_token_from_api, // pode ser null -> mantém o antigo via COALESCE
+            scope,
+          ]
+        );
+
+        if (opts.touchConta) {
+          await client.query(
+            `update meli_contas
+                set ultimo_uso_em = now(),
+                    atualizado_em = now(),
+                    status = 'ativa'
+              where id = $1`,
+            [meli_conta_id]
+          );
+        }
+      });
+
+      return true;
     }
 
-    return true;
+    // fallback: se seu db tiver query direta (alguns setups)
+    if (typeof db.query === "function") {
+      await db.query(
+        `insert into meli_tokens
+          (meli_conta_id, access_token, access_expires_at, refresh_token, scope, refresh_obtido_em, ultimo_refresh_em)
+         values ($1, $2, $3, $4, $5, now(), now())
+         on conflict (meli_conta_id)
+         do update set
+           access_token = excluded.access_token,
+           access_expires_at = excluded.access_expires_at,
+           refresh_token = coalesce(excluded.refresh_token, meli_tokens.refresh_token),
+           scope = excluded.scope,
+           ultimo_refresh_em = now()`,
+        [
+          meli_conta_id,
+          String(access_token),
+          access_expires_at.toISOString(),
+          refresh_token_from_api,
+          scope,
+        ]
+      );
+
+      if (opts.touchConta) {
+        await db.query(
+          `update meli_contas
+              set ultimo_uso_em = now(),
+                  atualizado_em = now(),
+                  status = 'ativa'
+            where id = $1`,
+          [meli_conta_id]
+        );
+      }
+
+      return true;
+    }
+
+    // nenhum método conhecido
+    console.warn(
+      `⚠️ ${logPrefix(
+        credsInput
+      )} db não expõe withClient/query; não foi possível persistir tokens.`
+    );
+    return false;
   } catch (e) {
     console.warn(
       `⚠️ ${logPrefix(credsInput)} Falha ao persistir token no banco:`,
@@ -188,8 +257,6 @@ class TokenService {
         });
 
         if (testResponse.ok) {
-          // 🔧 (Opcional) se estiver em OAuth e tiver expires_at desatualizado,
-          // a gente não mexe aqui; isso é responsabilidade do refresh.
           console.log(`✅ ${L} Token atual válido`);
           return access_token;
         }
@@ -204,7 +271,7 @@ class TokenService {
     } catch (error) {
       console.error(
         `❌ ${L} Erro ao renovar token (automático):`,
-        error.message
+        error?.message || error
       );
       throw error;
     }
@@ -254,9 +321,7 @@ class TokenService {
 
     if (!response.ok) {
       const errorData = await safeErrorPayload(response);
-      const msg =
-        (errorData && (errorData.error || errorData.message)) ||
-        `HTTP ${response.status}`;
+      const msg = pickMlErrorMessage(errorData, response.status);
       throw new Error(`${L} Erro na API ao renovar token: ${msg}`);
     }
 
@@ -267,12 +332,12 @@ class TokenService {
     // ==========================
     if (credsInput && typeof credsInput === "object") {
       credsInput.access_token = data.access_token;
+      // refresh_token pode rotacionar
       credsInput.refresh_token = data.refresh_token || refresh_token;
       credsInput.expires_in = data.expires_in;
       credsInput.access_expires_at = computeAccessExpiresAt(
         data.expires_in
       ).toISOString();
-      // scope pode vir
       if (data.scope) credsInput.scope = data.scope;
     }
 
@@ -290,6 +355,8 @@ class TokenService {
       });
       if (persisted) {
         console.log(`💾 ${L} Token persistido no banco (meli_tokens)`);
+      } else {
+        console.warn(`⚠️ ${L} Não foi possível persistir token no banco`);
       }
     }
 
@@ -308,7 +375,9 @@ class TokenService {
 
     console.log(
       `✅ ${L} Token renovado! (${
-        data.access_token ? data.access_token.substring(0, 18) + "…" : ""
+        data.access_token
+          ? String(data.access_token).substring(0, 18) + "…"
+          : ""
       })`
     );
 
@@ -323,7 +392,6 @@ class TokenService {
 
   // =====================================================
   // As funções abaixo foram mantidas por compatibilidade.
-  // Se quiser, depois a gente pode simplificar/remover.
   // =====================================================
 
   static async obterAccessToken(app_idOrObj, client_secret, refresh_token) {
@@ -373,9 +441,7 @@ class TokenService {
 
       if (!response.ok) {
         const errorData = await safeErrorPayload(response);
-        const msg =
-          (errorData && (errorData.error || errorData.message)) ||
-          `HTTP ${response.status}`;
+        const msg = pickMlErrorMessage(errorData, response.status);
         throw new Error(`${L} Erro na API: ${msg}`);
       }
 
@@ -390,7 +456,7 @@ class TokenService {
 
       console.log(`${L} Token renovado com sucesso:`, {
         access_token: data.access_token
-          ? `${data.access_token.substring(0, 12)}…`
+          ? `${String(data.access_token).substring(0, 12)}…`
           : "(vazio)",
         expires_in: data.expires_in,
         refresh_token: data.refresh_token
@@ -454,17 +520,13 @@ class TokenService {
 
       if (!response.ok) {
         const errorData = await safeErrorPayload(response);
-        const msg =
-          (errorData && (errorData.message || errorData.error)) ||
-          `HTTP ${response.status}`;
+        const msg = pickMlErrorMessage(errorData, response.status);
         throw new Error(`${L} Erro na API: ${msg}`);
       }
 
       const data = await response.json();
 
       // ✅ OAuth: persiste se possível (se meli_conta_id já existir no objeto)
-      // Obs: normalmente o token inicial é tratado no callback do OAuth e salvamos lá,
-      // então isso é só um extra caso você use essa função em algum fluxo específico.
       if (meli_conta_id) {
         await persistOAuthTokensIfPossible(app_idOrObj, data, {
           touchConta: true,
@@ -474,7 +536,7 @@ class TokenService {
       console.log(`${L} Resposta da API (token inicial):`, {
         user_id: data.user_id,
         access_token_preview: data.access_token
-          ? `${data.access_token.substring(0, 12)}…`
+          ? `${String(data.access_token).substring(0, 12)}…`
           : "(vazio)",
       });
 
