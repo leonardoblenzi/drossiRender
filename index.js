@@ -104,7 +104,8 @@ app.get("/nao-autorizado", noCache, (req, res) => {
 // Logout "completo" (limpa JWT + conta selecionada) — opcional
 app.post("/api/ml/logout", noCache, (req, res) => {
   res.clearCookie("auth_token", { path: "/" });
-  res.clearCookie("ml_account", { path: "/" });
+  res.clearCookie("ml_account", { path: "/" }); // legacy
+  res.clearCookie("meli_conta_id", { path: "/" }); // oauth
   return res.json({ ok: true });
 });
 

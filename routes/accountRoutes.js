@@ -6,8 +6,10 @@ const db = require("../db/db");
 
 const router = express.Router();
 
-/** Cookies */
-const COOKIE_OAUTH = "ml_account_id"; // id da tabela meli_contas
+/** Cookies
+ * IMPORTANTE: tem que bater com middleware/ensureAccount.js
+ */
+const COOKIE_OAUTH = "meli_conta_id"; // ✅ id da tabela meli_contas (OAuth)
 const COOKIE_LEGACY = "ml_account"; // chave legacy (drossi/diplany/rossidecor)
 
 /** (LEGADO) Mapeamento das contas disponíveis via ENV */
@@ -53,6 +55,56 @@ function cookieOptions() {
     secure: isProd,
     maxAge: 30 * 24 * 3600 * 1000, // 30 dias
     path: "/",
+  };
+}
+
+/** Normaliza "current" e também devolve formato flat compatível com o front */
+function buildCurrentPayload(cur) {
+  // cur pode ser null
+  if (!cur) {
+    return {
+      ok: true,
+      success: true,
+      current: null,
+      accountType: null,
+      accountKey: null,
+      label: null,
+    };
+  }
+
+  if (cur.type === "oauth") {
+    const key = String(cur.id);
+    const label = cur.label || `Conta ${cur.meli_user_id || key}`;
+    return {
+      ok: true,
+      success: true,
+      current: { ...cur, label },
+      accountType: "oauth",
+      accountKey: key,
+      label,
+    };
+  }
+
+  if (cur.type === "legacy") {
+    const key = String(cur.key);
+    const label = cur.label || key;
+    return {
+      ok: true,
+      success: true,
+      current: { ...cur, label },
+      accountType: "legacy",
+      accountKey: key,
+      label,
+    };
+  }
+
+  return {
+    ok: true,
+    success: true,
+    current: null,
+    accountType: null,
+    accountKey: null,
+    label: null,
   };
 }
 
@@ -116,7 +168,12 @@ router.get("/list", async (req, res) => {
     if (Number.isFinite(currentOAuthId) && currentOAuthId > 0) {
       const found = oauthContas.find((c) => c.id === currentOAuthId) || null;
       current = found
-        ? { type: "oauth", id: found.id, label: found.label }
+        ? {
+            type: "oauth",
+            id: found.id,
+            label: found.label,
+            meli_user_id: found.meli_user_id,
+          }
         : { type: "oauth", id: currentOAuthId, label: null };
     } else if (currentLegacy) {
       const label =
@@ -125,11 +182,18 @@ router.get("/list", async (req, res) => {
       current = { type: "legacy", key: currentLegacy, label };
     }
 
+    const flat = buildCurrentPayload(current);
+
     return res.json({
       ok: true,
       oauth: oauthContas,
       legacy: legacyContas,
-      current,
+      current, // mantém estrutura antiga
+      // compat com front:
+      accountType: flat.accountType,
+      accountKey: flat.accountKey,
+      label: flat.label,
+      success: true,
     });
   } catch (err) {
     console.error("GET /api/account/list erro:", err);
@@ -140,6 +204,8 @@ router.get("/list", async (req, res) => {
 /**
  * GET /api/account/current
  * Retorna conta atual selecionada (OAuth ou legacy)
+ * - Mantém { current } (novo/antigo)
+ * - E adiciona { label, accountKey, accountType } para compatibilidade com a navbar
  */
 router.get("/current", async (req, res) => {
   try {
@@ -158,7 +224,7 @@ router.get("/current", async (req, res) => {
         if (!emp) return null;
 
         const r = await client.query(
-          `select id, apelido, meli_user_id, status
+          `select id, apelido, meli_user_id, status, site_id
              from meli_contas
             where id = $1 and empresa_id = $2
             limit 1`,
@@ -170,33 +236,32 @@ router.get("/current", async (req, res) => {
       if (!info) {
         // cookie inválido
         res.clearCookie(COOKIE_OAUTH, { path: "/" });
-        return res.json({ ok: true, current: null });
+        return res.json(buildCurrentPayload(null));
       }
 
-      return res.json({
-        ok: true,
-        current: {
+      return res.json(
+        buildCurrentPayload({
           type: "oauth",
           id: info.id,
           label: info.apelido || `Conta ${info.meli_user_id}`,
           meli_user_id: info.meli_user_id,
           status: info.status,
-        },
-      });
+          site_id: info.site_id,
+        })
+      );
     }
 
     if (legacyKey && ACCOUNTS[legacyKey]) {
-      return res.json({
-        ok: true,
-        current: {
+      return res.json(
+        buildCurrentPayload({
           type: "legacy",
           key: legacyKey,
           label: ACCOUNTS[legacyKey].label,
-        },
-      });
+        })
+      );
     }
 
-    return res.json({ ok: true, current: null });
+    return res.json(buildCurrentPayload(null));
   } catch (err) {
     console.error("GET /api/account/current erro:", err);
     return res
@@ -228,7 +293,7 @@ router.post("/select", express.json({ limit: "200kb" }), async (req, res) => {
         if (!emp) return null;
 
         const r = await client.query(
-          `select id, apelido, meli_user_id, status
+          `select id, apelido, meli_user_id, status, site_id
              from meli_contas
             where id = $1 and empresa_id = $2
             limit 1`,
@@ -238,27 +303,25 @@ router.post("/select", express.json({ limit: "200kb" }), async (req, res) => {
       });
 
       if (!selected)
-        return res
-          .status(400)
-          .json({
-            ok: false,
-            error: "meliContaId inválido (ou não pertence à sua empresa).",
-          });
+        return res.status(400).json({
+          ok: false,
+          error: "meliContaId inválido (ou não pertence à sua empresa).",
+        });
 
       // seta cookie OAuth e limpa legado
       res.cookie(COOKIE_OAUTH, String(selected.id), cookieOptions());
       res.clearCookie(COOKIE_LEGACY, { path: "/" });
 
-      return res.json({
-        ok: true,
-        current: {
+      return res.json(
+        buildCurrentPayload({
           type: "oauth",
           id: selected.id,
           label: selected.apelido || `Conta ${selected.meli_user_id}`,
           meli_user_id: selected.meli_user_id,
           status: selected.status,
-        },
-      });
+          site_id: selected.site_id,
+        })
+      );
     }
 
     // ===== Legacy select =====
@@ -271,22 +334,19 @@ router.post("/select", express.json({ limit: "200kb" }), async (req, res) => {
       res.cookie(COOKIE_LEGACY, accountKey, cookieOptions());
       res.clearCookie(COOKIE_OAUTH, { path: "/" });
 
-      return res.json({
-        ok: true,
-        current: {
+      return res.json(
+        buildCurrentPayload({
           type: "legacy",
           key: accountKey,
           label: ACCOUNTS[accountKey].label,
-        },
-      });
+        })
+      );
     }
 
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: "Envie { meliContaId } (OAuth) ou { accountKey } (legado).",
-      });
+    return res.status(400).json({
+      ok: false,
+      error: "Envie { meliContaId } (OAuth) ou { accountKey } (legado).",
+    });
   } catch (err) {
     console.error("POST /api/account/select erro:", err);
     return res
@@ -302,7 +362,7 @@ router.post("/select", express.json({ limit: "200kb" }), async (req, res) => {
 router.post("/clear", (_req, res) => {
   res.clearCookie(COOKIE_OAUTH, { path: "/" });
   res.clearCookie(COOKIE_LEGACY, { path: "/" });
-  return res.json({ ok: true });
+  return res.json({ ok: true, success: true });
 });
 
 module.exports = router;

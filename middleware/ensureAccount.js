@@ -15,6 +15,7 @@ const COOKIE_OAUTH = "meli_conta_id"; // ✅ OAuth
 // ====== Rotas abertas (não exigem conta selecionada) ======
 const OPEN_PREFIXES = [
   // home / públicos
+  "/api/account",
   "/",
   "/selecao-plataforma",
   "/login",
@@ -53,10 +54,48 @@ const OPEN_PREFIXES = [
 
 const SKIP_METHODS = new Set(["OPTIONS", "HEAD"]);
 
+function getReqPath(req) {
+  return req.path || req.originalUrl || "";
+}
+
 function isOpen(req) {
   if (SKIP_METHODS.has(req.method)) return true;
-  const p = req.path || req.originalUrl || "";
+  const p = getReqPath(req);
   return OPEN_PREFIXES.some((base) => p === base || p.startsWith(base + "/"));
+}
+
+function isApi(req) {
+  const p = getReqPath(req);
+  return p.startsWith("/api/");
+}
+
+function wantsHtml(req) {
+  // IMPORTANTE:
+  // fetch() geralmente manda Accept "*/*" -> isso NÃO deve ser tratado como HTML.
+  // Aqui só retorna true quando o client realmente pede HTML.
+  if (isApi(req)) return false;
+
+  const accept = String(req.headers?.accept || "").toLowerCase();
+  if (!accept) return false;
+
+  // pede explicitamente html
+  if (accept.includes("text/html") || accept.includes("application/xhtml+xml"))
+    return true;
+
+  return false;
+}
+
+function deny(
+  req,
+  res,
+  { status = 401, error = "Acesso negado", redirect = "/select-conta" } = {}
+) {
+  if (wantsHtml(req) && req.method === "GET") return res.redirect(redirect);
+  return res.status(status).json({ ok: false, error, redirect });
+}
+
+function clearOAuthCookie(res) {
+  res.clearCookie(COOKIE_OAUTH, { path: "/" });
 }
 
 // ====== Helpers OAuth (banco) ======
@@ -126,30 +165,12 @@ function ensureCredsBag(res) {
   return res.locals.mlCreds;
 }
 
-function wantsHtml(req) {
-  // req.accepts(['html','json']) pode retornar 'html'/'json'/false
-  const a = req.accepts(["html", "json"]);
-  return a === "html";
-}
-
-function clearOAuthCookie(res) {
-  // ✅ importante: limpar com mesmas opções de Path
-  // Se você setar cookie com secure/sameSite em produção,
-  // não precisa repetir aqui; o essencial é path "/".
-  res.clearCookie(COOKIE_OAUTH, { path: "/" });
-}
-
 /**
  * ensureAccount
  * - Se rota aberta, passa.
  * - Exige que esteja autenticado no app (ensureAuth deve rodar antes).
  * - Se tem cookie meli_conta_id, carrega conta/tokens do banco e injeta em res.locals.mlCreds.
- * - Se não tiver, redireciona /select-conta.
- *
- * Observação:
- * - Se a conta existe mas ainda não tem tokens (callback não concluiu),
- *   a gente deixa passar até o authMiddleware retornar 401 com mensagem clara
- *   OU você pode forçar redirecionar para /vincular-conta (ver flag abaixo).
+ * - Se não tiver, para HTML redireciona /select-conta; para API retorna 401 JSON.
  */
 async function ensureAccount(req, res, next) {
   if (isOpen(req)) return next();
@@ -157,10 +178,11 @@ async function ensureAccount(req, res, next) {
   // 0) precisa estar autenticado no app (ensureAuth antes)
   const uid = Number(req.user?.uid);
   if (!Number.isFinite(uid)) {
-    if (wantsHtml(req) && req.method === "GET") return res.redirect("/login");
-    return res
-      .status(401)
-      .json({ ok: false, error: "Não autenticado", redirect: "/login" });
+    return deny(req, res, {
+      status: 401,
+      error: "Não autenticado",
+      redirect: "/login",
+    });
   }
 
   // 1) cookie OAuth (meli_conta_id)
@@ -168,15 +190,11 @@ async function ensureAccount(req, res, next) {
   const meliContaId = raw ? Number(raw) : null;
 
   if (!Number.isFinite(meliContaId) || meliContaId <= 0) {
-    if (wantsHtml(req) && req.method === "GET")
-      return res.redirect("/select-conta");
-    return res
-      .status(401)
-      .json({
-        ok: false,
-        error: "Conta não selecionada",
-        redirect: "/select-conta",
-      });
+    return deny(req, res, {
+      status: 401,
+      error: "Conta não selecionada",
+      redirect: "/select-conta",
+    });
   }
 
   try {
@@ -186,22 +204,28 @@ async function ensureAccount(req, res, next) {
       // cookie inválido (conta não pertence / não existe)
       clearOAuthCookie(res);
 
-      if (wantsHtml(req) && req.method === "GET")
-        return res.redirect("/select-conta");
-      return res
-        .status(401)
-        .json({
-          ok: false,
-          error: "Conta não selecionada",
-          redirect: "/select-conta",
-        });
+      return deny(req, res, {
+        status: 401,
+        error: "Conta não selecionada",
+        redirect: "/select-conta",
+      });
     }
 
     // Identidade da conta para UI/log
     res.locals.accountMode = "oauth";
-    res.locals.accountKey = String(pack.conta.id); // usado pelo app como accountKey
+    res.locals.accountKey = String(pack.conta.id);
     res.locals.accountLabel =
       pack.conta.apelido || `Conta ${pack.conta.meli_user_id}`;
+
+    // Útil para /api/account/current (se ele usar res.locals)
+    res.locals.account = {
+      mode: "oauth",
+      key: String(pack.conta.id),
+      label: res.locals.accountLabel,
+      meli_user_id: pack.conta.meli_user_id,
+      site_id: pack.conta.site_id || "MLB",
+      status: pack.conta.status,
+    };
 
     res.locals.empresaId = pack.empresa_id;
     res.locals.empresaNome = pack.empresa_nome;
@@ -215,13 +239,15 @@ async function ensureAccount(req, res, next) {
       process.env.APP_ID ||
       process.env.CLIENT_ID ||
       null;
+
     creds.client_secret =
       process.env.ML_CLIENT_SECRET || process.env.CLIENT_SECRET || null;
+
     creds.redirect_uri =
       process.env.ML_REDIRECT_URI || process.env.REDIRECT_URI || null;
 
     // IDs úteis
-    creds.account_key = String(pack.conta.id); // usado no logPrefix e caches
+    creds.account_key = String(pack.conta.id);
     creds.meli_conta_id = pack.conta.id; // ✅ fundamental p/ persistência no tokenService
     creds.meli_user_id = pack.conta.meli_user_id;
     creds.site_id = pack.conta.site_id || "MLB";
@@ -241,7 +267,6 @@ async function ensureAccount(req, res, next) {
     }
 
     // 🔁 Compat: algumas partes antigas podem ler direto do ENV
-    // (evite depender disso no futuro; mas mantém enquanto migra)
     if (creds.access_token)
       process.env.ACCESS_TOKEN = String(creds.access_token);
     if (creds.app_id) process.env.APP_ID = String(creds.app_id);
@@ -252,28 +277,13 @@ async function ensureAccount(req, res, next) {
     if (creds.redirect_uri)
       process.env.REDIRECT_URI = String(creds.redirect_uri);
 
-    // ✅ MELHORIA OPCIONAL:
-    // se quiser forçar a vinculação caso não tenha tokens ainda, descomente:
-    //
-    // const FORCE_VINCULAR_SEM_TOKEN = true;
-    // if (FORCE_VINCULAR_SEM_TOKEN && (!creds.refresh_token || !creds.access_token)) {
-    //   if (wantsHtml(req) && req.method === "GET") return res.redirect("/vincular-conta");
-    //   return res.status(401).json({
-    //     ok: false,
-    //     error: "Conta selecionada, mas ainda não vinculada (tokens ausentes).",
-    //     redirect: "/vincular-conta",
-    //   });
-    // }
-
     return next();
   } catch (e) {
     console.error("❌ ensureAccount (oauth) erro:", e?.message || e);
 
-    if (wantsHtml(req) && req.method === "GET")
-      return res.redirect("/select-conta");
-
-    return res.status(500).json({
-      ok: false,
+    // API nunca deve virar 302 aqui
+    return deny(req, res, {
+      status: 500,
       error: "Erro ao carregar conta OAuth",
       redirect: "/select-conta",
     });
@@ -289,17 +299,5 @@ module.exports = ensureAccount;
  *
  * Se você quiser manter dual-mode (OAuth + Legado), eu monto a versão híbrida
  * com fallback automático e labels do ACCOUNTS.
- *
  * ========================================================================
- *
- * const COOKIE_LEGACY = "ml_account";
- * let ACCOUNTS = {};
- * try { ACCOUNTS = require("../routes/accountRoutes").ACCOUNTS || {}; } catch (_) {}
- *
- * function getEnvCredsFor(key) { ... }
- *
- * // fallback no ensureAccount:
- * const legacyKey = req.cookies?.[COOKIE_LEGACY];
- * if (legacyKey && ACCOUNTS[legacyKey]) { ... next(); }
- *
  */
