@@ -1,230 +1,67 @@
-<!DOCTYPE html>
-
+<!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<link href="/css/dashboard.css" rel="stylesheet"/>
-<link href="/css/select-conta.css" rel="stylesheet"/>
-<title>Selecionar Conta - API Mercado Livre</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Selecionar Conta - API Mercado Livre</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/select-conta.css" />
 </head>
+
 <body>
-<header class="account-bar">
-<div class="account-bar__left">
-<span class="logo">🟡</span>
-<span class="app-name">API Mercado Livre</span>
-</div>
-<div class="account-bar__right">
-<div class="account-bar__current">
-<span class="lbl">Conta:</span>
-<span class="val" id="account-current">Carregando...</span>
-</div>
-<button class="account-bar__status" id="btn-status" title="Ver status do token">Status</button>
-<button class="account-bar__switch" id="account-switch" title="Trocar de conta">Trocar Conta</button>
-</div>
-</header>
-<nav class="main-nav">
-<div class="tabs">
-<button class="nav-tab active" data-tab="dashboard">Dashboard</button>
-      <button class="nav-tab" data-tab="produtos">Produtos</button>
-      <button class="nav-tab" data-tab="ia">IA & Analytics</button>
-      <button class="nav-tab" data-tab="publicidade">Publicidade</button>
-      <button class="nav-tab" data-tab="benchmarking">Benchmarking</button>
-      <button class="nav-tab" data-tab="alertas">Alertas</button>
-      <button class="nav-tab" data-tab="ml">ML</button>
-      <button class="nav-tab" data-tab="full">FULL</button>
-</div>
-</nav>
-<div class="modal" id="modal-status">
-<div class="modal-content">
-<div class="modal-header alt">
-<h3>🟢 Status da Integração</h3>
-<span class="close" onclick="fecharModalStatus()">×</span>
-</div>
-<div class="modal-body">
-<div class="status-grid">
-<div class="stat-mini"><h4 id="status-usuario">—</h4><p>Usuário</p></div>
-<div class="stat-mini"><h4 id="status-token">—</h4><p>Token (preview)</p></div>
-<div class="stat-mini"><h4 id="status-msg">—</h4><p>Mensagem</p></div>
-</div>
-<div class="modal-controls">
-<button class="btn-small btn-primary" onclick="verificarToken(true)">🔍 Verificar</button>
-<button class="btn-small btn-success" onclick="renovarToken(true)">🔄 Renovar</button>
-</div>
-</div>
-</div>
-</div>
-<main class="page-wrap">
-<section class="tab-page active">
-<div class="container">
-<div class="select-wrap">
-<div class="select-head"><span>🔎</span><span>API Mercado Livre</span></div>
-<h1 class="select-title">Selecione a conta</h1>
-<p class="select-sub">Escolha qual conta deseja usar nesta sessão. Você pode trocá-la depois pelo botão “Trocar Conta” no topo do dashboard.</p>
-<div class="grid" id="list"></div>
-<div class="actions">
-<button class="btn btn-ghost" onclick="window.location.href='/dashboard'">Voltar ao Dashboard</button>
-<button class="btn btn-warning" onclick="clearAccount()">Limpar Seleção</button>
-</div>
-<div id="status" style="display:none"></div>
-</div>
-<script>
-    const labels = { drossi:'DRossi Interiores', diplany:'Diplany', rossidecor:'Rossi Decor' };
+  <!-- Topbar (mantém seu padrão visual) -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <span class="logo">🟡</span>
+      <span class="app-name">API Mercado Livre</span>
+    </div>
 
-    async function loadAccounts() {
-  const list = document.getElementById('list');
-  const status = document.getElementById('status');
-  try {
-    const r = await fetch('/api/account/list', { cache:'no-store' });
-    const data = await r.json();
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta ML:</span>
+        <span class="val" id="account-current">Não selecionada</span>
+      </div>
 
-    const items = (data.accounts || []).map(acc => {
-      const s = acc.configured ? 'Tokens OK' : 'Tokens ausentes';
-      return `
-        <button class="acc-btn" onclick="selectAccount('${acc.key}')">
-          ${labels[acc.key] || acc.label || acc.key}
-          <span class="sub">chave: ${acc.key}<br>${s}</span>
-        </button>`;
-    }).join('');
+      <button class="account-bar__status" id="btn-vincular" title="Vincular nova conta Mercado Livre">
+        Vincular Conta
+      </button>
 
-    list.innerHTML = items;
+      <button class="account-bar__switch" id="btn-sair" title="Sair do sistema">
+        Sair
+      </button>
+    </div>
+  </header>
 
-    if (data.current) {
-      status.style.display = 'block';
-      status.textContent = 'Conta atual: ' + (data.currentLabel || data.current);
-    }
-  } catch (e) {
-    list.innerHTML = `<div class="hint">Erro ao carregar contas: ${e.message}</div>`;
-  }
-}
+  <main class="page-wrap">
+    <section class="tab-page active">
+      <div class="container">
+        <div class="select-wrap">
+          <div class="select-head">
+            <span>🔎</span><span>API Mercado Livre</span>
+          </div>
 
-    async function selectAccount(key) {
-      const r = await fetch('/api/account/select', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ accountKey:key })
-      });
-      const data = await r.json();
-      if (data.ok || data.success) {
-        window.location.href = '/dashboard';
-      } else {
-        alert('Falha ao selecionar: ' + (data.error || 'erro'));
-      }
-    }
+          <h1 class="select-title">Selecione a conta</h1>
+          <p class="select-sub">
+            Escolha qual conta do Mercado Livre deseja usar nesta sessão.
+            Você pode vincular novas contas e trocar depois quando quiser.
+          </p>
 
-    async function clearAccount() {
-      await fetch('/api/account/clear',{ method:'POST' });
-      // mantém na tela para o usuário escolher outra
-      location.reload();
-    }
+          <div id="alert" style="display:none"></div>
 
-    loadAccounts();
-  </script>
-</div>
-</section>
-</main>
-<script>
-    // Marcar aba ativa
-    (function() {
-      var tabs = document.querySelectorAll('.nav-tab');
-      tabs.forEach(function(t) {
-        if (t.getAttribute('data-tab') === 'dashboard') t.classList.add('active');
-      });
-    })();
+          <!-- Lista (OAuth / Banco) -->
+          <div class="grid" id="list"></div>
 
-    // Conta atual + Trocar conta
-    const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
-    async function carregarContaAtual() {
-      const currentEl = document.getElementById('account-current');
-      try {
-        const r = await fetch('/api/account/current', { cache: 'no-store' });
-        const data = await r.json();
-        let shown = 'Não selecionada';
-        if (data && (data.ok || data.success)) {
-          shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
-        } else if (data) {
-          shown = data.label || data.accountKey || 'Desconhecida';
-        }
-        currentEl.textContent = shown;
-      } catch(e) {
-        currentEl.textContent = 'Indisponível';
-      }
-    }
-    async function trocarConta() {
-      try {
-        await fetch('/api/account/clear', { method: 'POST' });
-        window.location.href = '/select-conta';
-      } catch(e) {
-        window.location.href = '/select-conta';
-      }
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-      carregarContaAtual();
-      var switchBtn = document.getElementById('account-switch');
-      if (switchBtn) switchBtn.addEventListener('click', trocarConta);
-    });
+          <div class="actions">
+            <button class="btn btn-ghost" id="btn-dashboard">Voltar ao Dashboard</button>
+            <button class="btn btn-warning" id="btn-limpar">Limpar seleção</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
 
-    // Status (token)
-    function abrirModalStatus() {
-      document.getElementById('modal-status').style.display = 'block';
-    }
-    function fecharModalStatus() {
-      document.getElementById('modal-status').style.display = 'none';
-    }
-    document.getElementById('btn-status').addEventListener('click', async () => {
-      abrirModalStatus();
-      await verificarToken(true);
-    });
-    async function verificarToken(updateModal=false) {
-      try {
-        const response = await fetch('/verificar-token');
-        const data = await response.json();
-        if (data.success) {
-          if (updateModal) {
-            document.getElementById('status-usuario').textContent = data.nickname || '—';
-            document.getElementById('status-token').textContent = data.token_preview || '—';
-            document.getElementById('status-msg').textContent = data.message || 'OK';
-          } else {
-            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
-          }
-        } else {
-          if (updateModal) {
-            document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
-          } else {
-            alert('❌ ' + (data.error || 'Falha ao verificar'));
-          }
-        }
-      } catch (error) {
-        if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
-        else alert('❌ Erro: ' + error.message);
-      }
-    }
-    async function renovarToken(updateModal=false) {
-      try {
-        const response = await fetch('/renovar-token-automatico', { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-          if (updateModal) {
-            document.getElementById('status-usuario').textContent = data.nickname || '—';
-            document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
-            document.getElementById('status-msg').textContent = data.message || 'Token renovado';
-          } else {
-            alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
-          }
-        } else {
-          if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
-          else alert('❌ ' + (data.error || 'Falha ao renovar'));
-        }
-      } catch (error) {
-        if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
-        else alert('❌ Erro: ' + error.message);
-      }
-    }
-    // Fechar modal clicando fora
-    window.addEventListener('click', function(event){
-      const m2 = document.getElementById('modal-status');
-      if (event.target === m2) fecharModalStatus();
-    });
-  </script>
+  <!-- JS dedicado -->
+  <script src="/js/select-conta.js?v=1"></script>
 </body>
 </html>

@@ -5,7 +5,6 @@ const express = require("express");
 const crypto = require("crypto");
 const db = require("../db/db");
 
-// Node 18+ tem fetch global. Se estiver em versão antiga, você vai precisar instalar node-fetch.
 const router = express.Router();
 
 // ===============================
@@ -13,24 +12,44 @@ const router = express.Router();
 // ===============================
 const ML_APP_ID =
   process.env.ML_APP_ID || process.env.APP_ID || process.env.CLIENT_ID;
+
 const ML_CLIENT_SECRET =
   process.env.ML_CLIENT_SECRET || process.env.CLIENT_SECRET;
+
 const ML_REDIRECT_URI = process.env.ML_REDIRECT_URI || process.env.REDIRECT_URI;
 
-if (!ML_APP_ID)
+if (!ML_APP_ID) {
   console.warn("⚠️ ML_APP_ID não definido (ML_APP_ID / APP_ID / CLIENT_ID).");
-if (!ML_CLIENT_SECRET)
+}
+if (!ML_CLIENT_SECRET) {
   console.warn(
     "⚠️ ML_CLIENT_SECRET não definido (ML_CLIENT_SECRET / CLIENT_SECRET)."
   );
-if (!ML_REDIRECT_URI)
+}
+if (!ML_REDIRECT_URI) {
   console.warn(
     "⚠️ ML_REDIRECT_URI não definido (ML_REDIRECT_URI / REDIRECT_URI)."
   );
+}
 
 // Brasil (ajuste se precisar multi-país)
 const AUTH_BASE = "https://auth.mercadolivre.com.br/authorization";
 const TOKEN_URL = "https://api.mercadolibre.com/oauth/token";
+const ML_USERS_URL = "https://api.mercadolibre.com/users";
+
+// Cookie da conta selecionada (novo padrão)
+const COOKIE_MELI_CONTA = "meli_conta_id";
+
+// Em produção (Render), você está com trust proxy = 1, então secure funciona
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 30 * 24 * 3600 * 1000, // 30 dias
+    path: "/",
+  };
+}
 
 // ===============================
 // Helpers PKCE + state
@@ -57,6 +76,14 @@ function randomVerifier() {
   return base64Url(crypto.randomBytes(64));
 }
 
+// Evita open redirect: só aceita path interno do seu app
+function sanitizeReturnTo(input) {
+  let rt = String(input || "/vincular-conta").trim() || "/vincular-conta";
+  // precisa começar com "/" e não pode começar com "//"
+  if (!rt.startsWith("/") || rt.startsWith("//")) rt = "/vincular-conta";
+  return rt;
+}
+
 async function getEmpresaDoUsuario(client, usuarioId) {
   // MVP: assume 1 usuário -> 1 empresa (owner/admin/operador)
   const r = await client.query(
@@ -71,6 +98,146 @@ async function getEmpresaDoUsuario(client, usuarioId) {
   return r.rows[0] || null;
 }
 
+// (Opcional) busca nickname no ML para usar como apelido default
+async function tryGetMlNickname(accessToken, meliUserId) {
+  try {
+    if (!accessToken || !meliUserId) return null;
+    const resp = await fetch(`${ML_USERS_URL}/${meliUserId}`, {
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json().catch(() => null);
+    const nick = String(data?.nickname || "").trim();
+    return nick || null;
+  } catch {
+    return null;
+  }
+}
+
+function mustBeLogged(req) {
+  const uid = Number(req.user?.uid);
+  return Number.isFinite(uid) ? uid : null;
+}
+
+function readCurrentContaId(req) {
+  const raw = req.cookies?.[COOKIE_MELI_CONTA];
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
+// ===============================
+// GET /api/meli/contas
+// Lista contas vinculadas da empresa do usuário logado
+// Retorna também current_meli_conta_id (cookie httpOnly)
+// ===============================
+router.get("/contas", async (req, res) => {
+  try {
+    const uid = mustBeLogged(req);
+    if (!uid)
+      return res.status(401).json({ ok: false, error: "Não autenticado." });
+
+    const currentId = readCurrentContaId(req);
+
+    const rows = await db.withClient(async (client) => {
+      const emp = await getEmpresaDoUsuario(client, uid);
+      if (!emp)
+        throw new Error("Usuário não está vinculado a nenhuma empresa.");
+
+      const r = await client.query(
+        `select id, meli_user_id, apelido, site_id, status, criado_em, atualizado_em, ultimo_uso_em
+           from meli_contas
+          where empresa_id = $1
+          order by id desc`,
+        [emp.empresa_id]
+      );
+      return r.rows;
+    });
+
+    // Se o cookie aponta pra uma conta que não existe mais, derruba (higiene)
+    if (currentId && !rows.some((c) => Number(c.id) === Number(currentId))) {
+      res.clearCookie(COOKIE_MELI_CONTA, { path: "/" });
+      return res.json({ ok: true, contas: rows, current_meli_conta_id: null });
+    }
+
+    return res.json({
+      ok: true,
+      contas: rows,
+      current_meli_conta_id: currentId,
+    });
+  } catch (e) {
+    console.error("GET /api/meli/contas erro:", e?.message || e);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Erro ao listar contas vinculadas." });
+  }
+});
+
+// ===============================
+// POST /api/meli/selecionar
+// body: { meli_conta_id }
+// Seta cookie httpOnly meli_conta_id (sessão atual)
+// ===============================
+router.post(
+  "/selecionar",
+  express.json({ limit: "50kb" }),
+  async (req, res) => {
+    try {
+      const uid = mustBeLogged(req);
+      if (!uid)
+        return res.status(401).json({ ok: false, error: "Não autenticado." });
+
+      const meli_conta_id = Number(req.body?.meli_conta_id);
+      if (!Number.isFinite(meli_conta_id)) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "meli_conta_id inválido." });
+      }
+
+      // garante que a conta pertence à empresa do usuário
+      const ok = await db.withClient(async (client) => {
+        const emp = await getEmpresaDoUsuario(client, uid);
+        if (!emp)
+          throw new Error("Usuário não está vinculado a nenhuma empresa.");
+
+        const r = await client.query(
+          `select c.id
+           from meli_contas c
+          where c.id = $1 and c.empresa_id = $2
+          limit 1`,
+          [meli_conta_id, emp.empresa_id]
+        );
+        return !!r.rows[0];
+      });
+
+      if (!ok) {
+        return res
+          .status(404)
+          .json({ ok: false, error: "Conta não encontrada para sua empresa." });
+      }
+
+      res.cookie(COOKIE_MELI_CONTA, String(meli_conta_id), cookieOptions());
+      return res.json({ ok: true, meli_conta_id });
+    } catch (e) {
+      console.error("POST /api/meli/selecionar erro:", e?.message || e);
+      return res
+        .status(500)
+        .json({ ok: false, error: "Erro ao selecionar conta." });
+    }
+  }
+);
+
+// ===============================
+// POST /api/meli/limpar-selecao
+// Limpa cookie meli_conta_id
+// ===============================
+router.post("/limpar-selecao", async (_req, res) => {
+  res.clearCookie(COOKIE_MELI_CONTA, { path: "/" });
+  return res.json({ ok: true });
+});
+
 // ===============================
 // POST /api/meli/oauth/start
 // body: { return_to? }
@@ -80,23 +247,22 @@ router.post(
   express.json({ limit: "200kb" }),
   async (req, res) => {
     try {
-      if (!ML_APP_ID || !ML_REDIRECT_URI) {
-        return res
-          .status(500)
-          .json({
-            ok: false,
-            error:
-              "Config do Mercado Livre incompleta (APP_ID / REDIRECT_URI).",
-          });
+      // falha cedo se faltar config completa
+      if (!ML_APP_ID || !ML_CLIENT_SECRET || !ML_REDIRECT_URI) {
+        return res.status(500).json({
+          ok: false,
+          error:
+            "Config do Mercado Livre incompleta (APP_ID/SECRET/REDIRECT_URI).",
+        });
       }
 
-      const uid = Number(req.user?.uid);
-      if (!Number.isFinite(uid))
+      const uid = mustBeLogged(req);
+      if (!uid)
         return res.status(401).json({ ok: false, error: "Não autenticado." });
 
-      const return_to =
-        String(req.body?.return_to || "/vincular-conta").trim() ||
-        "/vincular-conta";
+      const return_to = sanitizeReturnTo(
+        req.body?.return_to || "/vincular-conta"
+      );
 
       const state = randomState();
       const code_verifier = randomVerifier();
@@ -108,11 +274,10 @@ router.post(
         await client.query("begin");
         try {
           const empresa = await getEmpresaDoUsuario(client, uid);
-          if (!empresa) {
+          if (!empresa)
             throw new Error("Usuário não está vinculado a nenhuma empresa.");
-          }
 
-          // limpa states expirados (higiene)
+          // higiene: limpa states expirados
           await client.query(
             `delete from oauth_states where expira_em < now()`
           );
@@ -143,7 +308,7 @@ router.post(
       url.searchParams.set("redirect_uri", String(ML_REDIRECT_URI));
       url.searchParams.set("state", state);
 
-      // PKCE obrigatório no seu cenário
+      // PKCE
       url.searchParams.set("code_challenge", code_challenge);
       url.searchParams.set("code_challenge_method", "S256");
 
@@ -229,20 +394,19 @@ router.get("/oauth/callback", async (req, res) => {
         }
 
         const meli_user_id = Number(data.user_id);
+        const access_token = String(data.access_token);
+        const refresh_token = String(data.refresh_token);
         const scope = String(data.scope || "").trim() || null;
 
-        // calcula expiracao absoluta
+        // expiração absoluta
         const expiresInSec = Number(data.expires_in || 0);
         const access_expires_at = new Date(
           Date.now() + Math.max(60, expiresInSec) * 1000
         );
 
         // 1) upsert meli_contas (por empresa + meli_user_id)
-        // Atenção: se você aplicou a migration 007 (unique global por meli_user_id),
-        // e essa conta já estiver em outra empresa, esse insert vai dar 23505.
         let contaId = null;
 
-        // tenta achar conta existente na mesma empresa
         const existing = await client.query(
           `select id, apelido, status
              from meli_contas
@@ -263,8 +427,9 @@ router.get("/oauth/callback", async (req, res) => {
             [contaId]
           );
         } else {
-          // apelido padrão: "Conta <user_id>" (depois a gente deixa o usuário renomear)
-          const apelido = `Conta ${meli_user_id}`;
+          // tenta nickname do ML p/ apelido padrão
+          let apelido = await tryGetMlNickname(access_token, meli_user_id);
+          if (!apelido) apelido = `Conta ${meli_user_id}`;
 
           const ins = await client.query(
             `insert into meli_contas (empresa_id, meli_user_id, apelido, site_id, status)
@@ -278,7 +443,8 @@ router.get("/oauth/callback", async (req, res) => {
 
         // 2) upsert tokens (1:1 por meli_conta_id)
         await client.query(
-          `insert into meli_tokens (meli_conta_id, access_token, access_expires_at, refresh_token, scope, refresh_obtido_em, ultimo_refresh_em)
+          `insert into meli_tokens
+            (meli_conta_id, access_token, access_expires_at, refresh_token, scope, refresh_obtido_em, ultimo_refresh_em)
            values ($1, $2, $3, $4, $5, now(), now())
            on conflict (meli_conta_id)
            do update set
@@ -289,9 +455,9 @@ router.get("/oauth/callback", async (req, res) => {
               ultimo_refresh_em = now()`,
           [
             contaId,
-            String(data.access_token),
+            access_token,
             access_expires_at.toISOString(),
-            String(data.refresh_token),
+            refresh_token,
             scope,
           ]
         );
@@ -303,25 +469,63 @@ router.get("/oauth/callback", async (req, res) => {
 
         await client.query("commit");
 
-        return { return_to: row.return_to || "/vincular-conta", meli_user_id };
+        return {
+          return_to: row.return_to || "/vincular-conta",
+          meli_user_id,
+          contaId,
+        };
       } catch (e) {
         await client.query("rollback");
         throw e;
       }
     });
 
-    // sucesso -> volta para a tela (ou manda para select-conta)
-    const go = outcome.return_to || "/vincular-conta";
+    // ✅ (opcional mas MUITO útil): já seleciona a conta recém vinculada
+    // Assim, se você quiser depois redirecionar para /select-conta, ela já aparece como "selecionada".
+    try {
+      if (outcome?.contaId) {
+        res.cookie(COOKIE_MELI_CONTA, String(outcome.contaId), cookieOptions());
+      }
+    } catch (_) {}
+
+    // sucesso -> volta para a tela (somente path interno)
+    const go = sanitizeReturnTo(outcome.return_to || "/vincular-conta");
     return res.redirect(go);
   } catch (err) {
-    // Se você aplicou a migration 007, conta já em outra empresa vira 23505.
-    const code = String(err?.code || "");
-    if (code === "23505") {
+    const pgCode = String(err?.code || "");
+    if (pgCode === "23505") {
+      const constraint = String(err?.constraint || "");
+
+      // índices atuais:
+      // ux_meli_contas_empresa_apelido
+      // ux_meli_contas_empresa_meli_user
+      if (constraint.includes("ux_meli_contas_empresa_apelido")) {
+        return res
+          .status(409)
+          .send("Já existe uma conta com esse apelido nesta empresa.");
+      }
+
+      if (constraint.includes("ux_meli_contas_empresa_meli_user")) {
+        return res
+          .status(409)
+          .send("Essa conta do Mercado Livre já está vinculada nesta empresa.");
+      }
+
+      // se existir unique global no futuro, cairia aqui também
+      if (
+        constraint.toLowerCase().includes("global") ||
+        constraint.toLowerCase().includes("meli_user")
+      ) {
+        return res
+          .status(409)
+          .send(
+            "Essa conta do Mercado Livre já está vinculada a outra empresa neste sistema."
+          );
+      }
+
       return res
         .status(409)
-        .send(
-          "Essa conta do Mercado Livre já está vinculada a outra empresa neste sistema."
-        );
+        .send("Conflito ao salvar vinculação (registro duplicado).");
     }
 
     console.error("GET /api/meli/oauth/callback erro:", err?.message || err);

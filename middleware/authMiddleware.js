@@ -1,23 +1,42 @@
 // middleware/authMiddleware.js
-const TokenService = require('../services/tokenService'); // caminho ok
+"use strict";
+
+const TokenService = require("../services/tokenService");
 
 // Rotas/métodos que não precisam de token ML (evita refresh desnecessário)
 const SKIP_PATHS = [
-  /^\/api\/account\/current(?:\/|$)/i,      // info da conta atual
-  /^\/api\/health(?:\/|$)/i,                // health checks
-  /^\/health(?:\/|$)/i,
-  /^\/api\/pesquisa-descricao\/jobs/i,      // já existia
-  /^\/api\/pesquisa-descricao\/status/i,    // já existia
+  // ✅ OAuth / seleção/vinculação (não precisa token ML)
+  /^\/api\/meli\/contas(?:\/|$)/i,
+  /^\/api\/meli\/select(?:\/|$)/i,
+  /^\/api\/meli\/clear(?:\/|$)/i,
+  /^\/api\/meli\/oauth\/start(?:\/|$)/i,
+  /^\/api\/meli\/oauth\/callback(?:\/|$)/i,
 
-  // ✅ NOVO: polling e download do filtro-anuncios (não precisa token ML)
+  // health checks
+  /^\/api\/health(?:\/|$)/i,
+  /^\/health(?:\/|$)/i,
+  /^\/api\/system\/health(?:\/|$)/i,
+  /^\/api\/system\/stats(?:\/|$)/i,
+
+  // jobs sem token ML
+  /^\/api\/pesquisa-descricao\/jobs/i,
+  /^\/api\/pesquisa-descricao\/status/i,
+
+  // polling/download filtro-anuncios (não precisa token ML)
   /^\/api\/analytics\/filtro-anuncios\/jobs\/[^\/]+(?:\/|$)/i,
+
+  /* ============================
+   * LEGADO (comentado)
+   * ============================
+   * /^\/api\/account\/current(?:\/|$)/i,
+   */
 ];
 
-const SKIP_METHODS = new Set(['OPTIONS', 'HEAD']);
+const SKIP_METHODS = new Set(["OPTIONS", "HEAD"]);
 
 function isSkipped(req) {
   if (SKIP_METHODS.has(req.method)) return true;
-  const p = req.path || req.originalUrl || '';
+  const p = req.path || req.originalUrl || "";
   return SKIP_PATHS.some((rx) => rx.test(p));
 }
 
@@ -28,11 +47,15 @@ function ensureCredsBag(res) {
 }
 
 function getAccountMeta(res) {
-  return { key: res?.locals?.accountKey || null, label: res?.locals?.accountLabel || null };
+  return {
+    key: res?.locals?.accountKey || null,
+    label: res?.locals?.accountLabel || null,
+    mode: res?.locals?.accountMode || null,
+    meli_conta_id: res?.locals?.mlCreds?.meli_conta_id || null,
+  };
 }
 
 function attachAuthContext(req, res, accessToken) {
-  // Garante estrutura mínima em res.locals
   const creds = ensureCredsBag(res);
 
   res.locals.accessToken = accessToken || null;
@@ -47,22 +70,69 @@ function attachAuthContext(req, res, accessToken) {
     creds,
     accountKey: res?.locals?.accountKey || null,
     accountLabel: res?.locals?.accountLabel || null,
+    accountMode: res?.locals?.accountMode || null,
   };
 }
 
+function wantsHtml(req) {
+  const accept = String(req.headers.accept || "");
+  return accept.includes("text/html");
+}
+
+/**
+ * Decide para onde redirecionar quando falhar token.
+ * - Se não há conta selecionada -> /select-conta
+ * - Se há conta, mas falta refresh_token (não vinculou ainda) -> /vincular-conta
+ * - Default -> /select-conta
+ */
+function computeRedirectForTokenFailure(res) {
+  const creds = res?.locals?.mlCreds || {};
+  const hasConta = !!creds.meli_conta_id || !!res?.locals?.accountKey;
+
+  if (hasConta && !creds.refresh_token) return "/vincular-conta";
+  return "/select-conta";
+}
+
+function build401Payload(message, res, extra = {}) {
+  const account = getAccountMeta(res);
+  const redirect = computeRedirectForTokenFailure(res);
+
+  return {
+    ok: false,
+    error: message,
+    account,
+    redirect,
+    ...extra,
+  };
+}
+
+// 🔒 Exige token ML válido
 const authMiddleware = async (req, res, next) => {
   if (isSkipped(req)) return next();
 
-  const account = getAccountMeta(res);
   try {
     const creds = ensureCredsBag(res);
+
+    // ✅ Com OAuth, ensureAccount injeta:
+    // creds.meli_conta_id, refresh_token, access_token, access_expires_at, etc.
+    // TokenService:
+    // - usa refresh_token para renovar
+    // - se creds.meli_conta_id existir, pode salvar tokens no banco
     const token = await TokenService.renovarTokenSeNecessario(creds);
+
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: 'Token de acesso indisponível para a conta atual',
-        account,
-      });
+      const redirect = computeRedirectForTokenFailure(res);
+
+      if (wantsHtml(req) && req.method === "GET") return res.redirect(redirect);
+
+      return res
+        .status(401)
+        .json(
+          build401Payload(
+            "Token de acesso indisponível para a conta atual",
+            res
+          )
+        );
     }
 
     attachAuthContext(req, res, token);
@@ -74,24 +144,36 @@ const authMiddleware = async (req, res, next) => {
         req.user_data = { user_id: teste.user_id, nickname: teste.nickname };
       }
     } catch (e) {
-      console.warn('⚠️ authMiddleware: falha ao testar token:', e?.message || e);
+      console.warn(
+        "⚠️ authMiddleware: falha ao testar token:",
+        e?.message || e
+      );
     }
 
     return next();
   } catch (error) {
-    console.error('❌ authMiddleware:', error?.message || error);
-    return res.status(401).json({
-      success: false,
-      error: 'Token inválido e não foi possível renovar: ' + (error?.message || 'Erro desconhecido'),
-      account,
-    });
+    console.error("❌ authMiddleware:", error?.message || error);
+
+    const redirect = computeRedirectForTokenFailure(res);
+
+    if (wantsHtml(req) && req.method === "GET") return res.redirect(redirect);
+
+    return res
+      .status(401)
+      .json(
+        build401Payload(
+          "Token inválido e não foi possível renovar: " +
+            (error?.message || "Erro desconhecido"),
+          res
+        )
+      );
   }
 };
 
+// 🔓 Não bloqueia se não tiver token (apenas injeta contexto)
 const authMiddlewareOptional = async (req, res, next) => {
   if (isSkipped(req)) return next();
 
-  const account = getAccountMeta(res);
   try {
     const creds = ensureCredsBag(res);
 
@@ -99,7 +181,10 @@ const authMiddlewareOptional = async (req, res, next) => {
     try {
       token = await TokenService.renovarTokenSeNecessario(creds);
     } catch (e) {
-      console.warn('⚠️ authMiddlewareOptional: não foi possível obter/renovar token:', e?.message || e);
+      console.warn(
+        "⚠️ authMiddlewareOptional: não foi possível obter/renovar token:",
+        e?.message || e
+      );
     }
 
     attachAuthContext(req, res, token);
@@ -111,14 +196,17 @@ const authMiddlewareOptional = async (req, res, next) => {
           req.user_data = { user_id: teste.user_id, nickname: teste.nickname };
         }
       } catch (e) {
-        console.warn('⚠️ authMiddlewareOptional: falha ao testar token:', e?.message || e);
+        console.warn(
+          "⚠️ authMiddlewareOptional: falha ao testar token:",
+          e?.message || e
+        );
       }
     }
 
     return next();
   } catch (error) {
-    console.warn('⚠️ authMiddlewareOptional:', error?.message || error);
-    return next();
+    console.warn("⚠️ authMiddlewareOptional:", error?.message || error);
+    return next(); // não bloqueia
   }
 };
 
