@@ -274,6 +274,102 @@ app.get("/admin/usuarios", noCache, ensureMasterOnly, (req, res) => {
   return res.sendFile(path.join(__dirname, "views", "admin-usuarios.html"));
 });
 
+// HTML: Empresas
+app.get("/admin/empresas", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-empresas.html"));
+});
+
+// API: Empresas
+try {
+  const adminEmpresasRoutes = require("./routes/adminEmpresasRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminEmpresasRoutes);
+  console.log("✅ AdminEmpresasRoutes carregado (MASTER ONLY via index.js)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminEmpresasRoutes:", e.message);
+}
+
+// HTML Vínculos
+app.get("/admin/vinculos", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-vinculos.html"));
+});
+
+// API Vínculos
+try {
+  const adminVinculosRoutes = require("./routes/adminVinculosRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminVinculosRoutes);
+  console.log("✅ AdminVinculosRoutes carregado (MASTER ONLY via index.js)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminVinculosRoutes:", e.message);
+}
+
+// HTML Contas ML
+app.get("/admin/contas-ml", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-meli-contas.html"));
+});
+
+// API Contas ML
+try {
+  const adminMeliContasRoutes = require("./routes/adminMeliContasRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminMeliContasRoutes);
+  console.log("✅ AdminMeliContasRoutes carregado (MASTER ONLY via index.js)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminMeliContasRoutes:", e.message);
+}
+
+// HTML Tokens ML
+app.get("/admin/tokens-ml", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-meli-tokens.html"));
+});
+
+// API Tokens ML
+try {
+  const adminMeliTokensRoutes = require("./routes/adminMeliTokensRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminMeliTokensRoutes);
+  console.log("✅ AdminMeliTokensRoutes carregado (MASTER ONLY via index.js)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminMeliTokensRoutes:", e.message);
+}
+
+// HTML OAuth States
+app.get("/admin/oauth-states", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-oauth-states.html"));
+});
+
+// API OAuth States
+try {
+  const adminOAuthStatesRoutes = require("./routes/adminOAuthStatesRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminOAuthStatesRoutes);
+  console.log("✅ AdminOAuthStatesRoutes carregado (MASTER ONLY via index.js)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminOAuthStatesRoutes:", e.message);
+}
+
+app.get("/admin/migracoes", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-migracoes.html"));
+});
+
+try {
+  const adminMigracoesRoutes = require("./routes/adminMigracoesRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminMigracoesRoutes);
+  console.log("✅ AdminMigracoesRoutes carregado (MASTER ONLY via index.js)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminMigracoesRoutes:", e.message);
+}
+// HTML Backup (SOMENTE MASTER)
+app.get("/admin/backup", noCache, ensureMasterOnly, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "admin-backup.html"));
+});
+
+try {
+  const adminBackupRoutes = require("./routes/adminBackupRoutes");
+  app.use("/api/admin", ensureMasterOnly, adminBackupRoutes);
+  console.log("✅ AdminBackupRoutes carregado (MASTER ONLY)");
+} catch (e) {
+  console.error("❌ Erro ao carregar AdminBackupRoutes:", e.message);
+}
+
+
+
 // APIs do painel (aplica o gate no index.js)
 try {
   const adminUsuariosRoutes = require("./routes/adminUsuariosRoutes");

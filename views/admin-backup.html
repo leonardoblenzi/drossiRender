@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin • Backup</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <link rel="stylesheet" href="/css/admin-usuarios.css?v=2"><!-- reaproveita o mesmo css -->
+</head>
+<body>
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img src="/img/davantti.png" alt="DAVANTTI" class="brand__logo" width="170" height="42" decoding="async" loading="eager"/>
+      </a>
+    </div>
+    <div class="account-bar__right">
+      <a class="account-bar__switch" href="/dashboard" style="text-decoration:none; display:inline-flex; align-items:center;">
+        Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar__brand">
+        <div class="admin-sidebar__logo">DAVANTTI</div>
+        <div class="admin-sidebar__sub">Administração</div>
+      </div>
+
+      <nav class="admin-menu">
+        <a class="admin-menu__item" href="/admin/usuarios"><span class="ico">👤</span><span>Usuários</span></a>
+        <a class="admin-menu__item active" href="/admin/backup"><span class="ico">🧰</span><span>Backup</span></a>
+      </nav>
+
+      <div class="admin-sidebar__footer"><small>Área restrita</small></div>
+    </aside>
+
+    <section class="admin-content">
+      <div class="admin-content__header">
+        <div>
+          <h1 class="admin-title">Backup do banco</h1>
+          <p class="admin-subtitle">Exporte um backup completo (tabelas + dados) e restaure um backup anterior.</p>
+        </div>
+      </div>
+
+      <div class="card" style="padding:16px;">
+        <h3 style="margin:0 0 10px;">Exportar</h3>
+        <p style="margin:0 0 14px; opacity:.85;">
+          Gera um arquivo JSON com todas as tabelas do sistema e os dados atuais.
+        </p>
+
+        <button id="btn-export" class="btn-primary" type="button">⬇ Baixar backup (.json)</button>
+      </div>
+
+      <div class="card" style="padding:16px; margin-top:14px;">
+        <h3 style="margin:0 0 10px;">Restaurar</h3>
+        <p style="margin:0 0 14px; opacity:.85;">
+          Atenção: esta ação substitui os dados atuais pelo conteúdo do backup (wipe & restore).
+        </p>
+
+        <input id="file" type="file" accept="application/json" />
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button id="btn-import" class="btn-lite" type="button">♻ Restaurar backup selecionado</button>
+        </div>
+
+        <div id="msg" style="display:none; margin-top:12px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.15);"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/admin-backup.js?v=1"></script>
+</body>
+</html>
