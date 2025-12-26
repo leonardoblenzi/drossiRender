@@ -55,6 +55,7 @@ const OPEN_PREFIXES = [
 const SKIP_METHODS = new Set(["OPTIONS", "HEAD"]);
 
 function getReqPath(req) {
+  // req.path é o melhor para comparar prefixos (sem querystring)
   return req.path || req.originalUrl || "";
 }
 
@@ -72,13 +73,11 @@ function isApi(req) {
 function wantsHtml(req) {
   // IMPORTANTE:
   // fetch() geralmente manda Accept "*/*" -> isso NÃO deve ser tratado como HTML.
-  // Aqui só retorna true quando o client realmente pede HTML.
   if (isApi(req)) return false;
 
   const accept = String(req.headers?.accept || "").toLowerCase();
   if (!accept) return false;
 
-  // pede explicitamente html
   if (accept.includes("text/html") || accept.includes("application/xhtml+xml"))
     return true;
 
@@ -99,13 +98,46 @@ function clearOAuthCookie(res) {
 }
 
 // ===============================
-// Helpers: role
+// Helpers: uid / role (ROBUSTO)
 // ===============================
+function getUid(req) {
+  // cobre formatos comuns do ensureAuth
+  const raw =
+    req.user?.uid ??
+    req.user?.id ??
+    req.user?.user_id ??
+    req.user?.usuario_id ??
+    null;
+
+  const uid = Number(raw);
+  return Number.isFinite(uid) ? uid : null;
+}
+
 function normalizeNivel(n) {
   return String(n || "").trim().toLowerCase();
 }
+
+function truthy(v) {
+  return v === true || v === 1 || v === "1" || v === "true";
+}
+
 function isMaster(req) {
-  return normalizeNivel(req.user?.nivel) === "admin_master" || req.user?.is_master === true;
+  // cobre formatos comuns:
+  // - req.user.is_master
+  // - req.user.flags.is_master (bem comum)
+  // - req.user.isMaster
+  // - req.user.nivel === admin_master
+  // - req.user.role === admin_master
+  const nivel = normalizeNivel(req.user?.nivel);
+  const role  = normalizeNivel(req.user?.role);
+
+  return (
+    nivel === "admin_master" ||
+    role === "admin_master" ||
+    truthy(req.user?.is_master) ||
+    truthy(req.user?.isMaster) ||
+    truthy(req.user?.flags?.is_master)
+  );
 }
 
 // ====== Helpers OAuth (banco) ======
@@ -130,7 +162,6 @@ async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
     const emp = await getEmpresaDoUsuario(client, usuarioId);
     if (!emp) return null;
 
-    // 1) Confere se a conta pertence à empresa do usuário e pega meta
     const c = await client.query(
       `select mc.id,
               mc.empresa_id,
@@ -147,7 +178,6 @@ async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
     const conta = c.rows[0];
     if (!conta) return null;
 
-    // 2) Pega tokens 1:1
     const t = await client.query(
       `select mt.access_token,
               mt.access_expires_at,
@@ -173,8 +203,8 @@ async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
 }
 
 /**
- * ✅ Admin master: pode usar qualquer conta existente (não valida empresa do usuário).
- * Também retorna empresa_nome da conta selecionada (pra UI/header).
+ * ✅ Admin master: pode usar qualquer conta existente.
+ * Retorna empresa_nome da conta selecionada (pra UI/header).
  */
 async function getOAuthCredsForMasterAndContaId(meliContaId) {
   return db.withClient(async (client) => {
@@ -235,17 +265,13 @@ function ensureCredsBag(res) {
 
 /**
  * ensureAccount
- * - Se rota aberta, passa.
- * - Exige que esteja autenticado no app (ensureAuth deve rodar antes).
- * - Se tem cookie meli_conta_id, carrega conta/tokens do banco e injeta em res.locals.mlCreds.
- * - Se não tiver, para HTML redireciona /select-conta; para API retorna 401 JSON.
  */
 async function ensureAccount(req, res, next) {
   if (isOpen(req)) return next();
 
   // 0) precisa estar autenticado no app (ensureAuth antes)
-  const uid = Number(req.user?.uid);
-  if (!Number.isFinite(uid)) {
+  const uid = getUid(req);
+  if (!uid) {
     return deny(req, res, {
       status: 401,
       error: "Não autenticado",
@@ -268,18 +294,22 @@ async function ensureAccount(req, res, next) {
   }
 
   try {
-    // ✅ master pode pegar qualquer conta, usuário comum valida empresa
     const pack = master
       ? await getOAuthCredsForMasterAndContaId(meliContaId)
       : await getOAuthCredsForUserAndContaId(uid, meliContaId);
 
     if (!pack) {
-      // cookie inválido (conta não existe / não pertence)
+      // Se chegou aqui:
+      // - master: conta não existe
+      // - não-master: conta não pertence à empresa OU usuário sem empresa
+      // Evita "apagar cookie" em cascata sem diagnóstico — mas mantemos a limpeza por segurança.
       clearOAuthCookie(res);
 
       return deny(req, res, {
         status: 401,
-        error: "Conta não selecionada",
+        error: master
+          ? "Conta selecionada não encontrada."
+          : "Conta não selecionada",
         redirect: "/select-conta",
       });
     }
@@ -290,7 +320,6 @@ async function ensureAccount(req, res, next) {
     res.locals.accountLabel =
       pack.conta.apelido || `Conta ${pack.conta.meli_user_id}`;
 
-    // Útil para /api/account/current (se ele usar res.locals)
     res.locals.account = {
       mode: "oauth",
       key: String(pack.conta.id),
@@ -298,16 +327,16 @@ async function ensureAccount(req, res, next) {
       meli_user_id: pack.conta.meli_user_id,
       site_id: pack.conta.site_id || "MLB",
       status: pack.conta.status,
+      // ajuda a UI master
+      empresa_id: pack.empresa_id,
+      empresa_nome: pack.empresa_nome,
     };
 
-    // ✅ Empresa correta (pra master é a da conta selecionada)
     res.locals.empresaId = pack.empresa_id;
     res.locals.empresaNome = pack.empresa_nome;
 
-    // Bag de credenciais para o resto do app
     const creds = ensureCredsBag(res);
 
-    // Config do app central vem do ENV do servidor
     creds.app_id =
       process.env.ML_APP_ID ||
       process.env.APP_ID ||
@@ -320,14 +349,12 @@ async function ensureAccount(req, res, next) {
     creds.redirect_uri =
       process.env.ML_REDIRECT_URI || process.env.REDIRECT_URI || null;
 
-    // IDs úteis
     creds.account_key = String(pack.conta.id);
-    creds.meli_conta_id = pack.conta.id; // ✅ fundamental p/ persistência no tokenService
+    creds.meli_conta_id = pack.conta.id;
     creds.meli_user_id = pack.conta.meli_user_id;
     creds.site_id = pack.conta.site_id || "MLB";
     creds.status = pack.conta.status;
 
-    // Tokens (se existirem)
     if (pack.tokens) {
       creds.access_token = pack.tokens.access_token || null;
       creds.refresh_token = pack.tokens.refresh_token || null;
@@ -340,8 +367,7 @@ async function ensureAccount(req, res, next) {
       creds.scope = null;
     }
 
-    // 🔁 Compat: algumas partes antigas podem ler direto do ENV
-    // (não é o ideal, mas mantém seu sistema funcionando como está hoje)
+    // Compat (legado)
     if (creds.access_token) process.env.ACCESS_TOKEN = String(creds.access_token);
     if (creds.app_id) process.env.APP_ID = String(creds.app_id);
     if (creds.client_secret) process.env.CLIENT_SECRET = String(creds.client_secret);
@@ -351,8 +377,6 @@ async function ensureAccount(req, res, next) {
     return next();
   } catch (e) {
     console.error("❌ ensureAccount (oauth) erro:", e?.message || e);
-
-    // API nunca deve virar 302 aqui
     return deny(req, res, {
       status: 500,
       error: "Erro ao carregar conta OAuth",
@@ -362,13 +386,3 @@ async function ensureAccount(req, res, next) {
 }
 
 module.exports = ensureAccount;
-
-/* ========================================================================
- * LEGADO (mantido comentado)
- * - cookie: "ml_account" (drossi/diplany/rossidecor)
- * - credenciais: .env ML_<KEY>_APP_ID / CLIENT_SECRET / REFRESH_TOKEN etc.
- *
- * Se você quiser manter dual-mode (OAuth + Legado), eu monto a versão híbrida
- * com fallback automático e labels do ACCOUNTS.
- * ========================================================================
- */
