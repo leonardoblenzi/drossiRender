@@ -87,8 +87,8 @@
   function fmtDate(isoOrTs) {
     if (!isoOrTs) return "—";
     try {
-      const d = new Date(isoOrTs);
-      if (Number.isNaN(d.getTime())) return "—";
+      const d = parseDateSmart(isoOrTs);
+      if (!d) return "—";
       return d.toLocaleString("pt-BR");
     } catch {
       return "—";
@@ -119,6 +119,57 @@
       clearTimeout(t);
       t = setTimeout(() => fn(...args), ms);
     };
+  }
+
+  // ===========================
+  // Parse de data robusto (corrige "expirado" falso)
+  // - aceita ISO com timezone, timestamp, e formato postgres "YYYY-MM-DD HH:mm:ss"
+  // ===========================
+  function parseDateSmart(v) {
+    if (!v) return null;
+
+    // number timestamp
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    const s = String(v).trim();
+    if (!s) return null;
+
+    // timestamp num em string
+    if (/^\d{11,15}$/.test(s)) {
+      const n = Number(s);
+      const d = new Date(n);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    // ISO ok
+    if (s.includes("T")) {
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    // Postgres comum: "YYYY-MM-DD HH:mm:ss" (sem timezone)
+    // Interpreta como horário local do browser (consistente) e converte corretamente.
+    // Se seu backend mandar esse formato, isso evita "Invalid Date"/timezone bug.
+    const m = s.match(
+      /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/
+    );
+    if (m) {
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const day = Number(m[3]);
+      const hh = Number(m[4]);
+      const mm = Number(m[5]);
+      const ss = Number(m[6] || "0");
+      const d = new Date(year, month, day, hh, mm, ss);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    // fallback
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
 
   // ===========================
@@ -306,8 +357,8 @@
 
   function calcExpiryMinutes(accessExpiresAt) {
     if (!accessExpiresAt) return null;
-    const d = new Date(accessExpiresAt);
-    if (Number.isNaN(d.getTime())) return null;
+    const d = parseDateSmart(accessExpiresAt);
+    if (!d) return null;
     return Math.floor((d.getTime() - Date.now()) / 60000);
   }
 
@@ -319,6 +370,16 @@
       : `<span style="${badgeStyle("warn")}">⛔ Sem tokens</span>`;
 
     const mins = calcExpiryMinutes(c?.access_expires_at);
+
+    // Melhor UX: quando não tem tokens, não mostra "Expirado"
+    if (!hasTokens) {
+      return `
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+          ${tokensBadge}
+          <span style="${badgeStyle("muted")}">⏳ Expira: —</span>
+        </div>
+      `;
+    }
 
     let expBadge = `<span style="${badgeStyle("muted")}">⏳ Expira: —</span>`;
     if (mins !== null) {
@@ -452,9 +513,6 @@
       // backend atual lê req.query.onlyActive === "1"
       if (state.onlyActive) url.searchParams.set("onlyActive", "1");
 
-      // compat opcional (se você já usou active_only em algum front antigo)
-      // url.searchParams.set("active_only", state.onlyActive ? "1" : "0");
-
       url.searchParams.set("page", String(state.page));
       url.searchParams.set("pageSize", String(state.pageSize));
     }
@@ -511,6 +569,19 @@
         throw new Error(msg);
       }
 
+      // ✅ Confere rapidamente se a seleção ficou válida (ajuda MUITO no caso master)
+      try {
+        const chk = await fetchJson("/api/meli/current");
+        if (chk?.r?.ok && chk?.data?.ok === true && chk?.data?.selected !== true) {
+          throw new Error("Conta não ficou selecionada (current.selected=false).");
+        }
+      } catch (e) {
+        // se falhar, não redireciona cego
+        showAlert(`Conta selecionada, mas falhou ao validar sessão: ${e.message}`, "warn");
+        // ainda assim tenta seguir, porque alguns setups bloqueiam /api/meli/current sem conta
+      }
+
+      // ✅ segue para o app
       window.location.href = "/dashboard";
     } catch (e) {
       console.error(e);

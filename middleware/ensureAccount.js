@@ -98,6 +98,16 @@ function clearOAuthCookie(res) {
   res.clearCookie(COOKIE_OAUTH, { path: "/" });
 }
 
+// ===============================
+// Helpers: role
+// ===============================
+function normalizeNivel(n) {
+  return String(n || "").trim().toLowerCase();
+}
+function isMaster(req) {
+  return normalizeNivel(req.user?.nivel) === "admin_master" || req.user?.is_master === true;
+}
+
 // ====== Helpers OAuth (banco) ======
 async function getEmpresaDoUsuario(client, usuarioId) {
   const r = await client.query(
@@ -112,6 +122,9 @@ async function getEmpresaDoUsuario(client, usuarioId) {
   return r.rows[0] || null;
 }
 
+/**
+ * Usuário comum/admin: valida que a conta pertence à empresa do usuário.
+ */
 async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
   return db.withClient(async (client) => {
     const emp = await getEmpresaDoUsuario(client, usuarioId);
@@ -159,6 +172,61 @@ async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
   });
 }
 
+/**
+ * ✅ Admin master: pode usar qualquer conta existente (não valida empresa do usuário).
+ * Também retorna empresa_nome da conta selecionada (pra UI/header).
+ */
+async function getOAuthCredsForMasterAndContaId(meliContaId) {
+  return db.withClient(async (client) => {
+    const c = await client.query(
+      `select mc.id,
+              mc.empresa_id,
+              e.nome as empresa_nome,
+              mc.meli_user_id,
+              mc.apelido,
+              mc.site_id,
+              mc.status
+         from meli_contas mc
+         join empresas e on e.id = mc.empresa_id
+        where mc.id = $1
+        limit 1`,
+      [meliContaId]
+    );
+
+    const conta = c.rows[0];
+    if (!conta) return null;
+
+    const t = await client.query(
+      `select mt.access_token,
+              mt.access_expires_at,
+              mt.refresh_token,
+              mt.scope,
+              mt.refresh_obtido_em,
+              mt.ultimo_refresh_em
+         from meli_tokens mt
+        where mt.meli_conta_id = $1
+        limit 1`,
+      [conta.id]
+    );
+
+    const tok = t.rows[0] || null;
+
+    return {
+      conta: {
+        id: conta.id,
+        empresa_id: conta.empresa_id,
+        meli_user_id: conta.meli_user_id,
+        apelido: conta.apelido,
+        site_id: conta.site_id,
+        status: conta.status,
+      },
+      tokens: tok,
+      empresa_id: conta.empresa_id,
+      empresa_nome: conta.empresa_nome,
+    };
+  });
+}
+
 function ensureCredsBag(res) {
   if (!res.locals) res.locals = {};
   if (!res.locals.mlCreds) res.locals.mlCreds = {};
@@ -185,6 +253,8 @@ async function ensureAccount(req, res, next) {
     });
   }
 
+  const master = isMaster(req);
+
   // 1) cookie OAuth (meli_conta_id)
   const raw = req.cookies?.[COOKIE_OAUTH];
   const meliContaId = raw ? Number(raw) : null;
@@ -198,10 +268,13 @@ async function ensureAccount(req, res, next) {
   }
 
   try {
-    const pack = await getOAuthCredsForUserAndContaId(uid, meliContaId);
+    // ✅ master pode pegar qualquer conta, usuário comum valida empresa
+    const pack = master
+      ? await getOAuthCredsForMasterAndContaId(meliContaId)
+      : await getOAuthCredsForUserAndContaId(uid, meliContaId);
 
     if (!pack) {
-      // cookie inválido (conta não pertence / não existe)
+      // cookie inválido (conta não existe / não pertence)
       clearOAuthCookie(res);
 
       return deny(req, res, {
@@ -227,6 +300,7 @@ async function ensureAccount(req, res, next) {
       status: pack.conta.status,
     };
 
+    // ✅ Empresa correta (pra master é a da conta selecionada)
     res.locals.empresaId = pack.empresa_id;
     res.locals.empresaNome = pack.empresa_nome;
 
@@ -267,15 +341,12 @@ async function ensureAccount(req, res, next) {
     }
 
     // 🔁 Compat: algumas partes antigas podem ler direto do ENV
-    if (creds.access_token)
-      process.env.ACCESS_TOKEN = String(creds.access_token);
+    // (não é o ideal, mas mantém seu sistema funcionando como está hoje)
+    if (creds.access_token) process.env.ACCESS_TOKEN = String(creds.access_token);
     if (creds.app_id) process.env.APP_ID = String(creds.app_id);
-    if (creds.client_secret)
-      process.env.CLIENT_SECRET = String(creds.client_secret);
-    if (creds.refresh_token)
-      process.env.REFRESH_TOKEN = String(creds.refresh_token);
-    if (creds.redirect_uri)
-      process.env.REDIRECT_URI = String(creds.redirect_uri);
+    if (creds.client_secret) process.env.CLIENT_SECRET = String(creds.client_secret);
+    if (creds.refresh_token) process.env.REFRESH_TOKEN = String(creds.refresh_token);
+    if (creds.redirect_uri) process.env.REDIRECT_URI = String(creds.redirect_uri);
 
     return next();
   } catch (e) {

@@ -165,6 +165,7 @@ async function tryGetMlNickname(accessToken, meliUserId) {
 // Retorna também:
 // - has_tokens (true/false)
 // - access_expires_at
+// - expires_in_min (✅ calculado no banco)
 // - empresa_nome (apenas master)
 // - paginação (total/total_pages)
 // - current_meli_conta_id (cookie)
@@ -175,7 +176,7 @@ router.get("/contas", async (req, res) => {
     if (!uid) return res.status(401).json({ ok: false, error: "Não autenticado." });
 
     const master = isMaster(req);
-    const currentId = readCurrentContaId(req);
+    let currentId = readCurrentContaId(req);
 
     const q = String(req.query?.q || "").trim();
     const onlyActive = parseBoolLike(req.query?.active_only || req.query?.onlyActive);
@@ -198,7 +199,8 @@ router.get("/contas", async (req, res) => {
       }
 
       if (onlyActive) {
-        where.push(`lower(c.status) = 'ativa'`);
+        // tolerante a variações
+        where.push(`lower(c.status) in ('ativa','active','enabled')`);
       }
 
       if (q) {
@@ -233,13 +235,22 @@ router.get("/contas", async (req, res) => {
 
       const total = (await client.query(countSql, params)).rows?.[0]?.total || 0;
 
+      // ✅ expires_in_min: calculado no banco (evita parse errado no front)
+      const expiresExpr = `
+        case
+          when t.access_expires_at is null then null
+          else floor(extract(epoch from (t.access_expires_at - now()))/60)::int
+        end as expires_in_min
+      `;
+
       const listSql = master
         ? `select
              c.id, c.empresa_id, e.nome as empresa_nome,
              c.meli_user_id, c.apelido, c.site_id, c.status,
              c.criado_em, c.atualizado_em, c.ultimo_uso_em,
              (t.meli_conta_id is not null) as has_tokens,
-             t.access_expires_at
+             t.access_expires_at,
+             ${expiresExpr}
            from meli_contas c
            join empresas e on e.id = c.empresa_id
            left join meli_tokens t on t.meli_conta_id = c.id
@@ -251,7 +262,8 @@ router.get("/contas", async (req, res) => {
              c.meli_user_id, c.apelido, c.site_id, c.status,
              c.criado_em, c.atualizado_em, c.ultimo_uso_em,
              (t.meli_conta_id is not null) as has_tokens,
-             t.access_expires_at
+             t.access_expires_at,
+             ${expiresExpr}
            from meli_contas c
            left join meli_tokens t on t.meli_conta_id = c.id
            ${whereSql}
@@ -283,6 +295,7 @@ router.get("/contas", async (req, res) => {
 
       if (!okCurrent) {
         res.clearCookie(COOKIE_MELI_CONTA, { path: "/" });
+        currentId = null;
       }
     }
 
