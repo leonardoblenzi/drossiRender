@@ -23,11 +23,17 @@
         <span class="val" id="account-current">Não selecionada</span>
       </div>
 
-      <button class="account-bar__status" id="btn-vincular" title="Vincular nova conta Mercado Livre">
+      <!-- Para usuário normal: aparece "Vincular Conta" -->
+      <button class="account-bar__status" id="btn-vincular" type="button" title="Vincular nova conta Mercado Livre">
         Vincular Conta
       </button>
 
-      <button class="account-bar__switch" id="btn-sair" title="Sair do sistema">
+      <!-- Para MASTER: aparece "Painel Admin" (no lugar do Vincular) -->
+      <button class="account-bar__status" id="btn-admin" type="button" title="Abrir Painel Administrativo" style="display:none;">
+        Painel Admin
+      </button>
+
+      <button class="account-bar__switch" id="btn-sair" type="button" title="Sair do sistema">
         Sair
       </button>
     </div>
@@ -41,8 +47,10 @@
             <span>🔎</span><span>API Mercado Livre</span>
           </div>
 
-          <h1 class="select-title">Selecione a conta</h1>
-          <p class="select-sub">
+          <h1 class="select-title" id="select-title">Selecione a conta</h1>
+
+          <!-- ✅ Vamos trocar o texto via JS quando for master -->
+          <p class="select-sub" id="select-sub">
             Escolha qual conta do Mercado Livre deseja usar nesta sessão.
             Você pode vincular novas contas e trocar depois quando quiser.
           </p>
@@ -53,8 +61,8 @@
           <div class="grid" id="list"></div>
 
           <div class="actions">
-            <button class="btn btn-ghost" id="btn-dashboard">Voltar ao Dashboard</button>
-            <button class="btn btn-warning" id="btn-limpar">Limpar seleção</button>
+            <button class="btn btn-ghost" id="btn-dashboard" type="button">Voltar ao Dashboard</button>
+            <button class="btn btn-warning" id="btn-limpar" type="button">Limpar seleção</button>
           </div>
         </div>
       </div>
@@ -62,6 +70,6 @@
   </main>
 
   <!-- JS dedicado -->
-  <script src="/js/select-conta.js?v=1"></script>
+  <script src="/js/select-conta.js?v=2"></script>
 </body>
 </html>

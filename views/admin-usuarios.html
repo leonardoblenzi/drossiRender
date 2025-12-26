@@ -13,21 +13,19 @@
 <body>
   <!-- TOPO FIXO (mantém seu padrão) -->
   <header class="account-bar">
-
     <div class="account-bar__left">
-    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
-      <img
-        src="/img/davantti.png"
-        alt="DAVANTTI"
-        class="brand__logo"
-        width="170"
-        height="42"
-        decoding="async"
-        loading="eager"
-      />
-    </a>
-  </div>
-
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
+    </div>
 
     <div class="account-bar__right">
       <a class="account-bar__switch" href="/dashboard" style="text-decoration:none; display:inline-flex; align-items:center;">
@@ -35,7 +33,7 @@
       </a>
     </div>
   </header>
-  
+
   <main class="admin-layout">
     <!-- Sidebar -->
     <aside class="admin-sidebar">
@@ -44,10 +42,41 @@
         <div class="admin-sidebar__sub">Administração</div>
       </div>
 
-      <nav class="admin-menu">
-        <a class="admin-menu__item active" href="/admin/usuarios">
+      <nav class="admin-menu" aria-label="Menu Administração">
+        <a class="admin-menu__item active" href="/admin/usuarios" aria-current="page">
           <span class="ico">👤</span>
           <span>Usuários</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/empresas">
+          <span class="ico">🏢</span>
+          <span>Empresas</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/vinculos">
+          <span class="ico">🔗</span>
+          <span>Vínculos</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/meli-contas">
+          <span class="ico">🟡</span>
+          <span>Contas ML</span>
+        </a>
+
+        <!-- MASTER ONLY (UI) — backend também deve proteger -->
+        <a class="admin-menu__item" href="/admin/meli-tokens" data-master-only="1" style="display:none;">
+          <span class="ico">🔑</span>
+          <span>Tokens ML</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/oauth-states" data-master-only="1" style="display:none;">
+          <span class="ico">🧩</span>
+          <span>OAuth States</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/migracoes" data-master-only="1" style="display:none;">
+          <span class="ico">🧱</span>
+          <span>Migrações</span>
         </a>
       </nav>
 
@@ -167,6 +196,35 @@
 
   <!-- Toast -->
   <div class="toast" id="toast" style="display:none;"></div>
+
+  <!-- 🔒 UI: esconde itens master-only se não for admin_master -->
+  <script>
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+        const data = await r.json().catch(() => null);
+
+        // suportar formatos:
+        // { ok:true, logged:true, user:{ nivel:'...' }, is_master:true }
+        const nivel =
+          data?.user?.nivel ||
+          data?.user?.user?.nivel ||
+          data?.nivel ||
+          null;
+
+        const isMaster = data?.is_master === true || nivel === "admin_master";
+
+        document.querySelectorAll("[data-master-only='1']").forEach((el) => {
+          el.style.display = isMaster ? "" : "none";
+        });
+      } catch (_) {
+        // se falhar, por segurança esconde os itens
+        document.querySelectorAll("[data-master-only='1']").forEach((el) => {
+          el.style.display = "none";
+        });
+      }
+    })();
+  </script>
 
   <script src="/js/admin-usuarios.js?v=1"></script>
 </body>
