@@ -4,29 +4,53 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Admin • OAuth States</title>
-  
+
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
-  <link rel="stylesheet" href="/css/admin-usuarios.css" />
+  <link rel="stylesheet" href="/css/admin-usuarios.css?v=2">
 </head>
 
 <body>
-  <div class="admin-layout">
+  <!-- Topbar padrão -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
+    </div>
+
+    <div class="account-bar__right">
+      <a
+        class="account-bar__switch"
+        href="/select-conta"
+        style="text-decoration:none; display:inline-flex; align-items:center;"
+      >
+        Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="admin-layout">
     <aside class="admin-sidebar">
-      <div class="brand">
-        <div class="brand__logo">🛠️</div>
-        <div class="brand__text">
-          <div class="brand__title">Painel Admin</div>
-          <div class="brand__sub">Master Only</div>
-        </div>
+      <div class="admin-sidebar__brand">
+        <div class="admin-sidebar__logo">Painel Admin</div>
+        <div class="admin-sidebar__sub">Master Only</div>
       </div>
 
-      <nav class="nav">
-         <a class="admin-menu__item" href="/admin/usuarios">
+      <nav class="admin-menu">
+        <a class="admin-menu__item" href="/admin/usuarios">
           <span class="ico">👤</span>
           <span>Usuários</span>
         </a>
 
-        <a class="admin-menu__item active" href="/admin/empresas">
+        <a class="admin-menu__item" href="/admin/empresas">
           <span class="ico">🏢</span>
           <span>Empresas</span>
         </a>
@@ -55,52 +79,61 @@
           <span class="ico">📦</span>
           <span>Migrações</span>
         </a>
+
         <a class="admin-menu__item" href="/admin/backup">
-            <span class="ico">🧰</span><span>Backup</span>
+          <span class="ico">🧰</span>
+          <span>Backup</span>
         </a>
       </nav>
 
-      <div class="sidebar-footer">
-        <a class="nav__item nav__item--ghost" href="/select-conta">Voltar</a>
+      <div class="admin-sidebar__footer">
+        <small>Área restrita</small>
       </div>
     </aside>
 
-    <main class="admin-main">
-      <header class="page-header">
+    <section class="admin-content">
+      <!-- Header da página -->
+      <div class="admin-content__header">
         <div>
-          <h1>OAuth States</h1>
-          <p class="muted">
+          <h1 class="admin-title">OAuth States</h1>
+          <p class="admin-subtitle">
             Lista de <code>oauth_states</code> (PKCE/state). Útil para debug. Você pode limpar expirados.
           </p>
         </div>
 
-        <div class="header-actions">
-          <button id="btn-cleanup" class="btn btn-ghost" type="button">Limpar expirados</button>
-          <button id="btn-refresh" class="btn btn-ghost" type="button">Atualizar</button>
+        <div class="admin-actions">
+          <button id="btn-cleanup" class="btn-lite" type="button">Limpar expirados</button>
+          <button id="btn-refresh" class="btn-lite" type="button">Atualizar</button>
         </div>
-      </header>
+      </div>
 
-      <section class="toolbar">
-        <div class="toolbar__left">
-          <input id="search" class="input" placeholder="Buscar por empresa, usuário, email, state, return_to…" />
-          <button id="btn-clear" class="btn btn-ghost" type="button">Limpar</button>
-        </div>
-
-        <div class="toolbar__right">
-          <span id="count-pill" class="pill">—</span>
-          <div class="pager">
-            <button id="btn-prev" class="btn btn-ghost" type="button">◀</button>
-            <span class="pager__info"><span id="page-info">—</span></span>
-            <button id="btn-next" class="btn btn-ghost" type="button">▶</button>
+      <!-- Toolbar -->
+      <div class="admin-toolbar">
+        <div class="admin-actions" style="flex:1; min-width:260px;">
+          <div class="search-box" style="flex:1;">
+            <input
+              id="search"
+              placeholder="Buscar por empresa, usuário, email, state, return_to…"
+              autocomplete="off"
+            />
           </div>
-        </div>
-      </section>
-
-      <section class="table-card">
-        <div class="table-meta">
-          <div id="range-info" class="muted">—</div>
+          <button id="btn-clear" class="btn-lite" type="button">Limpar</button>
         </div>
 
+        <div class="admin-actions">
+          <span id="count-pill" class="pill">—</span>
+
+          <button id="btn-prev" class="btn-lite" type="button" title="Anterior">◀</button>
+          <span class="page-info" id="page-info">—</span>
+          <button id="btn-next" class="btn-lite" type="button" title="Próxima">▶</button>
+        </div>
+      </div>
+
+      <!-- Range info -->
+      <div id="range-info" class="hint">—</div>
+
+      <!-- Tabela -->
+      <div class="card" style="margin-top:10px;">
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -116,14 +149,15 @@
                 <th style="width: 110px;">Ações</th>
               </tr>
             </thead>
+
             <tbody id="tbody">
               <tr><td colspan="9" class="table-empty">Carregando…</td></tr>
             </tbody>
           </table>
         </div>
-      </section>
-    </main>
-  </div>
+      </div>
+    </section>
+  </main>
 
   <div id="toast" class="toast" style="display:none;">—</div>
 
