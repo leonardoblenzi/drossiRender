@@ -91,14 +91,9 @@ router.get("/estrategicos", noCache, (_req, res) => {
  *  - Se 'padrao' clicar no card e tentar abrir a view,
  *    já cai em /nao-autorizado (sem nem carregar a página)
  * ================================ */
-router.get(
-  "/excluir-anuncio",
-  noCache,
-  ensurePermission.requireAdmin(), // ✅ aqui
-  (_req, res) => {
-    res.sendFile(path.join(__dirname, "..", "views", "excluir-anuncio.html"));
-  }
-);
+router.get("/excluir-anuncio", noCache, requireAdmin(), (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "views", "excluir-anuncio.html"));
+});
 
 /* ================================
  * NOVO: Página Filtro Avançado de Anúncios (HTML)

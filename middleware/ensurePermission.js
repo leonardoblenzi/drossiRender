@@ -1,89 +1,77 @@
 // middleware/ensurePermission.js
 "use strict";
 
-const { helpers } = require("./ensureAccount");
+/**
+ * Gate único e reutilizável para permissões.
+ * Fonte da verdade: req.user (injetado pelo ensureAuth) ou res.locals.user.
+ *
+ * Níveis aceitos:
+ * - "usuario" (ou vazio) -> padrao
+ * - "administrador" ou "admin" -> admin
+ * - "admin_master" -> master
+ */
 
-function normalizeNivel(n) {
-  return String(n || "")
+function resolveNivel(req, res) {
+  const u = req.user || res.locals.user || {};
+  const raw = String(u.nivel || "")
     .trim()
     .toLowerCase();
-}
 
-function truthy(v) {
-  return v === true || v === 1 || v === "1" || v === "true";
-}
-
-function isMaster(req) {
-  // reaproveita o mesmo padrão do ensureAccount (mas sem depender do middleware ter rodado)
-  const nivel = normalizeNivel(req.user?.nivel);
-  const role = normalizeNivel(req.user?.role);
-
-  return (
-    nivel === "admin_master" ||
-    role === "admin_master" ||
-    truthy(req.user?.is_master) ||
-    truthy(req.user?.isMaster) ||
-    truthy(req.user?.flags?.is_master) ||
-    req.userContext?.is_master === true
-  );
-}
-
-function isAdmin(req) {
-  // Você pode definir "admin" global (req.user.nivel === 'admin')
-  // ou no futuro ligar em papel por empresa. Por enquanto: só global.
-  const nivel = normalizeNivel(req.user?.nivel);
-  const role = normalizeNivel(req.user?.role);
-
-  return nivel === "admin" || role === "admin";
-}
-
-function resolveLevel(req) {
-  if (isMaster(req)) return "master";
-  if (isAdmin(req)) return "admin";
+  if (raw === "admin_master" || raw === "master") return "master";
+  if (raw === "administrador" || raw === "admin") return "admin";
   return "padrao";
 }
 
-function hasLevel(current, required) {
-  const rank = { padrao: 1, admin: 2, master: 3 };
-  const a = rank[current] || 1;
-  const b = rank[required] || 1;
-  return a >= b;
+function wantsHtml(req) {
+  const a = req.accepts(["html", "json"]);
+  return a === "html";
 }
 
-/**
- * requireLevel("admin" | "master")
- */
-function requireLevel(required = "admin") {
-  const requiredNorm = normalizeNivel(required) || "admin";
+function isApiCall(req) {
+  const path = req.path || req.originalUrl || "";
+  const accept = String(req.headers?.accept || "");
+  const xrw = String(req.headers?.["x-requested-with"] || "");
+  return (
+    path.startsWith("/api/") ||
+    accept.includes("application/json") ||
+    xrw.toLowerCase() === "xmlhttprequest"
+  );
+}
 
-  return function ensurePermission(req, res, next) {
-    // Se quiser deixar algumas rotas abertas, você pode checar helpers.isOpen(req) aqui.
-    // Mas normalmente autorização é aplicada só onde você usar esse middleware.
-    const current = resolveLevel(req);
-
-    if (hasLevel(current, requiredNorm)) return next();
-
-    // comportamento padrão: HTML vai pra view nao autorizado, API 403
-    return helpers.deny(req, res, {
-      status: 403,
-      error: "Não autorizado",
+function deny(req, res, reason = "Acesso não autorizado.") {
+  // Para API/fetch: 403 JSON
+  if (isApiCall(req) || !wantsHtml(req) || req.method !== "GET") {
+    return res.status(403).json({
+      ok: false,
+      error: reason,
       redirect: "/nao-autorizado",
     });
+  }
+
+  // Para navegação de página (GET): redirect
+  return res.redirect("/nao-autorizado");
+}
+
+function requireAdmin() {
+  return function (req, res, next) {
+    const nivel = resolveNivel(req, res);
+    const ok = nivel === "admin" || nivel === "master";
+    if (ok) return next();
+    return deny(req, res);
   };
 }
 
-// atalhos
-function requireAdmin() {
-  return requireLevel("admin");
-}
 function requireMaster() {
-  return requireLevel("master");
+  return function (req, res, next) {
+    const nivel = resolveNivel(req, res);
+    if (nivel === "master") return next();
+    return deny(req, res);
+  };
 }
 
 module.exports = {
-  requireLevel,
+  resolveNivel,
+  deny,
   requireAdmin,
   requireMaster,
-  // expõe caso você queira usar em logs
-  resolveLevel,
 };
