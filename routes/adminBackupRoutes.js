@@ -17,36 +17,104 @@ function nowStamp() {
   )}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-/**
- * GET /api/admin/backup/export.json
- * Exporta backup JSON por tabelas (fallback universal)
- */
+const ALLOWED_TABLES = [
+  "empresas",
+  "usuarios",
+  "empresa_usuarios",
+  "meli_contas",
+  "meli_tokens",
+  "oauth_states",
+  "migracoes",
+];
+
+// ordem boa pra inserir respeitando FK
+const INSERT_ORDER = [
+  "empresas",
+  "usuarios",
+  "empresa_usuarios",
+  "meli_contas",
+  "meli_tokens",
+  "oauth_states",
+  "migracoes",
+];
+
+// ======================================================================
+// Helpers
+// ======================================================================
+async function getTableColumns(client, tableName) {
+  const r = await client.query(
+    `
+    select column_name
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = $1
+     order by ordinal_position
+    `,
+    [tableName]
+  );
+  return new Set((r.rows || []).map((x) => x.column_name));
+}
+
+function pickColumns(availableColsSet, rowObj) {
+  // pega só colunas que existem na tabela atual (evita quebrar por coluna antiga)
+  const cols = Object.keys(rowObj || {}).filter((c) => availableColsSet.has(c));
+  return cols;
+}
+
+async function bumpSerial(client, table, idCol = "id") {
+  const seq = (
+    await client.query(`select pg_get_serial_sequence($1, $2) as seq`, [
+      `public.${table}`,
+      idCol,
+    ])
+  ).rows?.[0]?.seq;
+
+  if (!seq) return; // tabela pode não ter serial
+
+  // setval(seq, max(id), true) -> próximo nextval = max+1
+  await client.query(
+    `
+    select setval($1,
+      coalesce((select max(${idCol}) from ${table}), 0),
+      true
+    )
+    `,
+    [seq]
+  );
+}
+
+// ======================================================================
+// GET /api/admin/backup/export.json
+// Exporta backup JSON por tabelas (com order by id asc quando existir)
+// ======================================================================
 router.get("/backup/export.json", async (_req, res) => {
   try {
-    // Ordem boa pra restore
-    const tables = [
-      "empresas",
-      "usuarios",
-      "empresa_usuarios",
-      "meli_contas",
-      "meli_tokens",
-      "oauth_states",
-      "migracoes",
-    ];
+    const tables = [...ALLOWED_TABLES];
 
-    const pack = {};
-    for (const t of tables) {
-      const r = await db.query(`select * from ${t}`);
-      pack[t] = r.rows || [];
-    }
+    const payload = await db.withClient(async (client) => {
+      const tableCols = {};
+      for (const t of tables) {
+        tableCols[t] = await getTableColumns(client, t);
+      }
 
-    const payload = {
-      ok: true,
-      format: "davantti_backup_json_v1",
-      created_at: new Date().toISOString(),
-      tables,
-      data: pack,
-    };
+      const pack = {};
+      for (const t of tables) {
+        const hasId = tableCols[t].has("id");
+        const sql = hasId
+          ? `select * from ${t} order by id asc`
+          : `select * from ${t}`;
+        const r = await client.query(sql);
+        pack[t] = r.rows || [];
+      }
+
+      return {
+        ok: true,
+        format: "davantti_backup_json_v1",
+        created_at: new Date().toISOString(),
+        tables,
+        data: pack,
+      };
+    });
 
     const filename = `davantti_db_backup_${nowStamp()}.json`;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -54,137 +122,139 @@ router.get("/backup/export.json", async (_req, res) => {
     return res.status(200).send(JSON.stringify(payload, null, 2));
   } catch (err) {
     console.error("GET /api/admin/backup/export.json erro:", err);
-    return res.status(500).json({ ok: false, error: "Erro ao exportar backup." });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Erro ao exportar backup." });
   }
 });
 
-/**
- * POST /api/admin/backup/import.json
- * body: { backup: {...} }  OU multipart (se preferir)
- * Restaura por JSON (wipe & restore) - MASTER ONLY
- */
-router.post("/backup/import.json", express.json({ limit: "50mb" }), async (req, res) => {
-  try {
-    const backup = req.body?.backup;
-    if (!backup || backup.format !== "davantti_backup_json_v1") {
-      return res.status(400).json({ ok: false, error: "Backup inválido (formato)." });
-    }
+// ======================================================================
+// POST /api/admin/backup/import.json
+// body: { backup: {...} }
+// Restaura (wipe & restore) - MASTER ONLY (via gate do index.js)
+// Retorna resumo: { inserted: {tabela: n}, total_inserted, truncated: [...] }
+// ======================================================================
+router.post(
+  "/backup/import.json",
+  express.json({ limit: "50mb" }),
+  async (req, res) => {
+    try {
+      const backup = req.body?.backup;
 
-    const data = backup.data || {};
-    const tables = backup.tables || [];
-
-    // Travinha: só aceitamos as tabelas conhecidas
-    const allowed = new Set([
-      "empresas",
-      "usuarios",
-      "empresa_usuarios",
-      "meli_contas",
-      "meli_tokens",
-      "oauth_states",
-      "migracoes",
-    ]);
-
-    for (const t of tables) {
-      if (!allowed.has(t)) {
-        return res.status(400).json({ ok: false, error: `Tabela não permitida no restore: ${t}` });
+      if (!backup || backup.format !== "davantti_backup_json_v1") {
+        return res
+          .status(400)
+          .json({ ok: false, error: "Backup inválido (formato)." });
       }
-    }
 
-    await db.withClient(async (client) => {
-      await client.query("begin");
-      try {
-        // 1) desliga constraints (mais fácil), depois liga
-        await client.query("set session_replication_role = replica");
+      const data = backup.data || {};
+      const tables = Array.isArray(backup.tables) ? backup.tables : [];
 
-        // 2) limpa na ordem inversa (FK)
-        const delOrder = [
-          "oauth_states",
-          "meli_tokens",
-          "meli_contas",
-          "empresa_usuarios",
-          "usuarios",
-          "empresas",
-          "migracoes",
-        ];
-        for (const t of delOrder) {
-          await client.query(`delete from ${t}`);
+      // travinha: só aceitamos as tabelas conhecidas
+      const allowedSet = new Set(ALLOWED_TABLES);
+      for (const t of tables) {
+        if (!allowedSet.has(t)) {
+          return res.status(400).json({
+            ok: false,
+            error: `Tabela não permitida no restore: ${t}`,
+          });
         }
+      }
 
-        // 3) insere na ordem correta
-        const insOrder = [
-          "empresas",
-          "usuarios",
-          "empresa_usuarios",
-          "meli_contas",
-          "meli_tokens",
-          "oauth_states",
-          "migracoes",
-        ];
+      // Se o backup veio sem tables, assume allowed
+      const usedTables = tables.length > 0 ? tables : [...ALLOWED_TABLES];
 
-        for (const t of insOrder) {
-          const rows = Array.isArray(data[t]) ? data[t] : [];
-          if (!rows.length) continue;
+      const summary = await db.withClient(async (client) => {
+        await client.query("begin");
+        try {
+          const inserted = {};
+          for (const t of ALLOWED_TABLES) inserted[t] = 0;
 
-          // monta insert dinâmico
-          const cols = Object.keys(rows[0]);
-          const colSql = cols.map((c) => `"${c}"`).join(", ");
+          // 1) Limpa tudo (CASCADE + restart identity)
+          await client.query(
+            `truncate ${ALLOWED_TABLES.join(", ")} restart identity cascade`
+          );
 
-          // insere em batches
-          const chunkSize = 500;
-          for (let i = 0; i < rows.length; i += chunkSize) {
-            const chunk = rows.slice(i, i + chunkSize);
-
-            const values = [];
-            const params = [];
-            let p = 1;
-
-            for (const row of chunk) {
-              const tuple = [];
-              for (const c of cols) {
-                tuple.push(`$${p++}`);
-                params.push(row[c]);
-              }
-              values.push(`(${tuple.join(", ")})`);
-            }
-
-            await client.query(
-              `insert into ${t} (${colSql}) values ${values.join(", ")}`
-              ,
-              params
-            );
+          // 2) Pré-carrega colunas (para ignorar colunas antigas do backup)
+          const tableCols = {};
+          for (const t of ALLOWED_TABLES) {
+            tableCols[t] = await getTableColumns(client, t);
           }
+
+          // 3) Insere na ordem correta
+          const chunkSize = 500;
+
+          for (const t of INSERT_ORDER) {
+            if (!usedTables.includes(t)) continue;
+
+            const rows = Array.isArray(data[t]) ? data[t] : [];
+            if (!rows.length) continue;
+
+            const cols = pickColumns(tableCols[t], rows[0]);
+            if (!cols.length) continue;
+
+            const colSql = cols.map((c) => `"${c}"`).join(", ");
+
+            for (let i = 0; i < rows.length; i += chunkSize) {
+              const chunk = rows.slice(i, i + chunkSize);
+
+              const values = [];
+              const params = [];
+              let p = 1;
+
+              for (const row of chunk) {
+                const tuple = [];
+                for (const c of cols) {
+                  tuple.push(`$${p++}`);
+                  params.push(row[c]);
+                }
+                values.push(`(${tuple.join(", ")})`);
+              }
+
+              await client.query(
+                `insert into ${t} (${colSql}) values ${values.join(", ")}`,
+                params
+              );
+
+              inserted[t] += chunk.length;
+            }
+          }
+
+          // 4) Ajusta sequences (apenas onde faz sentido)
+          await bumpSerial(client, "empresas", "id");
+          await bumpSerial(client, "usuarios", "id");
+          await bumpSerial(client, "meli_contas", "id");
+          await bumpSerial(client, "migracoes", "id");
+
+          await client.query("commit");
+
+          const totalInserted = Object.values(inserted).reduce(
+            (a, b) => a + b,
+            0
+          );
+
+          return {
+            inserted,
+            total_inserted: totalInserted,
+            truncated: [...ALLOWED_TABLES],
+          };
+        } catch (e) {
+          try {
+            await client.query("rollback");
+          } catch {}
+          throw e;
         }
+      });
 
-        // 4) religa constraints
-        await client.query("set session_replication_role = origin");
-
-        // 5) ajusta sequences (ids bigserial)
-        // Ajusta apenas as tabelas com id serial
-        await client.query(`
-          select setval('public.empresas_id_seq', coalesce((select max(id) from empresas), 0) + 1, false);
-        `);
-        await client.query(`
-          select setval('public.usuarios_id_seq', coalesce((select max(id) from usuarios), 0) + 1, false);
-        `);
-        await client.query(`
-          select setval('public.meli_contas_id_seq', coalesce((select max(id) from meli_contas), 0) + 1, false);
-        `);
-        await client.query(`
-          select setval('public.migracoes_id_seq', coalesce((select max(id) from migracoes), 0) + 1, false);
-        `);
-
-        await client.query("commit");
-      } catch (e) {
-        await client.query("rollback");
-        throw e;
-      }
-    });
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("POST /api/admin/backup/import.json erro:", err);
-    return res.status(500).json({ ok: false, error: "Erro ao importar backup." });
+      return res.json({ ok: true, ...summary });
+    } catch (err) {
+      console.error("POST /api/admin/backup/import.json erro:", err);
+      return res.status(500).json({
+        ok: false,
+        error: `Erro ao importar backup. ${err?.message || ""}`.trim(),
+      });
+    }
   }
-});
+);
 
 module.exports = router;
