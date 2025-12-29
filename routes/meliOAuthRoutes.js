@@ -16,17 +16,20 @@ const ML_APP_ID =
 const ML_CLIENT_SECRET =
   process.env.ML_CLIENT_SECRET || process.env.CLIENT_SECRET;
 
-const ML_REDIRECT_URI =
-  process.env.ML_REDIRECT_URI || process.env.REDIRECT_URI;
+const ML_REDIRECT_URI = process.env.ML_REDIRECT_URI || process.env.REDIRECT_URI;
 
 if (!ML_APP_ID) {
   console.warn("⚠️ ML_APP_ID não definido (ML_APP_ID / APP_ID / CLIENT_ID).");
 }
 if (!ML_CLIENT_SECRET) {
-  console.warn("⚠️ ML_CLIENT_SECRET não definido (ML_CLIENT_SECRET / CLIENT_SECRET).");
+  console.warn(
+    "⚠️ ML_CLIENT_SECRET não definido (ML_CLIENT_SECRET / CLIENT_SECRET)."
+  );
 }
 if (!ML_REDIRECT_URI) {
-  console.warn("⚠️ ML_REDIRECT_URI não definido (ML_REDIRECT_URI / REDIRECT_URI).");
+  console.warn(
+    "⚠️ ML_REDIRECT_URI não definido (ML_REDIRECT_URI / REDIRECT_URI)."
+  );
 }
 
 // Brasil (ajuste se precisar multi-país)
@@ -37,7 +40,8 @@ const ML_USERS_URL = "https://api.mercadolibre.com/users";
 // Cookie da conta selecionada (novo padrão)
 const COOKIE_MELI_CONTA = "meli_conta_id";
 
-const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+const isProd =
+  String(process.env.NODE_ENV || "").toLowerCase() === "production";
 
 // Em produção (Render), você está com trust proxy = 1, então secure funciona
 function cookieOptions() {
@@ -59,11 +63,16 @@ function mustBeLogged(req) {
 }
 
 function normalizeNivel(n) {
-  return String(n || "").trim().toLowerCase();
+  return String(n || "")
+    .trim()
+    .toLowerCase();
 }
 
 function isMaster(req) {
-  return normalizeNivel(req.user?.nivel) === "admin_master" || req.user?.is_master === true;
+  return (
+    normalizeNivel(req.user?.nivel) === "admin_master" ||
+    req.user?.is_master === true
+  );
 }
 
 function readCurrentContaId(req) {
@@ -73,7 +82,9 @@ function readCurrentContaId(req) {
 }
 
 function parseBoolLike(v) {
-  const s = String(v ?? "").trim().toLowerCase();
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
   return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
@@ -173,16 +184,24 @@ async function tryGetMlNickname(accessToken, meliUserId) {
 router.get("/contas", async (req, res) => {
   try {
     const uid = mustBeLogged(req);
-    if (!uid) return res.status(401).json({ ok: false, error: "Não autenticado." });
+    if (!uid)
+      return res.status(401).json({ ok: false, error: "Não autenticado." });
 
     const master = isMaster(req);
     let currentId = readCurrentContaId(req);
 
     const q = String(req.query?.q || "").trim();
-    const onlyActive = parseBoolLike(req.query?.active_only || req.query?.onlyActive);
+    const onlyActive = parseBoolLike(
+      req.query?.active_only || req.query?.onlyActive
+    );
 
     const page = clampInt(req.query?.page, 1, 999999, 1);
-    const pageSize = clampInt(req.query?.limit || req.query?.pageSize, 6, 50, 12);
+    const pageSize = clampInt(
+      req.query?.limit || req.query?.pageSize,
+      6,
+      50,
+      12
+    );
     const offset = (page - 1) * pageSize;
 
     const data = await db.withClient(async (client) => {
@@ -193,7 +212,8 @@ router.get("/contas", async (req, res) => {
       // Se NÃO for master, restringe à empresa do usuário
       if (!master) {
         const emp = await getEmpresaDoUsuario(client, uid);
-        if (!emp) throw new Error("Usuário não está vinculado a nenhuma empresa.");
+        if (!emp)
+          throw new Error("Usuário não está vinculado a nenhuma empresa.");
         where.push(`c.empresa_id = $${p++}`);
         params.push(emp.empresa_id);
       }
@@ -233,7 +253,8 @@ router.get("/contas", async (req, res) => {
              from meli_contas c
              ${whereSql}`;
 
-      const total = (await client.query(countSql, params)).rows?.[0]?.total || 0;
+      const total =
+        (await client.query(countSql, params)).rows?.[0]?.total || 0;
 
       // ✅ expires_in_min: calculado no banco (evita parse errado no front)
       const expiresExpr = `
@@ -326,63 +347,74 @@ router.get("/contas", async (req, res) => {
 // - Usuário normal/admin: só seleciona conta da própria empresa
 // - Master: pode selecionar qualquer conta existente
 // ===============================
-router.post("/selecionar", express.json({ limit: "50kb" }), async (req, res) => {
-  try {
-    const uid = mustBeLogged(req);
-    if (!uid) return res.status(401).json({ ok: false, error: "Não autenticado." });
+router.post(
+  "/selecionar",
+  express.json({ limit: "50kb" }),
+  async (req, res) => {
+    try {
+      const uid = mustBeLogged(req);
+      if (!uid)
+        return res.status(401).json({ ok: false, error: "Não autenticado." });
 
-    const master = isMaster(req);
+      const master = isMaster(req);
 
-    const meli_conta_id = Number(req.body?.meli_conta_id);
-    if (!Number.isFinite(meli_conta_id)) {
-      return res.status(400).json({ ok: false, error: "meli_conta_id inválido." });
-    }
-
-    const ok = await db.withClient(async (client) => {
-      if (master) {
-        const r = await client.query(
-          `select 1 from meli_contas where id = $1 limit 1`,
-          [meli_conta_id]
-        );
-        return !!r.rows[0];
+      const meli_conta_id = Number(req.body?.meli_conta_id);
+      if (!Number.isFinite(meli_conta_id)) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "meli_conta_id inválido." });
       }
 
-      const emp = await getEmpresaDoUsuario(client, uid);
-      if (!emp) throw new Error("Usuário não está vinculado a nenhuma empresa.");
+      const ok = await db.withClient(async (client) => {
+        if (master) {
+          const r = await client.query(
+            `select 1 from meli_contas where id = $1 limit 1`,
+            [meli_conta_id]
+          );
+          return !!r.rows[0];
+        }
 
-      const r = await client.query(
-        `select 1
+        const emp = await getEmpresaDoUsuario(client, uid);
+        if (!emp)
+          throw new Error("Usuário não está vinculado a nenhuma empresa.");
+
+        const r = await client.query(
+          `select 1
            from meli_contas c
           where c.id = $1 and c.empresa_id = $2
           limit 1`,
-        [meli_conta_id, emp.empresa_id]
-      );
-      return !!r.rows[0];
-    });
-
-    if (!ok) {
-      return res.status(404).json({
-        ok: false,
-        error: master
-          ? "Conta não encontrada."
-          : "Conta não encontrada para sua empresa.",
+          [meli_conta_id, emp.empresa_id]
+        );
+        return !!r.rows[0];
       });
+
+      if (!ok) {
+        return res.status(404).json({
+          ok: false,
+          error: master
+            ? "Conta não encontrada."
+            : "Conta não encontrada para sua empresa.",
+        });
+      }
+
+      // marca último uso
+      try {
+        await db.query(
+          `update meli_contas set ultimo_uso_em = now() where id = $1`,
+          [meli_conta_id]
+        );
+      } catch (_) {}
+
+      res.cookie(COOKIE_MELI_CONTA, String(meli_conta_id), cookieOptions());
+      return res.json({ ok: true, meli_conta_id });
+    } catch (e) {
+      console.error("POST /api/meli/selecionar erro:", e?.message || e);
+      return res
+        .status(500)
+        .json({ ok: false, error: "Erro ao selecionar conta." });
     }
-
-    // marca último uso
-    try {
-      await db.query(`update meli_contas set ultimo_uso_em = now() where id = $1`, [
-        meli_conta_id,
-      ]);
-    } catch (_) {}
-
-    res.cookie(COOKIE_MELI_CONTA, String(meli_conta_id), cookieOptions());
-    return res.json({ ok: true, meli_conta_id });
-  } catch (e) {
-    console.error("POST /api/meli/selecionar erro:", e?.message || e);
-    return res.status(500).json({ ok: false, error: "Erro ao selecionar conta." });
   }
-});
+);
 
 // ===============================
 // POST /api/meli/limpar-selecao
@@ -397,74 +429,87 @@ router.post("/limpar-selecao", async (_req, res) => {
 // POST /api/meli/oauth/start
 // body: { return_to? }
 // ===============================
-router.post("/oauth/start", express.json({ limit: "200kb" }), async (req, res) => {
-  try {
-    // falha cedo se faltar config completa
-    if (!ML_APP_ID || !ML_CLIENT_SECRET || !ML_REDIRECT_URI) {
-      return res.status(500).json({
-        ok: false,
-        error: "Config do Mercado Livre incompleta (APP_ID/SECRET/REDIRECT_URI).",
-      });
-    }
-
-    const uid = mustBeLogged(req);
-    if (!uid) return res.status(401).json({ ok: false, error: "Não autenticado." });
-
-    // ✅ Você disse: master NÃO escolhe empresa manualmente
-    // então sempre vincula na empresa do usuário logado (via empresa_usuarios).
-    const return_to = sanitizeReturnTo(req.body?.return_to || "/vincular-conta");
-
-    const state = randomState();
-    const code_verifier = randomVerifier();
-    const code_challenge = sha256Base64Url(code_verifier);
-
-    const expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-
-    await db.withClient(async (client) => {
-      await client.query("begin");
-      try {
-        const empresa = await getEmpresaDoUsuario(client, uid);
-        if (!empresa) throw new Error("Usuário não está vinculado a nenhuma empresa.");
-
-        // higiene: limpa states expirados
-        await client.query(`delete from oauth_states where expira_em < now()`);
-
-        await client.query(
-          `insert into oauth_states (state, empresa_id, usuario_id, code_verifier, return_to, expira_em)
-           values ($1, $2, $3, $4, $5, $6)`,
-          [
-            state,
-            empresa.empresa_id,
-            uid,
-            code_verifier,
-            return_to,
-            expiraEm.toISOString(),
-          ]
-        );
-
-        await client.query("commit");
-      } catch (e) {
-        await client.query("rollback");
-        throw e;
+router.post(
+  "/oauth/start",
+  express.json({ limit: "200kb" }),
+  async (req, res) => {
+    try {
+      // falha cedo se faltar config completa
+      if (!ML_APP_ID || !ML_CLIENT_SECRET || !ML_REDIRECT_URI) {
+        return res.status(500).json({
+          ok: false,
+          error:
+            "Config do Mercado Livre incompleta (APP_ID/SECRET/REDIRECT_URI).",
+        });
       }
-    });
 
-    const url = new URL(AUTH_BASE);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("client_id", String(ML_APP_ID));
-    url.searchParams.set("redirect_uri", String(ML_REDIRECT_URI));
-    url.searchParams.set("state", state);
+      const uid = mustBeLogged(req);
+      if (!uid)
+        return res.status(401).json({ ok: false, error: "Não autenticado." });
 
-    // PKCE
-    url.searchParams.set("code_challenge", code_challenge);
-    url.searchParams.set("code_challenge_method", "S256");
+      // ✅ Você disse: master NÃO escolhe empresa manualmente
+      // então sempre vincula na empresa do usuário logado (via empresa_usuarios).
+      const return_to = sanitizeReturnTo(
+        req.body?.return_to || "/vincular-conta"
+      );
 
-    return res.json({ ok: true, url: url.toString() });
-  } catch (err) {
-    console.error("POST /api/meli/oauth/start erro:", err?.message || err);
-    return res.status(500).json({ ok: false, error: "Erro ao iniciar vinculação." });
+      const state = randomState();
+      const code_verifier = randomVerifier();
+      const code_challenge = sha256Base64Url(code_verifier);
+
+      const expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+      await db.withClient(async (client) => {
+        await client.query("begin");
+        try {
+          const empresa = await getEmpresaDoUsuario(client, uid);
+          if (!empresa)
+            throw new Error("Usuário não está vinculado a nenhuma empresa.");
+
+          // higiene: limpa states expirados
+          await client.query(
+            `delete from oauth_states where expira_em < now()`
+          );
+
+          await client.query(
+            `insert into oauth_states (state, empresa_id, usuario_id, code_verifier, return_to, expira_em)
+           values ($1, $2, $3, $4, $5, $6)`,
+            [
+              state,
+              empresa.empresa_id,
+              uid,
+              code_verifier,
+              return_to,
+              expiraEm.toISOString(),
+            ]
+          );
+
+          await client.query("commit");
+        } catch (e) {
+          await client.query("rollback");
+          throw e;
+        }
+      });
+
+      const url = new URL(AUTH_BASE);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("client_id", String(ML_APP_ID));
+      url.searchParams.set("redirect_uri", String(ML_REDIRECT_URI));
+      url.searchParams.set("state", state);
+
+      // PKCE
+      url.searchParams.set("code_challenge", code_challenge);
+      url.searchParams.set("code_challenge_method", "S256");
+
+      return res.json({ ok: true, url: url.toString() });
+    } catch (err) {
+      console.error("POST /api/meli/oauth/start erro:", err?.message || err);
+      return res
+        .status(500)
+        .json({ ok: false, error: "Erro ao iniciar vinculação." });
+    }
   }
-});
+);
 
 // ===============================
 // GET /api/meli/oauth/callback?code=...&state=...
@@ -481,7 +526,9 @@ router.get("/oauth/callback", async (req, res) => {
     if (!ML_APP_ID || !ML_CLIENT_SECRET || !ML_REDIRECT_URI) {
       return res
         .status(500)
-        .send("Config do Mercado Livre incompleta (APP_ID/SECRET/REDIRECT_URI).");
+        .send(
+          "Config do Mercado Livre incompleta (APP_ID/SECRET/REDIRECT_URI)."
+        );
     }
 
     const outcome = await db.withClient(async (client) => {
@@ -497,8 +544,10 @@ router.get("/oauth/callback", async (req, res) => {
         );
 
         const row = st.rows[0];
-        if (!row) throw new Error("state não encontrado (expirou ou já foi usado).");
-        if (new Date(row.expira_em).getTime() < Date.now()) throw new Error("state expirado.");
+        if (!row)
+          throw new Error("state não encontrado (expirou ou já foi usado).");
+        if (new Date(row.expira_em).getTime() < Date.now())
+          throw new Error("state expirado.");
 
         // troca code por token
         const body = new URLSearchParams();
@@ -520,7 +569,12 @@ router.get("/oauth/callback", async (req, res) => {
 
         const data = await resp.json().catch(() => null);
 
-        if (!resp.ok || !data?.access_token || !data?.refresh_token || !data?.user_id) {
+        if (
+          !resp.ok ||
+          !data?.access_token ||
+          !data?.refresh_token ||
+          !data?.user_id
+        ) {
           const msg =
             data?.error_description ||
             data?.message ||
@@ -538,6 +592,11 @@ router.get("/oauth/callback", async (req, res) => {
         const access_expires_at = new Date(
           Date.now() + Math.max(60, expiresInSec) * 1000
         );
+
+        // ✅ apelido default SEMPRE (mais limpo) + tenta nickname do ML por cima
+        const apelidoDefault = `Conta ${meli_user_id}`;
+        let apelido = await tryGetMlNickname(access_token, meli_user_id);
+        if (!apelido) apelido = apelidoDefault;
 
         // 1) upsert meli_contas (por empresa + meli_user_id)
         let contaId = null;
@@ -562,10 +621,6 @@ router.get("/oauth/callback", async (req, res) => {
             [contaId]
           );
         } else {
-          // tenta nickname do ML p/ apelido padrão
-          let apelido = await tryGetMlNickname(access_token, meli_user_id);
-          if (!apelido) apelido = `Conta ${meli_user_id}`;
-
           const ins = await client.query(
             `insert into meli_contas (empresa_id, meli_user_id, apelido, site_id, status)
              values ($1, $2, $3, 'MLB', 'ativa')
@@ -598,7 +653,9 @@ router.get("/oauth/callback", async (req, res) => {
         );
 
         // state é 1x uso
-        await client.query(`delete from oauth_states where state = $1`, [state]);
+        await client.query(`delete from oauth_states where state = $1`, [
+          state,
+        ]);
 
         await client.query("commit");
 
@@ -628,7 +685,9 @@ router.get("/oauth/callback", async (req, res) => {
       const constraint = String(err?.constraint || "");
 
       if (constraint.includes("ux_meli_contas_empresa_apelido")) {
-        return res.status(409).send("Já existe uma conta com esse apelido nesta empresa.");
+        return res
+          .status(409)
+          .send("Já existe uma conta com esse apelido nesta empresa.");
       }
 
       if (constraint.includes("ux_meli_contas_empresa_meli_user")) {
@@ -641,12 +700,16 @@ router.get("/oauth/callback", async (req, res) => {
         constraint.toLowerCase().includes("global") ||
         constraint.toLowerCase().includes("meli_user")
       ) {
-        return res.status(409).send(
-          "Essa conta do Mercado Livre já está vinculada a outra empresa neste sistema."
-        );
+        return res
+          .status(409)
+          .send(
+            "Essa conta do Mercado Livre já está vinculada a outra empresa neste sistema."
+          );
       }
 
-      return res.status(409).send("Conflito ao salvar vinculação (registro duplicado).");
+      return res
+        .status(409)
+        .send("Conflito ao salvar vinculação (registro duplicado).");
     }
 
     console.error("GET /api/meli/oauth/callback erro:", err?.message || err);
@@ -717,7 +780,9 @@ router.get("/current", async (req, res) => {
         : {}),
     });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: "Erro ao ler conta atual" });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Erro ao ler conta atual" });
   }
 });
 
