@@ -425,6 +425,84 @@ body{
   background: #fff;
 }
 
+/* ===== Wizard (novo) ===== */
+.wizard-head{
+  padding: 12px 12px 14px;
+  border: 1px solid rgba(0,0,0,.06);
+  background: #fafafa;
+  border-radius: 14px;
+  margin-bottom: 14px;
+}
+
+.wizard-top{
+  display:flex;
+  align-items:baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.wizard-steptext{
+  font-weight: 900;
+  color: var(--admin-text);
+}
+
+.wizard-stepsmall{
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wizard-bar{
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.06);
+  overflow: hidden;
+}
+
+.wizard-bar__fill{
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(109,40,217,.85);
+  width: 50%;
+  transition: width .18s ease;
+}
+
+.wizard-summary{
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(109,40,217,.06);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.wizard-summary__label{
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--admin-muted);
+}
+
+.wizard-summary__value{
+  margin-top: 4px;
+  font-weight: 900;
+  color: var(--admin-text);
+}
+
+/* Field validation */
+.field-msg{
+  display:block;
+  min-height: 16px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.is-invalid{
+  border-color: rgba(220,38,38,.45) !important;
+  box-shadow: 0 0 0 3px rgba(220,38,38,.12);
+}
+
 /* ===== Toast ===== */
 .toast{
   position: fixed;

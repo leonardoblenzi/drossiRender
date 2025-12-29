@@ -20,6 +20,20 @@
   const btnCancel = $("btn-cancel");
   const btnSave = $("btn-save");
 
+  // Wizard UI
+  const wizardHead = $("wizard-head");
+  const wizardStepText = $("wizard-steptext");
+  const wizardStepSmall = $("wizard-stepsmall");
+  const wizardBarFill = $("wizard-bar-fill");
+
+  const step1El = $("step-1");
+  const step2El = $("step-2");
+
+  const btnWizBack = $("btn-wiz-back");
+  const btnWizNext = $("btn-wiz-next");
+
+  const wizardSummaryValue = $("wizard-summary-value");
+
   const fNome = $("f-nome");
   const fEmail = $("f-email");
   const fNivel = $("f-nivel");
@@ -27,6 +41,18 @@
   const lblSenha = $("lbl-senha");
   const senhaHelp = $("senha-help");
   const formError = $("form-error");
+
+  // Field errors
+  const errNome = $("err-nome");
+  const errEmail = $("err-email");
+  const errNivel = $("err-nivel");
+  const errSenha = $("err-senha");
+  const errEmpresa = $("err-empresa");
+  const errPapel = $("err-papel");
+
+  // Step2 fields
+  const fEmpresa = $("f-empresa");
+  const fPapel = $("f-papel");
 
   const toast = $("toast");
 
@@ -37,6 +63,11 @@
 
   let mode = "create"; // 'create' | 'edit'
   let editingId = null;
+
+  // Wizard state (create only)
+  let wizardStep = 1; // 1 or 2
+  let empresasCache = null; // [{id,nome,...}]
+  let empresasLoaded = false;
 
   // ===========================
   // Auth state
@@ -75,6 +106,25 @@
     }
     formError.style.display = "block";
     formError.textContent = msg;
+  }
+
+  function clearFieldErrors() {
+    [errNome, errEmail, errNivel, errSenha, errEmpresa, errPapel].forEach(
+      (el) => {
+        if (el) el.textContent = "";
+      }
+    );
+    [fNome, fEmail, fNivel, fSenha, fEmpresa, fPapel].forEach((el) => {
+      if (el && el.classList) el.classList.remove("is-invalid");
+    });
+  }
+
+  function setFieldError(inputEl, msgEl, msg) {
+    if (msgEl) msgEl.textContent = msg || "";
+    if (inputEl && inputEl.classList) {
+      if (msg) inputEl.classList.add("is-invalid");
+      else inputEl.classList.remove("is-invalid");
+    }
   }
 
   function formatDate(v) {
@@ -135,14 +185,14 @@
   // Auth / permissions
   // ===========================
   function computeAuthFlags(mePayload) {
-    // Seu /api/auth/me retorna { ok:true, logged:true, user:{ uid,email,nivel,nome } }
     const u = mePayload?.user || null;
 
     auth.loaded = true;
     auth.me = mePayload || null;
     auth.uid = Number(u?.uid) || null;
     auth.nivel = String(u?.nivel || "");
-    auth.isMaster = mePayload?.is_master === true || auth.nivel === "admin_master";
+    auth.isMaster =
+      mePayload?.is_master === true || auth.nivel === "admin_master";
   }
 
   async function loadMe() {
@@ -157,7 +207,7 @@
 
       computeAuthFlags(data);
 
-      // ✅ Regra nova: ADMIN comum NÃO acessa painel admin
+      // ✅ painel admin é MASTER-only
       if (!auth.isMaster) {
         window.location.href = "/nao-autorizado";
         return;
@@ -170,8 +220,6 @@
   }
 
   function ensureNivelOptions() {
-    // master pode criar qualquer nível: usuario | administrador | admin_master
-    // atualiza o <select> sem depender do HTML estar certo
     if (!fNivel) return;
 
     const wanted = [
@@ -192,7 +240,6 @@
   }
 
   function applyUiPermissions() {
-    // master pode tudo aqui
     if (btnCreate) btnCreate.style.display = "";
     ensureNivelOptions();
   }
@@ -205,28 +252,227 @@
     return Number(user?.id) === Number(auth.uid);
   }
 
-  function canEditUserRow(user) {
-    if (!auth.isMaster) return false;
-    return true;
+  function canEditUserRow(_user) {
+    return !!auth.isMaster;
   }
 
   function canDeleteUserRow(user) {
     if (!auth.isMaster) return false;
-
-    // recomendação de segurança: não permitir apagar a si mesmo pelo painel
     if (isSelfRow(user)) return false;
-
-    // opcional: não apagar master via UI (evita acidente)
     if (isMasterRow(user)) return false;
-
     return true;
+  }
+
+  // ===========================
+  // Wizard (create)
+  // ===========================
+  function wizardEnable(on) {
+    if (!wizardHead || !btnWizNext || !btnWizBack) return;
+
+    wizardHead.style.display = on ? "" : "none";
+
+    // botões wizard só no create
+    btnWizNext.style.display = on ? "" : "none";
+    btnWizBack.style.display = "none"; // começa no passo 1
+
+    // save no create só no passo 2 (controlado pelo step)
+    btnSave.style.display = on ? "none" : "";
+  }
+
+  function setWizardStep(step) {
+    wizardStep = step === 2 ? 2 : 1;
+
+    // visibilidade steps
+    step1El.style.display = wizardStep === 1 ? "" : "none";
+    step2El.style.display = wizardStep === 2 ? "" : "none";
+
+    // progress header
+    if (wizardStepText) wizardStepText.textContent = `Passo ${wizardStep}/2`;
+    if (wizardStepSmall) {
+      wizardStepSmall.textContent =
+        wizardStep === 1 ? "Dados do usuário" : "Vínculo com empresa";
+    }
+    if (wizardBarFill)
+      wizardBarFill.style.width = wizardStep === 1 ? "50%" : "100%";
+
+    // footer buttons
+    if (wizardStep === 1) {
+      btnWizBack.style.display = "none";
+      btnWizNext.style.display = "";
+      btnSave.style.display = "none";
+    } else {
+      btnWizBack.style.display = "";
+      btnWizNext.style.display = "none";
+      btnSave.style.display = "";
+    }
+
+    setError("");
+    clearFieldErrors();
+
+    // foco
+    if (wizardStep === 1) {
+      setTimeout(() => fEmail?.focus(), 0);
+    } else {
+      setTimeout(() => fEmpresa?.focus(), 0);
+    }
+  }
+
+  function isValidEmail(email) {
+    const s = String(email || "").trim();
+    // simples e suficiente pro front (back valida de verdade)
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  }
+
+  function validateStep1() {
+    clearFieldErrors();
+
+    const nome = String(fNome.value || "").trim();
+    const email = String(fEmail.value || "")
+      .trim()
+      .toLowerCase();
+    const nivel = String(fNivel.value || "usuario")
+      .trim()
+      .toLowerCase();
+    const senha = String(fSenha.value || "");
+
+    let ok = true;
+
+    // nome: opcional (mas se preenchido, ok)
+    if (nome && nome.length < 2) {
+      ok = false;
+      setFieldError(fNome, errNome, "Nome muito curto.");
+    }
+
+    if (!email) {
+      ok = false;
+      setFieldError(fEmail, errEmail, "Informe o email.");
+    } else if (!isValidEmail(email)) {
+      ok = false;
+      setFieldError(fEmail, errEmail, "Email inválido.");
+    }
+
+    if (!nivel) {
+      ok = false;
+      setFieldError(fNivel, errNivel, "Selecione o nível.");
+    }
+
+    if (mode === "create") {
+      if (!senha) {
+        ok = false;
+        setFieldError(fSenha, errSenha, "Informe a senha.");
+      } else if (senha.length < 6) {
+        ok = false;
+        setFieldError(
+          fSenha,
+          errSenha,
+          "A senha deve ter no mínimo 6 caracteres."
+        );
+      }
+    } else {
+      // edit: senha opcional
+      if (senha && senha.length > 0 && senha.length < 6) {
+        ok = false;
+        setFieldError(
+          fSenha,
+          errSenha,
+          "A senha deve ter no mínimo 6 caracteres."
+        );
+      }
+    }
+
+    return ok;
+  }
+
+  function validateStep2() {
+    clearFieldErrors();
+
+    const empresaId = Number(fEmpresa.value);
+    const papel = String(fPapel.value || "")
+      .trim()
+      .toLowerCase();
+    const papelOk = ["owner", "admin", "operador"].includes(papel);
+
+    let ok = true;
+
+    if (!Number.isFinite(empresaId) || empresaId <= 0) {
+      ok = false;
+      setFieldError(fEmpresa, errEmpresa, "Selecione uma empresa.");
+    }
+
+    if (!papelOk) {
+      ok = false;
+      setFieldError(fPapel, errPapel, "Selecione um papel válido.");
+    }
+
+    return ok;
+  }
+
+  async function loadEmpresasIfNeeded() {
+    if (empresasLoaded && Array.isArray(empresasCache)) return;
+
+    fEmpresa.innerHTML = `<option value="">Carregando…</option>`;
+    try {
+      const data = await api("/api/admin/empresas", { method: "GET" });
+      const list = Array.isArray(data.empresas) ? data.empresas : [];
+      empresasCache = list;
+      empresasLoaded = true;
+
+      if (!list.length) {
+        fEmpresa.innerHTML = `<option value="">Nenhuma empresa cadastrada</option>`;
+        return;
+      }
+
+      fEmpresa.innerHTML =
+        `<option value="">Selecione…</option>` +
+        list
+          .map(
+            (e) =>
+              `<option value="${Number(e.id)}">${escapeHtml(
+                e.nome || `Empresa ${e.id}`
+              )}</option>`
+          )
+          .join("");
+    } catch (e) {
+      empresasLoaded = false;
+      empresasCache = null;
+      fEmpresa.innerHTML = `<option value="">Erro ao carregar empresas</option>`;
+      throw e;
+    }
+  }
+
+  async function wizardNext() {
+    setError("");
+
+    if (!validateStep1()) return;
+
+    // resumo
+    const nome = String(fNome.value || "").trim();
+    const email = String(fEmail.value || "")
+      .trim()
+      .toLowerCase();
+    wizardSummaryValue.textContent = nome ? `${nome} — ${email}` : email;
+
+    try {
+      await loadEmpresasIfNeeded();
+    } catch (e) {
+      setError(e.message || "Erro ao carregar empresas.");
+      return;
+    }
+
+    setWizardStep(2);
+  }
+
+  function wizardBack() {
+    setWizardStep(1);
   }
 
   // ===========================
   // Filtering / pagination / render
   // ===========================
   function applyFilter() {
-    const q = String(search.value || "").trim().toLowerCase();
+    const q = String(search.value || "")
+      .trim()
+      .toLowerCase();
     if (!q) {
       filtered = [...allUsers];
     } else {
@@ -357,9 +603,22 @@
     fNome.value = "";
     fEmail.value = "";
     ensureNivelOptions();
-    fNivel.value = "usuario"; // master escolhe livremente
+    fNivel.value = "usuario";
+
+    // Step2 defaults
+    if (fPapel) fPapel.value = "admin";
+    if (fEmpresa) fEmpresa.value = "";
+
+    // UI
+    fNivel.disabled = false;
+    fEmail.disabled = false;
 
     setError("");
+    clearFieldErrors();
+
+    wizardEnable(true);
+    setWizardStep(1);
+
     showModal();
     fEmail.focus();
   }
@@ -383,9 +642,11 @@
     ensureNivelOptions();
     fNivel.value = String(user.nivel || "usuario").toLowerCase();
 
-    // segurança UX: não permitir rebaixar o próprio master sem querer
-    if (isSelfRow(user) && String(user.nivel || "").toLowerCase() === "admin_master") {
-      // trava nível e email do próprio master (evita se auto-travar)
+    // trava próprio master
+    if (
+      isSelfRow(user) &&
+      String(user.nivel || "").toLowerCase() === "admin_master"
+    ) {
       fNivel.disabled = true;
       fEmail.disabled = true;
     } else {
@@ -394,6 +655,14 @@
     }
 
     setError("");
+    clearFieldErrors();
+
+    // EDIT não é wizard
+    wizardEnable(false);
+    step1El.style.display = "";
+    step2El.style.display = "none";
+    btnSave.style.display = "";
+
     showModal();
     fNome.focus();
   }
@@ -405,20 +674,41 @@
     setError("");
 
     if (!auth.isMaster) {
-      return setError("Somente MASTER pode salvar alterações.");
+      setError("Somente MASTER pode salvar alterações.");
+      return;
     }
+
+    // validações
+    if (!validateStep1()) return;
 
     const payload = {
       nome: String(fNome.value || "").trim() || null,
-      email: String(fEmail.value || "").trim().toLowerCase(),
-      nivel: String(fNivel.value || "usuario").trim().toLowerCase(),
+      email: String(fEmail.value || "")
+        .trim()
+        .toLowerCase(),
+      nivel: String(fNivel.value || "usuario")
+        .trim()
+        .toLowerCase(),
     };
 
     const senha = String(fSenha.value || "");
-
-    if (!payload.email) return setError("Informe o email.");
-    if (mode === "create" && !senha) return setError("Informe a senha para o cadastro.");
     if (senha) payload.senha = senha;
+
+    // CREATE: exige Step2 (empresa + papel)
+    if (mode === "create") {
+      // se ainda está no passo 1, empurra pro passo 2
+      if (wizardStep !== 2) {
+        await wizardNext();
+        return;
+      }
+
+      if (!validateStep2()) return;
+
+      payload.empresa_id = Number(fEmpresa.value);
+      payload.papel = String(fPapel.value || "")
+        .trim()
+        .toLowerCase();
+    }
 
     // Confirmação extra ao promover para master
     if (payload.nivel === "admin_master") {
@@ -437,7 +727,7 @@
           method: "POST",
           body: JSON.stringify(payload),
         });
-        showToast("Usuário criado.");
+        showToast("Usuário criado e vinculado.");
       } else {
         await api(`/api/admin/usuarios/${editingId}`, {
           method: "PUT",
@@ -454,7 +744,6 @@
     } finally {
       btnSave.disabled = false;
       btnSave.textContent = "Salvar";
-      // desfaz locks caso modal abra novamente
       if (fNivel) fNivel.disabled = false;
       if (fEmail) fEmail.disabled = false;
     }
@@ -474,9 +763,10 @@
       return;
     }
 
-    // UX safety: evita remover master via painel
     if (isMasterRow(user)) {
-      alert("Por segurança, a remoção de um MASTER não é permitida via painel.");
+      alert(
+        "Por segurança, a remoção de um MASTER não é permitida via painel."
+      );
       return;
     }
 
@@ -524,6 +814,10 @@
       if (e.target === modal) hideModal();
     });
 
+    // wizard
+    btnWizNext?.addEventListener("click", wizardNext);
+    btnWizBack?.addEventListener("click", wizardBack);
+
     btnSave?.addEventListener("click", saveUser);
 
     tbody?.addEventListener("click", (e) => {
@@ -545,12 +839,25 @@
 
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && modal.style.display === "flex") hideModal();
+      if (mode === "create" && modal.style.display === "flex") {
+        // Enter no passo 1 = Próximo | Enter no passo 2 = Salvar
+        if (e.key === "Enter") {
+          const tag = String(e.target?.tagName || "").toLowerCase();
+          const isInput =
+            tag === "input" || tag === "select" || tag === "textarea";
+          if (!isInput) return;
+
+          e.preventDefault();
+          if (wizardStep === 1) wizardNext();
+          else saveUser();
+        }
+      }
     });
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
     bindEvents();
-    await loadMe();     // agora: só master entra
+    await loadMe(); // master-only
     await loadUsers();
   });
 })();

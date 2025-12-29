@@ -1,181 +1,415 @@
-GUIA RÁPIDO — Banco de Dados (PostgreSQL no Render) + como funciona “antes”
+DOC.TXT — DAVANTTI API
+Banco de Dados (PostgreSQL Render) + Migrações + Mapeamento do App (Atualizado)
+Versão: 2025-12-29
+Timezone: America/Sao_Paulo
 
-============================================================
-1) O QUE A GENTE CONFIGUROU AGORA
-============================================================
+Obs: Este documento consolida:
+- O “Guia rápido” do banco
+- O mapeamento atualizado do app (OAuth+DB, multi-empresa, Admin Panel, migrações, backup)
+- Ajustes de 29/12: ensurePermission + proteção de /excluir-anuncio + apelido default no OAuth + migrações na tabela do banco
+- Ajuste de 29/12: Admin Usuários (wizard 2 passos) cria usuário + vínculo obrigatório (empresa_usuarios)
 
-✅ Você criou um PostgreSQL no Render e gerou uma DATABASE_URL.
-✅ Você criou um script de migração (migrate.js) e uma migration SQL:
-   db/001_create_usuarios.sql
+================================================================================
+1) VISÃO GERAL (O QUE EXISTE HOJE)
+================================================================================
 
-Isso criou no banco a tabela:
+✅ Banco PostgreSQL no Render (DATABASE_URL)
+✅ Migrações via Node (db/migrate.js) com tabela de controle no banco (migracoes)
+✅ Login do app (JWT no cookie auth_token) + níveis (usuario/administrador/admin_master)
+✅ Multi-empresa: empresas + empresa_usuarios (papel: owner/admin/operador)
+✅ OAuth Mercado Livre (PKCE + state no DB)
+✅ Seleção de conta ML via cookie httpOnly: meli_conta_id
+✅ Tokens ML persistidos no DB: meli_tokens (1:1 por meli_contas)
+✅ Admin Panel (/admin/*) MASTER ONLY (admin_master)
+✅ Middleware de permissão reutilizável: ensurePermission.js
+✅ Proteção adicional: VIEW /excluir-anuncio também tem gate admin/master
+✅ Backup/export/import JSON em /admin/backup (MASTER ONLY)
 
-usuarios
-- id (bigserial, PK)
-- nome (text)
-- email (text, unique, not null)
-- senha_hash (text, not null)       -> senha NUNCA é salva em texto puro
-- nivel (text) default 'usuario'    -> 'usuario' | 'administrador'
-- criado_em (timestamptz) default now()
-- ultimo_login_em (timestamptz)
+Novidade (29/12 — Tela Admin > Usuários):
+✅ “Cadastrar usuário” agora é wizard 2 passos (mesmo modal):
+   - Step 1: dados do usuário (nome/email/nivel/senha) com validação rápida
+   - Step 2: vínculo obrigatório com empresa (empresa + papel)
+   - Ao salvar: cria registro em usuarios + cria registro em empresa_usuarios (transação)
 
-Com constraint:
-- nivel IN ('usuario', 'administrador')
+================================================================================
+2) COMO O APP “ENXERGA” O BANCO
+================================================================================
 
-============================================================
-2) COMO O PROJETO “ENXERGA” O BANCO
-============================================================
-
-A regra é simples:
-
-O seu app sempre usa o banco apontado pela variável:
+O app sempre usa a variável:
 DATABASE_URL
 
 • Rodando LOCAL:
-  - Se o seu .env local tem DATABASE_URL apontando pro Render:
-    -> seu localhost grava/lê no banco do Render (REMOTO).
-
-  - Se o seu .env local tem DATABASE_URL apontando pro Postgres local:
-    -> seu localhost grava/lê no banco do SEU PC (LOCAL).
+  - Se .env local aponta DATABASE_URL pro Render -> seu localhost lê/grava no banco do Render
+  - Se .env local aponta DATABASE_URL pro Postgres local -> seu localhost lê/grava no seu PC
 
 • Rodando NO RENDER:
-  - O Render injeta DATABASE_URL no Environment:
-    -> o app no Render grava/lê no banco do Render.
+  - Render injeta DATABASE_URL no Environment -> app lê/grava no banco do Render
 
-============================================================
-3) COMO RODAR AS MIGRAÇÕES (CRIAR/ATUALIZAR TABELAS)
-============================================================
+Boas práticas:
+- Nunca commitar DATABASE_URL
+- Em produção (Render): geralmente usar SSL (sslmode=require)
 
-Pré-requisitos:
-- Node instalado
-- DATABASE_URL configurada (no .env local ou no Render)
+================================================================================
+3) MIGRAÇÕES (db/migrate.js) — FONTE DE VERDADE
+================================================================================
 
-Passo a passo local:
-1) Abra o terminal na raiz do projeto
-2) Garanta que o .env tem:
-   DATABASE_URL=postgresql://... (de preferência com sslmode=require)
-3) Rode:
-   node db/migrate.js
-4) Resultado esperado:
-   - “Aplicando: 001_create_usuarios.sql”
-   - “OK”
-   - “Migrações finalizadas com sucesso”
+✅ O sistema de migração:
+- Lê arquivos SQL na pasta /db com padrão: /^\d+_.*\.sql$/
+  Ex.: 001_create_usuarios.sql, 007_unique_meli_user_global.sql, etc.
+- Executa cada arquivo dentro de transação
+- Registra no banco que o arquivo foi aplicado
+
+✅ Tabela oficial de histórico:
+public.migracoes
+- id bigserial PK
+- arquivo text unique
+- aplicado_em timestamptz default now()
 
 ⚠️ Importante:
-- Você NÃO precisa do app “rodando” (localhost) pra executar migration.
-- Migration só precisa de acesso ao banco via DATABASE_URL.
+- Existe um nome “antigo” que pode ter aparecido em versões anteriores: schema_migrations
+- O padrão atual (e oficial) é: migracoes
 
-============================================================
-4) COMO VISUALIZAR O BANCO (DBeaver / Render)
-============================================================
+Rodar migrações:
+1) configure DATABASE_URL no .env local ou no Render
+2) execute na raiz do projeto:
+   node db/migrate.js
+
+Resultado esperado:
+- “Encontradas X migrações”
+- “Aplicando: 001_...” etc.
+- “OK”
+- “Migrações finalizadas com sucesso”
+
+Quando PRECISA rodar migrate?
+- Quando você adiciona/edita arquivos SQL em /db e quer aplicar no banco.
+Quando NÃO precisa?
+- Só por mudar HTML/JS/rotas (sem alterar schema/constraints).
+
+================================================================================
+4) ARQUIVO db/migrate.js (ATUAL)
+================================================================================
+
+O migrate.js deve:
+- Usar SSL somente quando necessário (produção ou sslmode=require)
+- Garantir a tabela migracoes
+- (Opcional recomendado) Consolidar schema_migrations -> migracoes e remover schema_migrations
+
+Padrão SSL recomendado:
+- Se NODE_ENV=production OU DATABASE_URL contém sslmode=require -> ssl: { rejectUnauthorized:false }
+- Caso contrário -> ssl: false
+
+================================================================================
+5) SCHEMA DO BANCO (TABELAS PRINCIPAIS)
+================================================================================
+
+5.1) usuarios
+- id bigserial PK
+- nome text
+- email text UNIQUE NOT NULL
+- senha_hash text NOT NULL (bcrypt)
+- nivel text NOT NULL default 'usuario'
+- criado_em timestamptz default now()
+- ultimo_login_em timestamptz
+
+Constraint (estado atual no DB):
+- nivel IN ('usuario', 'administrador', 'admin_master')
+
+Obs importante (alinhamento com o app):
+- No app, a permissão é normalizada em ensurePermission.js para: padrao | admin | master
+- O MASTER no app é admin_master
+- Recomendação (quando for alinhar 100%): padronizar nivel no DB para ('usuario','admin','admin_master')
+  e converter legado 'administrador' -> 'admin' (migration futura)
+- No momento: o código aceita 'administrador' como “admin” no gate (se você manteve isso no ensurePermission).
+
+5.2) empresas
+- id bigserial PK
+- nome text NOT NULL
+- criado_em timestamptz default now()
+
+5.3) empresa_usuarios (join)
+- empresa_id bigint FK -> empresas(id) on delete cascade
+- usuario_id bigint FK -> usuarios(id) on delete cascade
+- papel text default 'admin' (owner|admin|operador)
+- criado_em timestamptz default now()
+- PK (empresa_id, usuario_id)
+
+Constraint:
+- papel IN ('owner','admin','operador')
+
+(Recomendado índice adicional):
+- INDEX (usuario_id) para acelerar “qual empresa do usuário”
+
+5.4) oauth_states (PKCE + state)
+- state text PK
+- empresa_id bigint FK
+- usuario_id bigint FK
+- code_verifier text NOT NULL
+- return_to text (path interno)
+- criado_em timestamptz default now()
+- expira_em timestamptz NOT NULL
+
+Index:
+- ix_oauth_states_expira (expira_em)
+
+5.5) meli_contas
+- id bigserial PK
+- empresa_id bigint FK -> empresas(id)
+- meli_user_id bigint NOT NULL
+- apelido text NOT NULL
+- site_id text default 'MLB'
+- status text default 'ativa' (ativa|revogada|erro)
+- criado_em timestamptz default now()
+- atualizado_em timestamptz default now()
+- ultimo_uso_em timestamptz
+
+Índices:
+- ux_meli_contas_empresa_meli_user (empresa_id, meli_user_id) UNIQUE
+- ux_meli_contas_empresa_apelido (empresa_id, apelido) UNIQUE
+
+Constraint:
+- status IN ('ativa','revogada','erro')
+
+5.6) meli_tokens (1:1 com a conta)
+- meli_conta_id bigint PK FK -> meli_contas(id) on delete cascade
+- access_token text NOT NULL
+- access_expires_at timestamptz NOT NULL
+- refresh_token text NOT NULL
+- scope text
+- refresh_obtido_em timestamptz default now()
+- ultimo_refresh_em timestamptz
+
+Índice:
+- ix_meli_tokens_expires (access_expires_at)
+
+5.7) (Opcional / aplicado no projeto) Unique global do ML
+db/007_unique_meli_user_global.sql cria:
+- UNIQUE index em meli_contas(meli_user_id)
+Objetivo:
+- impedir que a mesma conta ML (meli_user_id) seja vinculada a mais de uma empresa no sistema
+
+================================================================================
+6) OAUTH MERCADO LIVRE (PKCE) — FLUXO
+================================================================================
+
+Rotas:
+- POST /api/meli/oauth/start
+  -> gera state + code_verifier + code_challenge
+  -> salva em oauth_states (expira em 10 min)
+  -> retorna { ok:true, url } com AUTH_BASE + PKCE
+
+- GET /api/meli/oauth/callback?code&state
+  -> valida state no DB + expiração
+  -> troca code por tokens em TOKEN_URL
+  -> upsert meli_contas
+  -> upsert meli_tokens
+  -> apaga oauth_states (uso único)
+  -> seta cookie httpOnly meli_conta_id (seleciona a conta)
+  -> redirect para return_to (sanitizado)
+
+✅ Regra do apelido (IMPORTANTE — corrigido em 29/12):
+- apelido é NOT NULL no DB, então o callback garante sempre:
+  1) tenta nickname do ML via GET /users/:id
+  2) se não vier nickname, usa apelido default:
+     "Conta <meli_user_id>"
+Isso evita travar a vinculação por “apelido ausente”.
+
+================================================================================
+7) SELEÇÃO DE CONTA (COOKIE meli_conta_id)
+================================================================================
+
+Cookie oficial:
+- meli_conta_id (httpOnly)
+
+Rotas principais:
+- GET  /api/meli/contas
+  -> usuário normal: lista contas da própria empresa
+  -> master: lista todas as contas (com filtros/paginação)
+  -> retorna também: has_tokens, access_expires_at, expires_in_min, empresa_nome (master)
+
+- POST /api/meli/selecionar { meli_conta_id }
+  -> seta cookie meli_conta_id, valida permissão e empresa
+
+- POST /api/meli/limpar-selecao
+  -> limpa cookie meli_conta_id
+
+- GET /api/meli/current
+  -> retorna conta selecionada (valida empresa se não for master)
+
+================================================================================
+8) AUTENTICAÇÃO DO APP + PERMISSÕES
+================================================================================
+
+8.1) Login do app (JWT)
+- Cookie: auth_token (httpOnly)
+- Middleware: ensureAuth.js
+Comportamento:
+- HTML (GET): redirect /login
+- API/fetch: 401 JSON { ok:false, redirect:'/login' }
+
+8.2) Permissões (novo padrão reutilizável)
+Arquivo:
+- middleware/ensurePermission.js
+
+Níveis normalizados no middleware:
+- padrao | admin | master
+onde:
+- master == admin_master
+- admin == admin e/ou administrador (se o seu código aceitar legado)
+
+Gates:
+- requireAdmin(): admin OU master
+- requireMaster(): apenas master
+
+Comportamento:
+- HTML (GET): redirect /nao-autorizado
+- API/fetch: 403 JSON { ok:false, error, redirect:'/nao-autorizado' }
+
+================================================================================
+9) FEATURES (MAPEAMENTO DO APP — RESUMO)
+================================================================================
+
+1) Publicidade/Product ADS
+- routes/publicidadeRoutes.js
+- controllers/PublicidadeController.js
+- services/productAdsService.js
+- views/publicidade.ejs
+- public/js/publicidade.js + public/css/publicidade.css
+
+2) Produtos / Validar dimensões
+- routes/validarDimensoesRoutes.js
+- controllers/ValidarDimensoesController.js
+- services/validarDimensoesService.js
+- views/validar-dimensoes.html
+- public/js/validar-dimensoes.js + public/css/validar-dimensoes.css
+
+3) Produtos Estratégicos
+- routes/estrategicosRoutes.js
+- controllers/EstrategicosController.js
+- services/estrategicosService.js
+- views/estrategicos.html
+- public/js/estrategicos.js + public/css/estrategicos.css
+
+4) Curva ABC (tempo real via API ML)
+- routes/analytics-abc-routes.js
+- views/ia-analytics/curva-abc.html
+- public/js/ia-analytics-curva-abc.js + public/css/curva-abc.css
+
+5) Exclusão de Anúncios (único + lote)
+Proteções (29/12):
+- VIEW /excluir-anuncio agora usa ensurePermission.requireAdmin() (htmlRoutes)
+- API prefix /api/excluir-anuncio também usa ensurePermission.requireAdmin()
+
+6) Filtro Avançado de Anúncios (COM JOBS)
+- routes/analytics-filtro-anuncios-routes.js
+- services/filtroAnunciosQueueService.js (Bull + Redis)
+- views/filtro-anuncios.html + public/js/filtro-anuncios.js
+
+7) Admin Panel (MASTER ONLY)
+- /admin/*: MASTER ONLY (admin_master)
+- CRUD de tabelas (usuarios/empresas/vinculos/contas/tokens/oauth_states/migracoes)
+- Backup/export/import JSON: /admin/backup (MASTER ONLY)
+
+7.1) Admin > Usuários (Atualizado 29/12 — Wizard 2 passos)
+Objetivo:
+- Ao cadastrar usuário, obrigar vínculo com uma empresa já na criação.
+
+UI (mesmo modal, sem mudar de página):
+- Step 1 — Dados do usuário (validação rápida)
+  • Nome (opcional)
+  • Email (obrigatório + formato válido)
+  • Nível global (usuario | administrador | admin_master)
+  • Senha (obrigatória no create; opcional no edit)
+- Step 2 — Vínculo com empresa (obrigatório)
+  • Empresa (select obrigatório; carregado via GET /api/admin/empresas)
+  • Papel na empresa (owner | admin | operador)
+
+Salvar (create):
+- Backend cria em transação:
+  • insert usuarios (...)
+  • insert empresa_usuarios (empresa_id, usuario_id, papel)
+
+Editar (edit):
+- Mantém comportamento: edita usuario (e senha opcional).
+- Vínculo empresa_usuarios continua sendo administrado na tela “Vínculos”.
+
+Endpoints envolvidos:
+- GET  /api/admin/usuarios (listar)
+- POST /api/admin/usuarios (criar + vínculo obrigatório)
+  Payload (novo):
+  {
+    "nome": "...",
+    "email": "...",
+    "senha": "...",
+    "nivel": "usuario|administrador|admin_master",
+    "empresa_id": 123,
+    "papel": "owner|admin|operador"
+  }
+- PUT  /api/admin/usuarios/:id (editar)
+- DELETE /api/admin/usuarios/:id (remover)
+
+================================================================================
+10) COMO VISUALIZAR O BANCO (DBeaver / Render)
+================================================================================
 
 No Render:
-- Abra o seu PostgreSQL (Resource)
-- Procure por “Connect” / “Connections”
-- Use o “External Database URL” ou os campos Host/User/Password/DB
+- Abra o PostgreSQL Resource
+- “Connect / Connections”
+- use External Database URL (ou Host/User/Pass/DB)
 
-No DBeaver (via URL):
+No DBeaver (URL):
 - Driver: PostgreSQL
-- Marque “Use URL”
-- Cole:
-  postgresql://USUARIO:SENHA@HOST:5432/NOME_DB?sslmode=require
-
-Exemplo (o seu):
-  postgresql://davantti_user:SENHA@dpg-...oregon-postgres.render.com:5432/davantti_db?sslmode=require
+- “Use URL”
+- postgresql://USER:PASS@HOST:5432/DB?sslmode=require
 
 Dica:
-- A “senha” é a do banco (a que aparece no Render), não é do seu app.
+- senha é a do banco (Render), não é do app
 
-============================================================
-5) COMO INSERIR USUÁRIOS (TESTE / ADMIN) PELO DBEAVER
-============================================================
+================================================================================
+11) COMO INSERIR USUÁRIOS (ADMIN/MASTER) DO JEITO CERTO
+================================================================================
 
-Você pode inserir manualmente, mas lembre:
+❌ Nunca salvar senha em texto puro
+✅ sempre bcrypt em senha_hash
 
-❌ NÃO insira senha em texto puro
-✅ senha_hash precisa ser um hash bcrypt válido
+Opção A (recomendado): criar via endpoint/tela do sistema (backend faz bcrypt)
+Opção B (manual no DB): inserir com hash pronto (gerado por script Node)
 
-Opções:
-A) Inserir pelo próprio sistema (recomendado)
-- você cria um endpoint/rota “criar usuário”
-- o backend faz bcrypt e salva senha_hash
-
-B) Inserir no DBeaver (só se você já tiver o hash)
-- Gere um hash bcrypt (por script Node)
-- Depois faça INSERT na tabela usuarios
-
-Exemplo INSERT (com hash pronto):
+Exemplo:
 INSERT INTO usuarios (nome, email, senha_hash, nivel)
-VALUES ('Admin', 'admin@davantti.com', '<HASH_BCRYPT_AQUI>', 'administrador');
+VALUES ('Admin', 'admin@davantti.com', '<HASH_BCRYPT>', 'admin_master');
 
-============================================================
-6) COMO VAI FUNCIONAR O LOGIN (VISÃO GERAL)
-============================================================
+Obs:
+- Se seu DB ainda usa 'administrador' como valor, mantenha coerente com o código ou migre para 'admin'.
 
-Fluxo que você pediu:
-1) /  -> redireciona para /selecao-plataforma
-2) clicou Mercado Livre -> vai para /login (login.html)
-3) login OK -> backend gera JWT + seta cookie (httpOnly)
-4) após login OK -> redirect para /select-conta
-5) depois disso, segue fluxo normal do app
+Nota importante:
+- Se você criar usuário direto no DB, lembre de criar o vínculo em empresa_usuarios também,
+  caso o seu app dependa de “empresa ativa do usuário” em outras telas/fluxos.
+  (No momento, o vínculo é obrigatório no cadastro via Admin UI.)
 
-JWT em cookie:
-- Cookie ex: auth_token
-- Conteúdo: token JWT assinado
-- O backend valida o JWT em cada request que precisa de login
+================================================================================
+12) CHECKLIST RÁPIDO (TÁ TUDO CERTO?)
+================================================================================
 
-Níveis:
-- usuario: acesso normal
-- administrador: acesso a telas/ações restritas (futuro)
+[ ] DATABASE_URL configurado (local e/ou Render)
+[ ] node db/migrate.js roda sem erro (quando houver novas migrações SQL)
+[ ] tabela public.migracoes existe e registra arquivos aplicados
+[ ] oauth_states cria registros e limpa expirados
+[ ] callback OAuth cria meli_contas mesmo sem apelido manual (apelido default Conta <id>)
+[ ] cookie auth_token protege o app
+[ ] cookie meli_conta_id seleciona conta e libera rotas do ML
+[ ] ensurePermission protege /excluir-anuncio (VIEW e API)
+[ ] Admin > Usuários cria usuário e já vincula empresa (empresa_id + papel) sem erro
 
-============================================================
-7) COMO FUNCIONAVA “ANTES” (ANTES DO BANCO / LOGIN)
-============================================================
+================================================================================
+13) NOTAS IMPORTANTES / ARMADILHAS EVITADAS
+================================================================================
 
-Antes:
-- Seu app se baseava em cookie de conta (ml_account) e/ou tokens do ML
-- O usuário “entrava” direto no app e escolhia conta em /select-conta
-- Não existia:
-  - tabela de usuários
-  - login/senha do seu sistema
-  - papéis (usuario/administrador)
+- Não aplicar gate admin “global” no index.js sem prefixo (derruba tudo abaixo com 403)
+- Manter UM padrão de seleção de conta no front (evitar duplicar flows: /api/account/* vs /api/meli/*)
+- Evitar confusão de histórico de migração: padrão oficial = public.migracoes
+- Não logar tokens/refresh_token no console
+- Backup/export: cuidado para não vazar tokens (ideal mascarar/criptografar)
 
-Agora:
-- O app passa a ter um “gate” de autenticação do SEU sistema:
-  - sem JWT válido -> não entra no fluxo do Mercado Livre
-  - só depois do login -> vai para /select-conta e aí sim escolhe conta ML
-
-============================================================
-8) BOAS PRÁTICAS IMPORTANTES
-============================================================
-
-- Nunca commitar DATABASE_URL no GitHub
-- .env no Git = NÃO
-- Em produção: usar sslmode=require (Render geralmente exige)
-- Cookies:
-  - httpOnly = true (não acessível por JS)
-  - sameSite = 'lax' (ok pro seu caso)
-  - secure = true em HTTPS (Render em prod)
-
-============================================================
-9) CHECKLIST RÁPIDO (TUDO CERTO?)
-============================================================
-
-[ ] DATABASE_URL no .env local (apontando pro Render ou local)
-[ ] migration rodou e criou tabela usuarios
-[ ] DBeaver conecta e mostra schema/public -> table usuarios
-[ ] Próximo passo: criar conexão PG no app + rotas de auth (login/register)
-[ ] Depois: middleware de JWT + controle de nível (usuario/admin)
-
-============================================================
-10) PRÓXIMO PASSO (se você quiser seguir)
-============================================================
-
-Arquivo 1 (próximo): db/conn.js (ou services/db.js)
-- cria um pool do pg usando DATABASE_URL
-- exporta query()
-
-Aí depois:
-- routes/authRoutes.js
-- services/authService.js (bcrypt + jwt)
-- middleware/ensureAuth.js (valida JWT)
+================================================================================
+FIM
+================================================================================
