@@ -7,6 +7,20 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
 - Migrações (db/migrate.js) com tabela migracoes para histórico
 - Backup (export/import JSON) em /admin/backup (MASTER ONLY)
 
+✅ NOVA MODIFICAÇÃO (2025-12-29)
+- NOVO middleware: middleware/ensurePermission.js
+  • níveis atuais: padrao | admin | master (master == admin_master)
+  • permite reutilizar gates admin-only e master-only em qualquer rota HTML/API
+  • HTML (GET): redirect /nao-autorizado
+  • API/fetch: 403 JSON { ok:false, error, redirect:'/nao-autorizado' }
+
+- Proteção adicional da VIEW (HTML) de exclusão:
+  • GET /excluir-anuncio (htmlRoutes) agora usa ensurePermission.requireAdmin()
+    -> usuário padrao ao clicar no card será redirecionado para /nao-autorizado
+
+- API de exclusão continua protegida no prefixo:
+  • app.use('/api/excluir-anuncio', ensurePermission.requireAdmin(), excluirAnuncioRoutes)
+
 ================================================================================
 1) Publicidade/Product ADS
 ================================================================================
@@ -121,8 +135,11 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
 
 / (raiz do projeto)
 ├─ index.js
-│  ├─ app.use(excluirAnuncioRoutes)
-│  └─ HTML: GET /excluir-anuncio -> views/excluir-anuncio.html (via htmlRoutes)
+│  ├─ ✅ MODIFICADO: gate por permissão (ADMIN|MASTER)
+│  │  • app.use('/api/excluir-anuncio', ensurePermission.requireAdmin(), excluirAnuncioRoutes)
+│  │
+│  └─ ✅ MODIFICADO: VIEW HTML também protegida (via htmlRoutes)
+│     • GET /excluir-anuncio -> views/excluir-anuncio.html (via htmlRoutes + ensurePermission.requireAdmin())
 │
 ├─ routes/excluirAnuncioRoutes.js
 │  • DELETE /anuncios/excluir/:mlb_id
@@ -190,6 +207,16 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
 └─ tabelas base:
    • usuarios(id, nome, email, senha_hash, nivel, criado_em, ultimo_login_em)
    • niveis: usuario | admin | admin_master (MASTER)
+
+✅ NOVO ARQUIVO (reutilizável)
+middleware/
+└─ ensurePermission.js
+  • resolveNivel(req,res) -> normaliza padrao|admin|master
+  • requireAdmin()  -> admin OU master
+  • requireMaster() -> somente master
+  • deny() com comportamento:
+    - HTML (GET): redirect /nao-autorizado
+    - API/fetch: 403 JSON { ok:false, error:'Acesso não autorizado.', redirect:'/nao-autorizado' }
 
 ================================================================================
 8) SISTEMA NOVO — OAuth Mercado Livre + Seleção de Conta (novo fluxo)
@@ -281,6 +308,15 @@ OAuth Mercado Livre + Seleção de Conta (novo fluxo) + Segurança de Acesso + F
 │ │
 │ └─ Graceful shutdown + queueService
 
+✅ AJUSTE IMPORTANTE (2025-12-29) — substituição do ensureAdminOnly inline
+- Onde você usava “ensureAdminOnly/ensurePrivileged” inline no index.js para exclusão,
+  agora a fonte de verdade é middleware/ensurePermission.js:
+  • API: app.use('/api/excluir-anuncio', ensurePermission.requireAdmin(), excluirAnuncioRoutes)
+  • VIEW: /excluir-anuncio (htmlRoutes) também usa ensurePermission.requireAdmin()
+
+================================================================================
+(Seções 1–8 abaixo permanecem iguais ao seu texto original; apenas foi adicionado o item novo acima)
+================================================================================
 
 1) Middleware: Login do app (JWT) com HTML/JSON seguro
 middleware/
@@ -530,4 +566,3 @@ Fluxo final esperado (usuário)
    - ensureAccount injeta mlCreds/tokens
    - authMiddleware garante access_token válido (renova se preciso)
    - rotas que chamam ML funcionam
-

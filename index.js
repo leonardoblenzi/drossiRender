@@ -10,6 +10,9 @@ const ensureAccount = require("./middleware/ensureAccount"); // exige conta sele
 const { authMiddleware } = require("./middleware/authMiddleware"); // garante token ML válido
 const { ensureAuth } = require("./middleware/ensureAuth"); // ✅ JWT do app (auth_token)
 
+// ✅ NOVO: permissões padrao/admin/master
+const ensurePermission = require("./middleware/ensurePermission");
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -37,7 +40,9 @@ console.log("🔍 Carregando módulos...");
 try {
   const { getAccessTokenForAccount } = require("./services/ml-auth");
   app.set("getAccessTokenForAccount", getAccessTokenForAccount);
-  console.log('✅ ML Token Adapter injetado em app.get("getAccessTokenForAccount")');
+  console.log(
+    '✅ ML Token Adapter injetado em app.get("getAccessTokenForAccount")'
+  );
 } catch (err) {
   console.warn(
     "⚠️ Não foi possível injetar ml-auth. Rotas que dependem de tokens usarão fallbacks/env."
@@ -100,7 +105,7 @@ app.get("/nao-autorizado", noCache, (req, res) => {
 // Logout "completo" (limpa JWT + conta selecionada)
 app.post("/api/ml/logout", noCache, (req, res) => {
   res.clearCookie("auth_token", { path: "/" });
-  res.clearCookie("ml_account", { path: "/" }); // legacy
+  res.clearCookie("ml_account", { path: "/" }); // legacy (ainda existe no código antigo)
   res.clearCookie("meli_conta_id", { path: "/" }); // oauth
   return res.json({ ok: true });
 });
@@ -219,36 +224,7 @@ app.get("/test-basic", (req, res) => {
 // ✅ DAQUI PRA BAIXO: TUDO EXIGE LOGIN (JWT auth_token)
 // ==========================================
 app.use(ensureAuth);
-
-// ==========================================
-// Helpers de permissão (fonte da verdade: req.user.nivel)
-// ==========================================
-function getNivel(req, res) {
-  const u = req.user || res.locals.user;
-  return String(u?.nivel || "").trim().toLowerCase();
-}
-
-function deny(req, res) {
-  const accept = String(req.headers.accept || "");
-  const wantsHtml = accept.includes("text/html");
-  if (wantsHtml) return res.redirect("/nao-autorizado");
-  return res.status(403).json({ ok: false, error: "Acesso não autorizado." });
-}
-
-// ✅ Admin/Master (para telas especiais do app — ex: excluir-anuncio)
-function ensurePrivileged(req, res, next) {
-  const nivel = getNivel(req, res);
-  const ok = nivel === "administrador" || nivel === "admin_master";
-  if (ok) return next();
-  return deny(req, res);
-}
-
-// ✅ SOMENTE MASTER (Painel Admin + CRUD banco)
-function ensureMasterOnly(req, res, next) {
-  const nivel = getNivel(req, res);
-  if (nivel === "admin_master") return next();
-  return deny(req, res);
-}
+console.log("✅ ensureAuth aplicado (JWT do app)");
 
 // ==========================================
 // ✅ OAuth Mercado Livre (vincular contas via autorização)
@@ -270,114 +246,184 @@ app.get("/vincular-conta", noCache, (req, res) => {
 // ==========================================
 
 // HTML do painel
-app.get("/admin/usuarios", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-usuarios.html"));
-});
+app.get(
+  "/admin/usuarios",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(path.join(__dirname, "views", "admin-usuarios.html"));
+  }
+);
 
 // HTML: Empresas
-app.get("/admin/empresas", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-empresas.html"));
-});
+app.get(
+  "/admin/empresas",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(path.join(__dirname, "views", "admin-empresas.html"));
+  }
+);
 
 // API: Empresas
 try {
   const adminEmpresasRoutes = require("./routes/adminEmpresasRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminEmpresasRoutes);
-  console.log("✅ AdminEmpresasRoutes carregado (MASTER ONLY via index.js)");
+  app.use("/api/admin", ensurePermission.requireMaster(), adminEmpresasRoutes);
+  console.log(
+    "✅ AdminEmpresasRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminEmpresasRoutes:", e.message);
 }
 
 // HTML Vínculos
-app.get("/admin/vinculos", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-vinculos.html"));
-});
+app.get(
+  "/admin/vinculos",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(path.join(__dirname, "views", "admin-vinculos.html"));
+  }
+);
 
 // API Vínculos
 try {
   const adminVinculosRoutes = require("./routes/adminVinculosRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminVinculosRoutes);
-  console.log("✅ AdminVinculosRoutes carregado (MASTER ONLY via index.js)");
+  app.use("/api/admin", ensurePermission.requireMaster(), adminVinculosRoutes);
+  console.log(
+    "✅ AdminVinculosRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminVinculosRoutes:", e.message);
 }
 
 // HTML Contas ML
-app.get("/admin/contas-ml", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-meli-contas.html"));
-});
+app.get(
+  "/admin/contas-ml",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(
+      path.join(__dirname, "views", "admin-meli-contas.html")
+    );
+  }
+);
 
 // API Contas ML
 try {
   const adminMeliContasRoutes = require("./routes/adminMeliContasRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminMeliContasRoutes);
-  console.log("✅ AdminMeliContasRoutes carregado (MASTER ONLY via index.js)");
+  app.use(
+    "/api/admin",
+    ensurePermission.requireMaster(),
+    adminMeliContasRoutes
+  );
+  console.log(
+    "✅ AdminMeliContasRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminMeliContasRoutes:", e.message);
 }
 
 // HTML Tokens ML
-app.get("/admin/tokens-ml", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-meli-tokens.html"));
-});
+app.get(
+  "/admin/tokens-ml",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(
+      path.join(__dirname, "views", "admin-meli-tokens.html")
+    );
+  }
+);
 
 // API Tokens ML
 try {
   const adminMeliTokensRoutes = require("./routes/adminMeliTokensRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminMeliTokensRoutes);
-  console.log("✅ AdminMeliTokensRoutes carregado (MASTER ONLY via index.js)");
+  app.use(
+    "/api/admin",
+    ensurePermission.requireMaster(),
+    adminMeliTokensRoutes
+  );
+  console.log(
+    "✅ AdminMeliTokensRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminMeliTokensRoutes:", e.message);
 }
 
 // HTML OAuth States
-app.get("/admin/oauth-states", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-oauth-states.html"));
-});
+app.get(
+  "/admin/oauth-states",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(
+      path.join(__dirname, "views", "admin-oauth-states.html")
+    );
+  }
+);
 
 // API OAuth States
 try {
   const adminOAuthStatesRoutes = require("./routes/adminOAuthStatesRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminOAuthStatesRoutes);
-  console.log("✅ AdminOAuthStatesRoutes carregado (MASTER ONLY via index.js)");
+  app.use(
+    "/api/admin",
+    ensurePermission.requireMaster(),
+    adminOAuthStatesRoutes
+  );
+  console.log(
+    "✅ AdminOAuthStatesRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminOAuthStatesRoutes:", e.message);
 }
 
-app.get("/admin/migracoes", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-migracoes.html"));
-});
+app.get(
+  "/admin/migracoes",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(path.join(__dirname, "views", "admin-migracoes.html"));
+  }
+);
 
 try {
   const adminMigracoesRoutes = require("./routes/adminMigracoesRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminMigracoesRoutes);
-  console.log("✅ AdminMigracoesRoutes carregado (MASTER ONLY via index.js)");
+  app.use("/api/admin", ensurePermission.requireMaster(), adminMigracoesRoutes);
+  console.log(
+    "✅ AdminMigracoesRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminMigracoesRoutes:", e.message);
 }
+
 // HTML Backup (SOMENTE MASTER)
-app.get("/admin/backup", noCache, ensureMasterOnly, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "admin-backup.html"));
-});
+app.get(
+  "/admin/backup",
+  noCache,
+  ensurePermission.requireMaster(),
+  (req, res) => {
+    return res.sendFile(path.join(__dirname, "views", "admin-backup.html"));
+  }
+);
 
 try {
   const adminBackupRoutes = require("./routes/adminBackupRoutes");
-  app.use("/api/admin", ensureMasterOnly, adminBackupRoutes);
-  console.log("✅ AdminBackupRoutes carregado (MASTER ONLY)");
+  app.use("/api/admin", ensurePermission.requireMaster(), adminBackupRoutes);
+  console.log(
+    "✅ AdminBackupRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminBackupRoutes:", e.message);
 }
 
-
-
 // APIs do painel (aplica o gate no index.js)
 try {
   const adminUsuariosRoutes = require("./routes/adminUsuariosRoutes");
-
-  // ✅ master-only
-  app.use("/api/admin", ensureMasterOnly, adminUsuariosRoutes);
-
-  console.log("✅ AdminUsuariosRoutes carregado (MASTER ONLY via index.js)");
+  app.use("/api/admin", ensurePermission.requireMaster(), adminUsuariosRoutes);
+  console.log(
+    "✅ AdminUsuariosRoutes carregado (MASTER ONLY via ensurePermission)"
+  );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminUsuariosRoutes:", e.message);
 }
@@ -403,7 +449,7 @@ try {
 // ==========================================
 try {
   app.use(ensureAccount);
-  console.log("✅ Middleware ensureAccount aplicado");
+  console.log("✅ Middleware ensureAccount aplicado (conta ML selecionada)");
 } catch (error) {
   console.error("❌ Erro ao aplicar ensureAccount:", error.message);
   console.warn("⚠️ Continuação sem exigir conta selecionada (temporário)");
@@ -424,7 +470,7 @@ app.get("/api/account/whoami", (req, res) => {
 // 🔒 GARANTIR TOKEN ML VÁLIDO PARA AS ROTAS ABAIXO
 // ==========================================
 app.use(authMiddleware);
-console.log("✅ AuthMiddleware aplicado");
+console.log("✅ AuthMiddleware aplicado (token ML válido)");
 
 // ==========================================
 // Rotas PROTEGIDAS do app
@@ -451,12 +497,19 @@ try {
   console.error("❌ Erro ao carregar ValidarDimensoesRoutes:", error.message);
 }
 
-// ✅ Exclusão de anúncios (admin OU master)
+// ✅ Exclusão de anúncios (ADMIN|MASTER) — AGORA via ensurePermission
 try {
   const excluirAnuncioRoutes = require("./routes/excluirAnuncioRoutes");
-  app.use("/api/excluir-anuncio", ensurePrivileged, excluirAnuncioRoutes);
+
+  // 🔒 gate: admin ou master
+  app.use(
+    "/api/excluir-anuncio",
+    ensurePermission.requireAdmin(),
+    excluirAnuncioRoutes
+  );
+
   console.log(
-    "✅ ExcluirAnuncioRoutes carregado em /api/excluir-anuncio (ADMIN|MASTER)"
+    "✅ ExcluirAnuncioRoutes carregado em /api/excluir-anuncio (ADMIN|MASTER via ensurePermission)"
   );
 } catch (error) {
   console.error("❌ Erro ao carregar ExcluirAnuncioRoutes:", error.message);

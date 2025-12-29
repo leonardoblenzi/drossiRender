@@ -2,6 +2,9 @@
 const express = require("express");
 const path = require("path");
 
+// ✅ NOVO: gate de permissão (padrao/admin/master)
+const ensurePermission = require("../middleware/ensurePermission");
+
 let HtmlController;
 try {
   HtmlController = require("../controllers/HtmlController");
@@ -84,11 +87,18 @@ router.get("/estrategicos", noCache, (_req, res) => {
 });
 
 /* ================================
- * NOVO: Página Exclusão de Anúncios (HTML)
+ * ✅ PROTEGIDO: Página Exclusão de Anúncios (HTML) — ADMIN|MASTER
+ *  - Se 'padrao' clicar no card e tentar abrir a view,
+ *    já cai em /nao-autorizado (sem nem carregar a página)
  * ================================ */
-router.get("/excluir-anuncio", noCache, (_req, res) => {
-  res.sendFile(path.join(__dirname, "..", "views", "excluir-anuncio.html"));
-});
+router.get(
+  "/excluir-anuncio",
+  noCache,
+  ensurePermission.requireAdmin(), // ✅ aqui
+  (_req, res) => {
+    res.sendFile(path.join(__dirname, "..", "views", "excluir-anuncio.html"));
+  }
+);
 
 /* ================================
  * NOVO: Página Filtro Avançado de Anúncios (HTML)

@@ -114,7 +114,9 @@ function getUid(req) {
 }
 
 function normalizeNivel(n) {
-  return String(n || "").trim().toLowerCase();
+  return String(n || "")
+    .trim()
+    .toLowerCase();
 }
 
 function truthy(v) {
@@ -129,7 +131,7 @@ function isMaster(req) {
   // - req.user.nivel === admin_master
   // - req.user.role === admin_master
   const nivel = normalizeNivel(req.user?.nivel);
-  const role  = normalizeNivel(req.user?.role);
+  const role = normalizeNivel(req.user?.role);
 
   return (
     nivel === "admin_master" ||
@@ -368,11 +370,15 @@ async function ensureAccount(req, res, next) {
     }
 
     // Compat (legado)
-    if (creds.access_token) process.env.ACCESS_TOKEN = String(creds.access_token);
+    if (creds.access_token)
+      process.env.ACCESS_TOKEN = String(creds.access_token);
     if (creds.app_id) process.env.APP_ID = String(creds.app_id);
-    if (creds.client_secret) process.env.CLIENT_SECRET = String(creds.client_secret);
-    if (creds.refresh_token) process.env.REFRESH_TOKEN = String(creds.refresh_token);
-    if (creds.redirect_uri) process.env.REDIRECT_URI = String(creds.redirect_uri);
+    if (creds.client_secret)
+      process.env.CLIENT_SECRET = String(creds.client_secret);
+    if (creds.refresh_token)
+      process.env.REFRESH_TOKEN = String(creds.refresh_token);
+    if (creds.redirect_uri)
+      process.env.REDIRECT_URI = String(creds.redirect_uri);
 
     return next();
   } catch (e) {
