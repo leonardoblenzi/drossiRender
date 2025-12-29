@@ -8,6 +8,7 @@ Obs: Este documento consolida:
 - O mapeamento atualizado do app (OAuth+DB, multi-empresa, Admin Panel, migrações, backup)
 - Ajustes de 29/12: ensurePermission + proteção de /excluir-anuncio + apelido default no OAuth + migrações na tabela do banco
 - Ajuste de 29/12: Admin Usuários (wizard 2 passos) cria usuário + vínculo obrigatório (empresa_usuarios)
+- Ajuste de 29/12: Backup export/import com ordem estável + resumo de restore (inserted/total) exibido na UI
 
 ================================================================================
 1) VISÃO GERAL (O QUE EXISTE HOJE)
@@ -30,6 +31,13 @@ Novidade (29/12 — Tela Admin > Usuários):
    - Step 1: dados do usuário (nome/email/nivel/senha) com validação rápida
    - Step 2: vínculo obrigatório com empresa (empresa + papel)
    - Ao salvar: cria registro em usuarios + cria registro em empresa_usuarios (transação)
+
+Novidade (29/12 — Tela Admin > Backup):
+✅ Export agora é mais estável:
+   - Para tabelas com coluna id, exporta usando ORDER BY id ASC
+✅ Import retorna resumo do que foi restaurado:
+   - { inserted: { usuarios:X, ... }, total_inserted:N, restored_at: ISOString }
+✅ UI (admin-backup.js) mostra mensagem organizada com o resumo do restore.
 
 ================================================================================
 2) COMO O APP “ENXERGA” O BANCO
@@ -347,6 +355,48 @@ Endpoints envolvidos:
 - PUT  /api/admin/usuarios/:id (editar)
 - DELETE /api/admin/usuarios/:id (remover)
 
+7.2) Admin > Backup (Atualizado 29/12 — ordem estável + resumo)
+Objetivo:
+- Exportar um JSON completo e permitir restore total (wipe & restore) com feedback claro.
+
+Export:
+- GET /api/admin/backup/export.json
+- Ordem recomendada (para restore):
+  empresas -> usuarios -> empresa_usuarios -> meli_contas -> meli_tokens -> oauth_states -> migracoes
+- Estabilidade:
+  • Tabelas com coluna id: SELECT * FROM tabela ORDER BY id ASC
+  • Tabelas sem id (PK composta): SELECT * FROM tabela (ordem não garantida)
+- Payload:
+  {
+    ok: true,
+    format: "davantti_backup_json_v1",
+    created_at: ISO,
+    tables: [...],
+    data: { tabela: [rows...] }
+  }
+
+Import:
+- POST /api/admin/backup/import.json
+- Comportamento:
+  • MASTER ONLY
+  • Transação
+  • Wipe na ordem inversa (FK)
+  • Restore na ordem correta
+  • Ajuste das sequences (bigserial)
+- Resposta (novo):
+  {
+    ok: true,
+    inserted: { usuarios: X, empresas: Y, ... },
+    total_inserted: N,
+    restored_at: ISO
+  }
+
+UI:
+- public/js/admin-backup.js agora exibe:
+  • “Backup restaurado com sucesso”
+  • Total inserido
+  • Inseridos por tabela (lista organizada)
+
 ================================================================================
 10) COMO VISUALIZAR O BANCO (DBeaver / Render)
 ================================================================================
@@ -399,6 +449,10 @@ Nota importante:
 [ ] cookie meli_conta_id seleciona conta e libera rotas do ML
 [ ] ensurePermission protege /excluir-anuncio (VIEW e API)
 [ ] Admin > Usuários cria usuário e já vincula empresa (empresa_id + papel) sem erro
+[ ] Admin > Backup:
+    - export baixa JSON sem erro
+    - import restaura e retorna resumo inserted/total
+    - UI mostra resumo na tela
 
 ================================================================================
 13) NOTAS IMPORTANTES / ARMADILHAS EVITADAS
@@ -409,6 +463,7 @@ Nota importante:
 - Evitar confusão de histórico de migração: padrão oficial = public.migracoes
 - Não logar tokens/refresh_token no console
 - Backup/export: cuidado para não vazar tokens (ideal mascarar/criptografar)
+- Restore “wipe & restore” é destrutivo: sempre confirmar e preferir rodar em horário de baixa.
 
 ================================================================================
 FIM
