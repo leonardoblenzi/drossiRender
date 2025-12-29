@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin • Migrações</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <link rel="stylesheet" href="/css/admin-migracoes.css?v=1">
+</head>
+<body>
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
+    </div>
+
+    <div class="account-bar__right">
+      <a class="account-bar__switch" href="/dashboard" style="text-decoration:none; display:inline-flex; align-items:center;">
+        Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar__brand">
+        <div class="admin-sidebar__logo">DAVANTTI</div>
+        <div class="admin-sidebar__sub">Administração</div>
+      </div>
+
+      <nav class="admin-menu">
+         <a class="admin-menu__item" href="/admin/usuarios">
+          <span class="ico">👤</span>
+          <span>Usuários</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/empresas">
+          <span class="ico">🏢</span>
+          <span>Empresas</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/vinculos">
+          <span class="ico">🔗</span>
+          <span>Vínculos</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/contas-ml">
+          <span class="ico">🟡</span>
+          <span>Contas ML</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/tokens-ml">
+          <span class="ico">🔑</span>
+          <span>Tokens ML</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/oauth-states">
+          <span class="ico">🧩</span>
+          <span>OAuth States</span>
+        </a>
+
+        <a class="admin-menu__item active" href="/admin/migracoes">
+          <span class="ico">📦</span>
+          <span>Migrações</span>
+        </a>
+        <a class="admin-menu__item" href="/admin/backup">
+            <span class="ico">🧰</span><span>Backup</span>
+        </a>
+      </nav>
+
+      <div class="admin-sidebar__footer">
+        <small>Área restrita</small>
+      </div>
+    </aside>
+
+    <section class="admin-content">
+      <div class="admin-content__header">
+        <div>
+          <h1 class="admin-title">Migrações do banco</h1>
+          <p class="admin-subtitle">
+            Visualize o status das migrações (.sql) e o histórico de aplicação no banco.
+          </p>
+        </div>
+
+        <div class="admin-actions">
+          <button id="btn-refresh" class="btn-lite" type="button">↻ Atualizar</button>
+          <button id="btn-run" class="btn-primary" type="button">▶ Rodar pendentes</button>
+        </div>
+      </div>
+
+      <div class="admin-toolbar">
+        <div class="toolbar-left">
+          <span class="pill" id="pill-files">0 arquivos</span>
+          <span class="pill" id="pill-applied">0 aplicadas</span>
+          <span class="pill" id="pill-pending">0 pendentes</span>
+        </div>
+        <div class="toolbar-right">
+          <span class="hint-mini">⚠️ Rodar pendentes executa SQL no banco. Use com cuidado.</span>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Arquivos em /db</h3>
+            <small>Fonte: diretório do projeto</small>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table" id="files-table">
+              <thead>
+                <tr>
+                  <th>Arquivo</th>
+                  <th style="width:140px;">Status</th>
+                  <th style="width:120px; text-align:right;">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-files">
+                <tr><td colspan="3" class="table-empty">Carregando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Histórico aplicado</h3>
+            <small>Fonte: tabela <code>migracoes</code></small>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table" id="applied-table">
+              <thead>
+                <tr>
+                  <th style="width:90px;">ID</th>
+                  <th>Arquivo</th>
+                  <th style="width:190px;">Aplicado em</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-applied">
+                <tr><td colspan="3" class="table-empty">Carregando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="hint">
+        ✅ A fonte da verdade do que foi aplicado é a tabela <strong>migracoes</strong>. Os arquivos em <strong>/db</strong> são apenas a lista de scripts existentes.
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal preview SQL -->
+  <div class="modal" id="modal-sql" aria-hidden="true">
+    <div class="modal-content modal-wide">
+      <div class="modal-header">
+        <h3 id="modal-title">Preview</h3>
+        <button class="close" id="modal-close" type="button">×</button>
+      </div>
+
+      <div class="modal-body">
+        <pre class="codebox" id="sql-box">Carregando…</pre>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-lite" id="btn-close" type="button">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" style="display:none;"></div>
+
+  <script src="/js/admin-migracoes.js?v=1"></script>
+</body>
+</html>

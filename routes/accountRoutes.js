@@ -6,29 +6,24 @@ const db = require("../db/db");
 
 const router = express.Router();
 
-/** Cookies
+/**
+ * Cookie OAuth (id da tabela meli_contas)
  * IMPORTANTE: tem que bater com middleware/ensureAccount.js
  */
-const COOKIE_OAUTH = "meli_conta_id"; // ✅ id da tabela meli_contas (OAuth)
-const COOKIE_LEGACY = "ml_account"; // chave legacy (drossi/diplany/rossidecor)
+const COOKIE_OAUTH = "meli_conta_id";
 
-/** (LEGADO) Mapeamento das contas disponíveis via ENV */
-const ACCOUNTS = {
-  drossi: { label: "DRossi Interiores", envPrefix: "ML_DROSSI" },
-  diplany: { label: "Diplany", envPrefix: "ML_DIPLANY" },
-  rossidecor: { label: "Rossi Decor", envPrefix: "ML_ROSSIDECOR" },
-};
-
-/** Helper: checa se a conta LEGADA tem variáveis mínimas configuradas */
-function legacyAccountConfigured(envPrefix) {
-  const hasClient =
-    !!process.env[`${envPrefix}_APP_ID`] ||
-    !!process.env[`${envPrefix}_CLIENT_ID`];
-  const hasSecret = !!process.env[`${envPrefix}_CLIENT_SECRET`];
-  const hasTokens =
-    !!process.env[`${envPrefix}_ACCESS_TOKEN`] ||
-    !!process.env[`${envPrefix}_REFRESH_TOKEN`];
-  return hasClient && hasSecret && hasTokens;
+// ===============================
+// Helpers: role
+// ===============================
+function normalizeNivel(n) {
+  return String(n || "").trim().toLowerCase();
+}
+function isMaster(req) {
+  return (
+    normalizeNivel(req.user?.nivel) === "admin_master" ||
+    req.user?.is_master === true ||
+    req.user?.flags?.is_master === true
+  );
 }
 
 /** Helper: pega empresa do usuário (MVP: 1 usuário -> 1 empresa) */
@@ -47,8 +42,7 @@ async function getEmpresaDoUsuario(client, usuarioId) {
 
 /** Cookie options */
 function cookieOptions() {
-  const isProd =
-    String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
   return {
     httpOnly: true,
     sameSite: "lax",
@@ -58,9 +52,8 @@ function cookieOptions() {
   };
 }
 
-/** Normaliza "current" e também devolve formato flat compatível com o front */
+/** Normaliza "current" e devolve formato compatível com o front */
 function buildCurrentPayload(cur) {
-  // cur pode ser null
   if (!cur) {
     return {
       ok: true,
@@ -72,298 +65,187 @@ function buildCurrentPayload(cur) {
     };
   }
 
-  if (cur.type === "oauth") {
-    const key = String(cur.id);
-    const label = cur.label || `Conta ${cur.meli_user_id || key}`;
-    return {
-      ok: true,
-      success: true,
-      current: { ...cur, label },
-      accountType: "oauth",
-      accountKey: key,
-      label,
-    };
-  }
-
-  if (cur.type === "legacy") {
-    const key = String(cur.key);
-    const label = cur.label || key;
-    return {
-      ok: true,
-      success: true,
-      current: { ...cur, label },
-      accountType: "legacy",
-      accountKey: key,
-      label,
-    };
-  }
+  // OAuth-only
+  const key = String(cur.id);
+  const label = String(cur.label || "").trim() || `Conta ${cur.meli_user_id || key}`;
 
   return {
     ok: true,
     success: true,
-    current: null,
-    accountType: null,
-    accountKey: null,
-    label: null,
+    current: { ...cur, label },
+    accountType: "oauth",
+    accountKey: key,
+    label,
   };
 }
 
 /**
- * GET /api/account/list
- * Lista contas OAuth do banco (da empresa do usuário) + contas legacy (opcional)
- */
-router.get("/list", async (req, res) => {
-  try {
-    const uid = Number(req.user?.uid);
-    if (!Number.isFinite(uid))
-      return res.status(401).json({ ok: false, error: "Não autenticado." });
-
-    const oauthContas = await db.withClient(async (client) => {
-      const emp = await getEmpresaDoUsuario(client, uid);
-      if (!emp) return [];
-
-      const r = await client.query(
-        `select mc.id,
-                mc.meli_user_id,
-                mc.apelido,
-                mc.site_id,
-                mc.status,
-                mc.criado_em,
-                mc.atualizado_em,
-                mc.ultimo_uso_em,
-                case when mt.meli_conta_id is null then false else true end as has_tokens
-           from meli_contas mc
-           left join meli_tokens mt on mt.meli_conta_id = mc.id
-          where mc.empresa_id = $1
-          order by mc.id desc`,
-        [emp.empresa_id]
-      );
-
-      return r.rows.map((x) => ({
-        type: "oauth",
-        id: x.id,
-        label: x.apelido || `Conta ${x.meli_user_id}`,
-        meli_user_id: x.meli_user_id,
-        site_id: x.site_id,
-        status: x.status,
-        has_tokens: !!x.has_tokens,
-      }));
-    });
-
-    // (opcional) inclui legacy para compatibilidade enquanto migra
-    const legacyContas = Object.entries(ACCOUNTS).map(([key, meta]) => ({
-      type: "legacy",
-      key,
-      label: meta.label,
-      configured: legacyAccountConfigured(meta.envPrefix),
-    }));
-
-    const currentOAuthId = req.cookies?.[COOKIE_OAUTH]
-      ? Number(req.cookies[COOKIE_OAUTH])
-      : null;
-    const currentLegacy = req.cookies?.[COOKIE_LEGACY] || null;
-
-    // Define "current" preferindo OAuth se existir
-    let current = null;
-    if (Number.isFinite(currentOAuthId) && currentOAuthId > 0) {
-      const found = oauthContas.find((c) => c.id === currentOAuthId) || null;
-      current = found
-        ? {
-            type: "oauth",
-            id: found.id,
-            label: found.label,
-            meli_user_id: found.meli_user_id,
-          }
-        : { type: "oauth", id: currentOAuthId, label: null };
-    } else if (currentLegacy) {
-      const label =
-        (ACCOUNTS[currentLegacy] && ACCOUNTS[currentLegacy].label) ||
-        currentLegacy;
-      current = { type: "legacy", key: currentLegacy, label };
-    }
-
-    const flat = buildCurrentPayload(current);
-
-    return res.json({
-      ok: true,
-      oauth: oauthContas,
-      legacy: legacyContas,
-      current, // mantém estrutura antiga
-      // compat com front:
-      accountType: flat.accountType,
-      accountKey: flat.accountKey,
-      label: flat.label,
-      success: true,
-    });
-  } catch (err) {
-    console.error("GET /api/account/list erro:", err);
-    return res.status(500).json({ ok: false, error: "Erro ao listar contas" });
-  }
-});
-
-/**
  * GET /api/account/current
- * Retorna conta atual selecionada (OAuth ou legacy)
- * - Mantém { current } (novo/antigo)
- * - E adiciona { label, accountKey, accountType } para compatibilidade com a navbar
+ * Retorna a conta atual selecionada (OAuth only).
+ * - Para usuário comum: valida que a conta pertence à empresa do usuário
+ * - Para master: pode ler qualquer conta selecionada
  */
 router.get("/current", async (req, res) => {
   try {
     const uid = Number(req.user?.uid);
-    if (!Number.isFinite(uid))
+    if (!Number.isFinite(uid)) {
       return res.status(401).json({ ok: false, error: "Não autenticado." });
+    }
 
-    const oauthId = req.cookies?.[COOKIE_OAUTH]
-      ? Number(req.cookies[COOKIE_OAUTH])
-      : null;
-    const legacyKey = req.cookies?.[COOKIE_LEGACY] || null;
+    const master = isMaster(req);
 
-    if (Number.isFinite(oauthId) && oauthId > 0) {
-      const info = await db.withClient(async (client) => {
-        const emp = await getEmpresaDoUsuario(client, uid);
-        if (!emp) return null;
+    const oauthId = req.cookies?.[COOKIE_OAUTH] ? Number(req.cookies[COOKIE_OAUTH]) : null;
+    if (!Number.isFinite(oauthId) || oauthId <= 0) {
+      return res.json(buildCurrentPayload(null));
+    }
 
+    const info = await db.withClient(async (client) => {
+      if (master) {
         const r = await client.query(
-          `select id, apelido, meli_user_id, status, site_id
-             from meli_contas
-            where id = $1 and empresa_id = $2
+          `select mc.id,
+                  mc.empresa_id,
+                  e.nome as empresa_nome,
+                  mc.apelido,
+                  mc.meli_user_id,
+                  mc.status,
+                  mc.site_id
+             from meli_contas mc
+             join empresas e on e.id = mc.empresa_id
+            where mc.id = $1
             limit 1`,
-          [oauthId, emp.empresa_id]
+          [oauthId]
         );
         return r.rows[0] || null;
-      });
-
-      if (!info) {
-        // cookie inválido
-        res.clearCookie(COOKIE_OAUTH, { path: "/" });
-        return res.json(buildCurrentPayload(null));
       }
 
-      return res.json(
-        buildCurrentPayload({
-          type: "oauth",
-          id: info.id,
-          label: info.apelido || `Conta ${info.meli_user_id}`,
-          meli_user_id: info.meli_user_id,
-          status: info.status,
-          site_id: info.site_id,
-        })
+      const emp = await getEmpresaDoUsuario(client, uid);
+      if (!emp) return null;
+
+      const r = await client.query(
+        `select mc.id,
+                mc.empresa_id,
+                $2::text as empresa_nome,
+                mc.apelido,
+                mc.meli_user_id,
+                mc.status,
+                mc.site_id
+           from meli_contas mc
+          where mc.id = $1 and mc.empresa_id = $3
+          limit 1`,
+        [oauthId, emp.empresa_nome || null, emp.empresa_id]
       );
+      return r.rows[0] || null;
+    });
+
+    if (!info) {
+      // cookie inválido
+      res.clearCookie(COOKIE_OAUTH, { path: "/" });
+      return res.json(buildCurrentPayload(null));
     }
 
-    if (legacyKey && ACCOUNTS[legacyKey]) {
-      return res.json(
-        buildCurrentPayload({
-          type: "legacy",
-          key: legacyKey,
-          label: ACCOUNTS[legacyKey].label,
-        })
-      );
-    }
+    const baseLabel = info.apelido || `Conta ${info.meli_user_id}`;
 
-    return res.json(buildCurrentPayload(null));
+    // ✅ Master mostra empresa no label (ajuda muito)
+    const label = master && info.empresa_nome ? `${info.empresa_nome} • ${baseLabel}` : baseLabel;
+
+    return res.json(
+      buildCurrentPayload({
+        type: "oauth",
+        id: info.id,
+        label,
+        empresa_id: info.empresa_id,
+        empresa_nome: info.empresa_nome,
+        meli_user_id: info.meli_user_id,
+        status: info.status,
+        site_id: info.site_id,
+      })
+    );
   } catch (err) {
     console.error("GET /api/account/current erro:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Erro ao obter conta atual" });
-  }
-});
-
-/**
- * POST /api/account/select
- * - OAuth: { meliContaId }
- * - Legacy: { accountKey }
- */
-router.post("/select", express.json({ limit: "200kb" }), async (req, res) => {
-  try {
-    const uid = Number(req.user?.uid);
-    if (!Number.isFinite(uid))
-      return res.status(401).json({ ok: false, error: "Não autenticado." });
-
-    const meliContaId =
-      req.body?.meliContaId !== undefined ? Number(req.body.meliContaId) : null;
-    const accountKey =
-      req.body?.accountKey !== undefined ? String(req.body.accountKey) : null;
-
-    // ===== OAuth select =====
-    if (Number.isFinite(meliContaId) && meliContaId > 0) {
-      const selected = await db.withClient(async (client) => {
-        const emp = await getEmpresaDoUsuario(client, uid);
-        if (!emp) return null;
-
-        const r = await client.query(
-          `select id, apelido, meli_user_id, status, site_id
-             from meli_contas
-            where id = $1 and empresa_id = $2
-            limit 1`,
-          [meliContaId, emp.empresa_id]
-        );
-        return r.rows[0] || null;
-      });
-
-      if (!selected)
-        return res.status(400).json({
-          ok: false,
-          error: "meliContaId inválido (ou não pertence à sua empresa).",
-        });
-
-      // seta cookie OAuth e limpa legado
-      res.cookie(COOKIE_OAUTH, String(selected.id), cookieOptions());
-      res.clearCookie(COOKIE_LEGACY, { path: "/" });
-
-      return res.json(
-        buildCurrentPayload({
-          type: "oauth",
-          id: selected.id,
-          label: selected.apelido || `Conta ${selected.meli_user_id}`,
-          meli_user_id: selected.meli_user_id,
-          status: selected.status,
-          site_id: selected.site_id,
-        })
-      );
-    }
-
-    // ===== Legacy select =====
-    if (accountKey) {
-      if (!ACCOUNTS[accountKey])
-        return res
-          .status(400)
-          .json({ ok: false, error: "accountKey inválido" });
-
-      res.cookie(COOKIE_LEGACY, accountKey, cookieOptions());
-      res.clearCookie(COOKIE_OAUTH, { path: "/" });
-
-      return res.json(
-        buildCurrentPayload({
-          type: "legacy",
-          key: accountKey,
-          label: ACCOUNTS[accountKey].label,
-        })
-      );
-    }
-
-    return res.status(400).json({
-      ok: false,
-      error: "Envie { meliContaId } (OAuth) ou { accountKey } (legado).",
-    });
-  } catch (err) {
-    console.error("POST /api/account/select erro:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Erro ao selecionar conta" });
+    return res.status(500).json({ ok: false, error: "Erro ao obter conta atual" });
   }
 });
 
 /**
  * POST /api/account/clear
- * Limpa seleção (OAuth e Legacy)
+ * Limpa seleção (OAuth only)
  */
 router.post("/clear", (_req, res) => {
   res.clearCookie(COOKIE_OAUTH, { path: "/" });
-  res.clearCookie(COOKIE_LEGACY, { path: "/" });
   return res.json({ ok: true, success: true });
 });
 
+/**
+ * (Opcional) POST /api/account/select
+ * Mantido só por compatibilidade: seta o cookie OAuth.
+ * Você já tem /api/meli/selecionar — se quiser, pode remover este endpoint depois.
+ */
+router.post("/select", express.json({ limit: "100kb" }), async (req, res) => {
+  try {
+    const uid = Number(req.user?.uid);
+    if (!Number.isFinite(uid)) {
+      return res.status(401).json({ ok: false, error: "Não autenticado." });
+    }
+
+    const master = isMaster(req);
+    const meliContaId = Number(req.body?.meliContaId);
+
+    if (!Number.isFinite(meliContaId) || meliContaId <= 0) {
+      return res.status(400).json({ ok: false, error: "meliContaId inválido." });
+    }
+
+    const selected = await db.withClient(async (client) => {
+      if (master) {
+        const r = await client.query(
+          `select mc.id, mc.apelido, mc.meli_user_id, mc.status, mc.site_id, mc.empresa_id, e.nome as empresa_nome
+             from meli_contas mc
+             join empresas e on e.id = mc.empresa_id
+            where mc.id = $1
+            limit 1`,
+          [meliContaId]
+        );
+        return r.rows[0] || null;
+      }
+
+      const emp = await getEmpresaDoUsuario(client, uid);
+      if (!emp) return null;
+
+      const r = await client.query(
+        `select mc.id, mc.apelido, mc.meli_user_id, mc.status, mc.site_id, mc.empresa_id, $2::text as empresa_nome
+           from meli_contas mc
+          where mc.id = $1 and mc.empresa_id = $3
+          limit 1`,
+        [meliContaId, emp.empresa_nome || null, emp.empresa_id]
+      );
+      return r.rows[0] || null;
+    });
+
+    if (!selected) {
+      return res.status(404).json({ ok: false, error: "Conta não encontrada (ou não permitida)." });
+    }
+
+    res.cookie(COOKIE_OAUTH, String(selected.id), cookieOptions());
+
+    const baseLabel = selected.apelido || `Conta ${selected.meli_user_id}`;
+    const label =
+      master && selected.empresa_nome ? `${selected.empresa_nome} • ${baseLabel}` : baseLabel;
+
+    return res.json(
+      buildCurrentPayload({
+        type: "oauth",
+        id: selected.id,
+        label,
+        empresa_id: selected.empresa_id,
+        empresa_nome: selected.empresa_nome,
+        meli_user_id: selected.meli_user_id,
+        status: selected.status,
+        site_id: selected.site_id,
+      })
+    );
+  } catch (err) {
+    console.error("POST /api/account/select erro:", err);
+    return res.status(500).json({ ok: false, error: "Erro ao selecionar conta" });
+  }
+});
+
 module.exports = router;
-module.exports.ACCOUNTS = ACCOUNTS;

@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Admin • Usuários</title>
+  <title>Admin • Empresas</title>
 
   <!-- Base do seu app -->
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
-  <!-- Estilo específico da tela -->
+  <!-- Reusa o mesmo estilo do admin usuários (design idêntico) -->
   <link rel="stylesheet" href="/css/admin-usuarios.css?v=2">
 </head>
 <body>
@@ -42,13 +42,13 @@
         <div class="admin-sidebar__sub">Administração</div>
       </div>
 
-      <nav class="admin-menu" aria-label="Menu Administração">
-         <a class="admin-menu__item active" href="/admin/usuarios">
+      <nav class="admin-menu">
+        <a class="admin-menu__item" href="/admin/usuarios">
           <span class="ico">👤</span>
           <span>Usuários</span>
         </a>
 
-        <a class="admin-menu__item" href="/admin/empresas">
+        <a class="admin-menu__item active" href="/admin/empresas">
           <span class="ico">🏢</span>
           <span>Empresas</span>
         </a>
@@ -77,9 +77,11 @@
           <span class="ico">📦</span>
           <span>Migrações</span>
         </a>
+
         <a class="admin-menu__item" href="/admin/backup">
             <span class="ico">🧰</span><span>Backup</span>
         </a>
+
       </nav>
 
       <div class="admin-sidebar__footer">
@@ -91,8 +93,8 @@
     <section class="admin-content">
       <div class="admin-content__header">
         <div>
-          <h1 class="admin-title">Listagem de usuários</h1>
-          <p class="admin-subtitle">Crie, edite, remova e redefina senhas de usuários do sistema.</p>
+          <h1 class="admin-title">Listagem de empresas</h1>
+          <p class="admin-subtitle">Crie, edite e remova empresas do sistema.</p>
         </div>
 
         <div class="admin-actions">
@@ -103,32 +105,31 @@
 
       <div class="admin-toolbar">
         <div class="search-box">
-          <input id="search" type="text" placeholder="Pesquisar por nome, email, nível..." />
+          <input id="search" type="text" placeholder="Pesquisar por nome ou ID..." />
           <button id="btn-clear" type="button" class="search-clear" title="Limpar">✕</button>
         </div>
 
         <div class="toolbar-right">
-          <span class="pill" id="count-pill">0 usuários</span>
+          <span class="pill" id="count-pill">0 empresas</span>
         </div>
       </div>
 
       <div class="card">
         <div class="table-wrap">
-          <table class="table" id="users-table">
+          <table class="table" id="empresas-table">
             <thead>
               <tr>
                 <th style="width:80px;">ID</th>
                 <th>Nome</th>
-                <th>Email</th>
-                <th style="width:160px;">Nível</th>
+                <th style="width:140px; text-align:center;">Usuários</th>
+                <th style="width:140px; text-align:center;">Contas ML</th>
                 <th style="width:180px;">Criado</th>
-                <th style="width:180px;">Últ. login</th>
                 <th style="width:120px; text-align:right;">Ações</th>
               </tr>
             </thead>
             <tbody id="tbody">
               <tr>
-                <td colspan="7" class="table-empty">Carregando…</td>
+                <td colspan="6" class="table-empty">Carregando…</td>
               </tr>
             </tbody>
           </table>
@@ -146,43 +147,24 @@
       </div>
 
       <div class="hint">
-        ⚠️ Por segurança, senhas não são exibidas. Para trocar, use <strong>Editar</strong> e defina uma nova senha.
+        ⚠️ Por segurança, não permitimos remover empresa que tenha usuários vinculados ou contas ML vinculadas.
       </div>
     </section>
   </main>
 
   <!-- Modal Criar/Editar -->
-  <div class="modal" id="modal-user" aria-hidden="true">
+  <div class="modal" id="modal-empresa" aria-hidden="true">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 id="modal-title">Cadastrar usuário</h3>
+        <h3 id="modal-title">Cadastrar empresa</h3>
         <button class="close" id="modal-close" type="button">×</button>
       </div>
 
       <div class="modal-body">
         <div class="form-grid">
-          <div class="form-group">
-            <label>Nome</label>
-            <input id="f-nome" type="text" placeholder="Ex: Leonardo" />
-          </div>
-
-          <div class="form-group">
-            <label>Email *</label>
-            <input id="f-email" type="email" placeholder="email@dominio.com" />
-          </div>
-
-          <div class="form-group">
-            <label>Nível</label>
-            <select id="f-nivel">
-              <option value="usuario">Usuário</option>
-              <option value="administrador">Administrador</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label id="lbl-senha">Senha *</label>
-            <input id="f-senha" type="password" placeholder="Digite uma senha" />
-            <small class="help" id="senha-help">No editar, deixe vazio para manter a senha atual.</small>
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label>Nome *</label>
+            <input id="f-nome" type="text" placeholder="Ex: Davantti LTDA" />
           </div>
         </div>
 
@@ -199,35 +181,6 @@
   <!-- Toast -->
   <div class="toast" id="toast" style="display:none;"></div>
 
-  <!-- 🔒 UI: esconde itens master-only se não for admin_master -->
-  <script>
-    (async () => {
-      try {
-        const r = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
-        const data = await r.json().catch(() => null);
-
-        // suportar formatos:
-        // { ok:true, logged:true, user:{ nivel:'...' }, is_master:true }
-        const nivel =
-          data?.user?.nivel ||
-          data?.user?.user?.nivel ||
-          data?.nivel ||
-          null;
-
-        const isMaster = data?.is_master === true || nivel === "admin_master";
-
-        document.querySelectorAll("[data-master-only='1']").forEach((el) => {
-          el.style.display = isMaster ? "" : "none";
-        });
-      } catch (_) {
-        // se falhar, por segurança esconde os itens
-        document.querySelectorAll("[data-master-only='1']").forEach((el) => {
-          el.style.display = "none";
-        });
-      }
-    })();
-  </script>
-
-  <script src="/js/admin-usuarios.js?v=1"></script>
+  <script src="/js/admin-empresas.js?v=1"></script>
 </body>
 </html>

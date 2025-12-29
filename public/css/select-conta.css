@@ -1,4 +1,4 @@
-
+/* public/css/select-conta.css */
 /* ===== select-conta (ML theme add-on) ===== */
 :root{
   --ml-yellow:#ffe600;
@@ -8,59 +8,194 @@
   --ml-muted:#6b7280;
   --ml-bg:#f5f5f5;
   --border:#e5e7eb;
+
+  /* Layout helpers */
+  --wrap-max: 980px;
+  --card-radius: 12px;
+  --panel-radius: 18px;
 }
 
-.page-wrap{ padding:96px 16px 24px; }
+/* Evita “pulos” de layout e melhora render */
+*{ box-sizing: border-box; }
+html, body{ height: 100%; }
+body{ background: var(--ml-bg); }
 
+/* Usa a altura do header se existir no dashboard.css, senão cai no default */
+.page-wrap{
+  padding: calc(var(--header-h, 88px) + 18px) 16px 24px;
+}
+
+/* Painel central */
 .select-wrap{
-  max-width: 980px;
+  max-width: var(--wrap-max);
   margin: 0 auto;
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--panel-radius);
   box-shadow: 0 24px 48px rgba(0,0,0,.08);
   padding: 28px;
 }
 
+/* Header interno */
 .select-head{
-  display:flex; align-items:center; gap:10px;
-  font-weight:800; color:#374151; margin-bottom:4px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight:800;
+  color:#374151;
+  margin-bottom:6px;
 }
-.select-title{ font-size:2.2rem; color: var(--ml-dark); margin: 6px 0 4px 0; }
-.select-sub{ color: var(--ml-muted); margin: 0 0 20px 0; }
 
+.select-title{
+  font-size: 2.2rem;
+  color: var(--ml-dark);
+  margin: 8px 0 6px 0;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.select-sub{
+  color: var(--ml-muted);
+  margin: 0 0 18px 0;
+  line-height: 1.35;
+}
+
+/* Lista de contas */
 .grid{
   display:grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  /* Mantém cards “bons” e não apertados */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
 
+/* Responsivo sem quebrar */
+@media (max-width: 980px){
+  .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px){
+  .grid{ grid-template-columns: 1fr; }
+  .select-wrap{ padding: 18px; }
+}
+
+/* Card clicável */
 .acc-btn{
   width:100%;
-  background: #fff;
+  background:#fff;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: border .2s ease, box-shadow .2s ease, transform .06s ease;
-  font-weight: 700;
+  border-radius: var(--card-radius);
+  padding: 14px 14px;
+  text-align:left;
+  cursor:pointer;
+
+  /* Estabilidade: cards “iguais” mesmo com badges (admin) */
+  display:flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 168px;
+
+  transition: border .18s ease, box-shadow .18s ease, transform .06s ease;
+  font-weight: 800;
   color: var(--ml-dark);
   box-shadow: 0 3px 10px rgba(0,0,0,.04);
+
+  /* evita texto “furar” o card */
+  overflow: hidden;
 }
-.acc-btn:hover{ border-color: var(--ml-blue); box-shadow:0 10px 24px rgba(52,131,250,.12); transform: translateY(-1px); }
-.acc-btn .sub{ display:block; margin-top:4px; font-weight:600; color: var(--ml-muted); }
 
-.actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
-.btn{ border:0; padding:10px 14px; border-radius:10px; font-weight:800; cursor:pointer; }
+.acc-btn:hover{
+  border-color: rgba(52,131,250,.65);
+  box-shadow: 0 10px 24px rgba(52,131,250,.12);
+  transform: translateY(-1px);
+}
+
+.acc-btn:active{
+  transform: translateY(0px);
+}
+
+/* Título do card (apelido/conta) */
+.acc-btn{
+  font-size: 0.98rem;
+  line-height: 1.15;
+}
+
+/* Bloco de infos */
+.acc-btn .sub{
+  display:block;
+  margin-top: 2px;
+  font-weight: 650;
+  color: var(--ml-muted);
+  font-size: 0.92rem;
+  line-height: 1.35;
+
+  /* garante que “Empresa: ...” e linhas longas não quebrem o layout */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Se seu JS inserir badges abaixo, esse bloco fica bem */
+.acc-btn > div{
+  /* não força nada, mas ajuda a manter consistência */
+  overflow-wrap: anywhere;
+}
+
+/* Linha final “Clique para usar...” */
+.acc-btn span[style*="Clique para usar"],
+.acc-btn span[style*="Selecionada"]{
+  margin-top: auto; /* empurra pro rodapé do card */
+  padding-top: 6px;
+  font-weight: 700;
+}
+
+/* Área de ações */
+.actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top: 10px;
+}
+
+.btn{
+  border:0;
+  padding:10px 14px;
+  border-radius: 10px;
+  font-weight: 800;
+  cursor:pointer;
+  transition: transform .06s ease, filter .15s ease, background .15s ease;
+}
+
+.btn:active{ transform: translateY(1px); }
+
 .btn-primary{ background: var(--ml-blue); color:#fff; }
-.btn-ghost{ background:#f5f7fa; color:#374151; border:1px solid var(--border); }
-.btn-warning{ background:#ffca28; color:#1f2937; }
+.btn-primary:hover{ filter: brightness(1.02); }
 
-/* Optional helper if the page has a .container */
-.container{ background: transparent; border:none; box-shadow:none; padding:0; }
+.btn-ghost{
+  background:#f5f7fa;
+  color:#374151;
+  border:1px solid var(--border);
+}
+.btn-ghost:hover{ background:#eef2f7; }
 
+.btn-warning{
+  background:#ffca28;
+  color:#1f2937;
+}
+.btn-warning:hover{ filter: brightness(1.02); }
+
+/* Helper container (se existir) */
+.container{
+  background: transparent;
+  border:none;
+  box-shadow:none;
+  padding:0;
+}
+
+/* Alert padrão (se o JS usar inline styles, ele ainda prevalece) */
+#alert{
+  border-radius: 12px;
+}
+
+/* Ajuste mobile extra */
 @media (max-width: 768px){
-  .select-title{ font-size:1.8rem; }
+  .select-title{ font-size: 1.8rem; }
 }

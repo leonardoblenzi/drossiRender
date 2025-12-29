@@ -1,4 +1,3 @@
-// routes/authRoutes.js
 "use strict";
 
 const express = require("express");
@@ -18,6 +17,27 @@ if (!JWT_SECRET) {
 const isProd =
   String(process.env.NODE_ENV || "").toLowerCase() === "production";
 
+// ✅ Permite bloquear login do nível "usuario" via ENV
+// - true (default): permite login de "usuario"
+// - false: bloqueia login de "usuario"
+const ALLOW_USER_LOGIN =
+  String(process.env.ALLOW_USER_LOGIN ?? "true").toLowerCase() === "true";
+
+// =====================
+// Helpers
+// =====================
+function normalizeNivel(n) {
+  return String(n || "").trim().toLowerCase();
+}
+
+function isAdmin(nivel) {
+  return normalizeNivel(nivel) === "administrador";
+}
+
+function isMaster(nivel) {
+  return normalizeNivel(nivel) === "admin_master";
+}
+
 function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
 }
@@ -26,27 +46,18 @@ function cookieOptions() {
   return {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProd, // em produção (https), true
-    maxAge: 1000 * 60 * 60 * 12, // 12h
+    secure: isProd,
+    maxAge: 1000 * 60 * 60 * 12,
     path: "/",
   };
 }
 
-/**
- * POST /api/auth/register
- * body: { nome, email, senha, empresa_nome }
- *
- * Cria:
- * - usuario
- * - empresa
- * - empresa_usuarios (owner)
- * E já autentica (seta cookie auth_token).
- */
+// =====================
+// POST /api/auth/register
+// =====================
 router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
   const nome = String(req.body?.nome || "").trim() || null;
-  const email = String(req.body?.email || "")
-    .trim()
-    .toLowerCase();
+  const email = String(req.body?.email || "").trim().toLowerCase();
   const senha = String(req.body?.senha || "");
   const empresa_nome = String(req.body?.empresa_nome || "").trim();
 
@@ -65,12 +76,10 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
   }
 
   try {
-    // Transação: cria usuário + empresa + vínculo
     const result = await db.withClient(async (client) => {
       await client.query("begin");
 
       try {
-        // 1) cria usuário
         const senha_hash = await bcrypt.hash(senha, 10);
 
         const u = await client.query(
@@ -82,7 +91,6 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
 
         const user = u.rows[0];
 
-        // 2) cria empresa
         const e = await client.query(
           `insert into empresas (nome)
            values ($1)
@@ -92,7 +100,6 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
 
         const empresa = e.rows[0];
 
-        // 3) vínculo usuário -> empresa (owner)
         await client.query(
           `insert into empresa_usuarios (empresa_id, usuario_id, papel)
            values ($1, $2, 'owner')
@@ -101,7 +108,6 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
         );
 
         await client.query("commit");
-
         return { user, empresa };
       } catch (err) {
         await client.query("rollback");
@@ -111,11 +117,11 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
 
     const { user } = result;
 
-    // já autentica
+    // ✅ normalize o nível no token (evita divergências de case)
     const token = signToken({
       uid: user.id,
       email: user.email,
-      nivel: user.nivel,
+      nivel: normalizeNivel(user.nivel),
       nome: user.nome || null,
     });
 
@@ -127,12 +133,11 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
         id: user.id,
         nome: user.nome,
         email: user.email,
-        nivel: user.nivel,
+        nivel: normalizeNivel(user.nivel),
       },
       redirect: "/vincular-conta",
     });
   } catch (err) {
-    // unique violation (email)
     if (String(err.code) === "23505") {
       return res.status(409).json({ ok: false, error: "Email já cadastrado." });
     }
@@ -143,12 +148,12 @@ router.post("/register", express.json({ limit: "1mb" }), async (req, res) => {
   }
 });
 
+// =====================
 // POST /api/auth/login
-router.post("/login", async (req, res) => {
+// =====================
+router.post("/login", express.json({ limit: "200kb" }), async (req, res) => {
   try {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
+    const email = String(req.body?.email || "").trim().toLowerCase();
     const senha = String(req.body?.senha || "");
 
     if (!email || !senha) {
@@ -172,6 +177,17 @@ router.post("/login", async (req, res) => {
         .json({ ok: false, error: "Credenciais inválidas." });
     }
 
+    const nivel = normalizeNivel(user.nivel);
+
+    // ✅ Bloqueia login de "usuario" se você quiser (ENV)
+    if (!ALLOW_USER_LOGIN && nivel === "usuario") {
+      return res.status(403).json({
+        ok: false,
+        error:
+          "Acesso desativado para usuários comuns. Use uma conta administrativa.",
+      });
+    }
+
     const ok = await bcrypt.compare(senha, user.senha_hash);
     if (!ok) {
       return res
@@ -179,20 +195,23 @@ router.post("/login", async (req, res) => {
         .json({ ok: false, error: "Credenciais inválidas." });
     }
 
-    // Atualiza último login
     await db.query(
       `update usuarios set ultimo_login_em = now() where id = $1`,
       [user.id]
     );
 
+    // ✅ normalize o nível no token SEMPRE
     const token = signToken({
       uid: user.id,
       email: user.email,
-      nivel: user.nivel, // 'usuario' | 'administrador'
+      nivel, // 'usuario' | 'administrador' | 'admin_master'
       nome: user.nome || null,
     });
 
     res.cookie("auth_token", token, cookieOptions());
+
+    // Seu fluxo atual
+    const redirect = "/select-conta";
 
     return res.json({
       ok: true,
@@ -200,9 +219,9 @@ router.post("/login", async (req, res) => {
         id: user.id,
         nome: user.nome,
         email: user.email,
-        nivel: user.nivel,
+        nivel,
       },
-      redirect: "/select-conta", // mantém seu fluxo atual
+      redirect,
     });
   } catch (err) {
     console.error("POST /api/auth/login erro:", err);
@@ -212,7 +231,9 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// =====================
 // POST /api/auth/logout
+// =====================
 router.post("/logout", (_req, res) => {
   res.clearCookie("auth_token", {
     path: "/",
@@ -222,14 +243,32 @@ router.post("/logout", (_req, res) => {
   return res.json({ ok: true });
 });
 
+// =====================
 // GET /api/auth/me
+// =====================
 router.get("/me", (req, res) => {
   try {
     const token = req.cookies?.auth_token;
     if (!token) return res.json({ ok: true, logged: false });
 
     const payload = jwt.verify(token, JWT_SECRET);
-    return res.json({ ok: true, logged: true, user: payload });
+
+    const nivel = normalizeNivel(payload?.nivel);
+
+    const _is_admin = isAdmin(nivel);
+    const _is_master = isMaster(nivel);
+    const _is_admin_any = _is_admin || _is_master;
+
+    // ✅ devolve flags no topo + mantém flags agrupadas (compatibilidade)
+    return res.json({
+      ok: true,
+      logged: true,
+      user: { ...payload, nivel }, // garante nivel normalizado
+      is_admin: _is_admin,
+      is_master: _is_master,
+      is_admin_any: _is_admin_any,
+      flags: { is_admin: _is_admin, is_master: _is_master, is_admin_any: _is_admin_any },
+    });
   } catch {
     return res.json({ ok: true, logged: false });
   }

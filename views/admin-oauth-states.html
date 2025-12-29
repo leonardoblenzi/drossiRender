@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin • OAuth States</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <link rel="stylesheet" href="/css/admin-usuarios.css?v=2">
+</head>
+
+<body>
+  <!-- Topbar padrão -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
+    </div>
+
+    <div class="account-bar__right">
+      <a
+        class="account-bar__switch"
+        href="/select-conta"
+        style="text-decoration:none; display:inline-flex; align-items:center;"
+      >
+        Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar__brand">
+        <div class="admin-sidebar__logo">Painel Admin</div>
+        <div class="admin-sidebar__sub">Master Only</div>
+      </div>
+
+      <nav class="admin-menu">
+        <a class="admin-menu__item" href="/admin/usuarios">
+          <span class="ico">👤</span>
+          <span>Usuários</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/empresas">
+          <span class="ico">🏢</span>
+          <span>Empresas</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/vinculos">
+          <span class="ico">🔗</span>
+          <span>Vínculos</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/contas-ml">
+          <span class="ico">🟡</span>
+          <span>Contas ML</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/tokens-ml">
+          <span class="ico">🔑</span>
+          <span>Tokens ML</span>
+        </a>
+
+        <a class="admin-menu__item active" href="/admin/oauth-states">
+          <span class="ico">🧩</span>
+          <span>OAuth States</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/migracoes">
+          <span class="ico">📦</span>
+          <span>Migrações</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/backup">
+          <span class="ico">🧰</span>
+          <span>Backup</span>
+        </a>
+      </nav>
+
+      <div class="admin-sidebar__footer">
+        <small>Área restrita</small>
+      </div>
+    </aside>
+
+    <section class="admin-content">
+      <!-- Header da página -->
+      <div class="admin-content__header">
+        <div>
+          <h1 class="admin-title">OAuth States</h1>
+          <p class="admin-subtitle">
+            Lista de <code>oauth_states</code> (PKCE/state). Útil para debug. Você pode limpar expirados.
+          </p>
+        </div>
+
+        <div class="admin-actions">
+          <button id="btn-cleanup" class="btn-lite" type="button">Limpar expirados</button>
+          <button id="btn-refresh" class="btn-lite" type="button">Atualizar</button>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="admin-toolbar">
+        <div class="admin-actions" style="flex:1; min-width:260px;">
+          <div class="search-box" style="flex:1;">
+            <input
+              id="search"
+              placeholder="Buscar por empresa, usuário, email, state, return_to…"
+              autocomplete="off"
+            />
+          </div>
+          <button id="btn-clear" class="btn-lite" type="button">Limpar</button>
+        </div>
+
+        <div class="admin-actions">
+          <span id="count-pill" class="pill">—</span>
+
+          <button id="btn-prev" class="btn-lite" type="button" title="Anterior">◀</button>
+          <span class="page-info" id="page-info">—</span>
+          <button id="btn-next" class="btn-lite" type="button" title="Próxima">▶</button>
+        </div>
+      </div>
+
+      <!-- Range info -->
+      <div id="range-info" class="hint">—</div>
+
+      <!-- Tabela -->
+      <div class="card" style="margin-top:10px;">
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width: 210px;">State</th>
+                <th style="width: 90px;">Empresa</th>
+                <th>Empresa (nome)</th>
+                <th style="width: 90px;">Usuário</th>
+                <th style="width: 220px;">Email</th>
+                <th style="width: 160px;">Expira em</th>
+                <th style="width: 110px;">Status</th>
+                <th>Return to</th>
+                <th style="width: 110px;">Ações</th>
+              </tr>
+            </thead>
+
+            <tbody id="tbody">
+              <tr><td colspan="9" class="table-empty">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" style="display:none;">—</div>
+
+  <script src="/js/admin-oauth-states.js"></script>
+</body>
+</html>

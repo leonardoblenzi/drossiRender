@@ -1,945 +1,207 @@
-Publicidade/Product ADS
+MAPEAMENTO ATUALIZADO (TXT) — DAVANTTI API
+Versão: 2025-12-26 (após migração para OAuth+DB + Admin Panel + Migrações + Backup)
+Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “estilo” e adicionando/ajustando:
+- OAuth Mercado Livre (PKCE + state no DB) + seleção de conta (cookie httpOnly meli_conta_id)
+- Multi-empresa (empresas + empresa_usuarios) e modo MASTER (admin_master) com listagem global
+- Admin Panel (telas em /admin/*) com sidebar única e páginas CRUD por tabela
+- Migrações (db/migrate.js) com tabela migracoes para histórico
+- Backup (export/import JSON) em /admin/backup (MASTER ONLY)
 
-/ (raiz do projeto)
-├─ index.js                         # Sobe o Express, registra as rotas
-│   └─ usa routes/publicidadeRoutes.js
-│
-├─ routes/
-│   ├─ publicidadeRoutes.js         # Rotas HTTP de Product Ads
-│   │   • GET /publicidade          -> abre a tela (view)
-│   │   • GET /api/publicidade/product-ads/campaigns
-│   │   • GET /api/publicidade/product-ads/campaigns/:id/items
-│   │   • GET /api/publicidade/product-ads/metricas-diarias
-│   │   └─ chama PublicidadeController
-│   │
-│   └─ ... (outras rotas)
-│
-├─ controllers/
-│   ├─ PublicidadeController.js     # Camada de controller / API
-│   │   • listarCampanhas(req,res)          -> ProductAdsService.listarCampanhas()
-│   │   • listarItensCampanha(req,res)      -> ProductAdsService.listarItensCampanha()
-│   │   • metricasDiarias(req,res)         -> ProductAdsService.metricasDiarias()
-│   │   └─ responde JSON para o front
-│   │
-│   └─ ... (outros controllers)
-│
-├─ services/
-│   ├─ productAdsService.js         # 💥 AQUI está toda a lógica de Product Ads
-│   │   • urls()                                -> endpoints do ML
-│   │   • withAuth() / prepararAuth()          -> token + chamadas autenticadas
-│   │   • obterAdvertiserId()                  -> pega advertiser da conta
-│   │   • buscarThumbnailsParaItens()         -> 🔍 busca thumbnails em /items
-│   │   • listarCampanhas()                    -> campanhas agregadas
-│   │   • listarItensCampanha()                -> itens + métricas + thumbnail
-│   │   • metricasDiarias()                    -> série diária para gráfico
-│   │   • exportarItensCampanhaCsv()           -> export CSV
-│   │
-│   └─ tokenService.js / tokenService/index.js # usado por prepararAuth()/withAuth()
-│
-├─ views/
-│   ├─ publicidade.ejs               # Tela “Painel de Product Ads”
-│   │   • tabela de ranking de campanhas
-│   │   • tabela de itens da campanha
-│   │   • inclui <script src="/js/publicidade.js">
-│   │
-│   └─ partials/…                    # (se tiver componentes reaproveitados)
-│
-└─ public/
-    ├─ js/
-    │   ├─ publicidade.js           # Frontend da tela
-    │   │   • busca /api/publicidade/product-ads/campaigns
-    │   │   • busca /api/publicidade/product-ads/campaigns/:id/items
-    │   │   • aplica filtros, paginação (20 itens por página)
-    │   │   • monta o HTML das linhas, usando `item.thumbnail`
-    │   │   • (vamos colocar aqui o loading de lista / filtros)
-    │   │
-    │   └─ helpers/…, outros .js
-    │
-    ├─ css/
-    │   ├─ publicidade.css          # (se tiver um CSS específico da tela)
-    │   └─ main.css / theme.css     # estilos globais
-    │
-    └─ img/
-        └─ ...                      # ícones, placeholders de imagem, etc.
-
-
-Produtos/Validar dimensões
-
-/ (raiz do projeto)
-├─ index.js                               # Sobe o Express, registra as rotas e páginas
-│   ├─ usa routes/validarDimensoesRoutes.js      (API)
-│   └─ GET /validar-dimensoes                    (view HTML da tela)
-│
-├─ routes/
-│   ├─ validarDimensoesRoutes.js          # Rotas HTTP da feature "Validar Dimensões"
-│   │   • POST /api/validar-dimensoes/analisar-item
-│   │       -> ValidarDimensoesController.analisarItem()
-│   │   └─ (futuro) ex.: /api/validar-dimensoes/verificar-nulos-conta, etc.
-│   │
-│   └─ ... (outras rotas)
-│
-├─ controllers/
-│   ├─ ValidarDimensoesController.js      # Controller da validação de dimensões
-│   │   • getAccountMeta(res)                    -> pega chave/label da conta atual
-│   │   • getCreds(res)                         -> pega mlCreds do res.locals (authMiddleware)
-│   │   • analisarItem(req,res)
-│   │       - valida body.mlb
-│   │       - monta opts { mlCreds, accountKey }
-│   │       - chama ValidarDimensoesService.analisarUm(mlb, opts)
-│   │       - responde JSON:
-│   │           { success: true, data: { mlb, raw, height_cm, ... }, account: {...} }
-│   │
-│   └─ ... (outros controllers)
-│
-├─ services/
-│   ├─ validarDimensoesService.js         # 💥 Núcleo da lógica de dimensões
-│   │   • urls()
-│   │       - resolve base de `items` via config.urls.items ou padrão ML
-│   │   • prepararAuthState(options)
-│   │       - mesmo padrão do adAnalysisService
-│   │       - usa TokenService.renovarTokenSeNecessario(mlCreds)
-│   │       - devolve { token, creds, key }
-│   │   • authFetch(url, init, state)
-│   │       - faz fetch com Authorization: Bearer {token}
-│   │       - em 401, renova token via TokenService.renovar(state.creds) e tenta de novo
-│   │   • parseDimensions(dimStr)
-│   │       - recebe string tipo "9x19x19,500"
-│   │       - separa em altura, largura, comprimento, peso (cm / g)
-│   │       - devolve { height_cm, width_cm, length_cm, weight_g }
-│   │   • ValidarDimensoesService.analisarUm(mlbId, options)
-│   │       - chama /items/{mlbId}
-│   │       - lê item.shipping.dimensions
-│   │       - usa parseDimensions(...)
-│   │       - retorna:
-│   │           {
-│   │             mlb,
-│   │             success: true/false,
-│   │             status: 'OK' | 'ERRO',
-│   │             raw,           // string original do ML
-│   │             height_cm,
-│   │             width_cm,
-│   │             length_cm,
-│   │             weight_g,
-│   │             message (em caso de erro)
-│   │           }
-│   │
-│   └─ tokenService.js / ml-auth.js       # usados para renovar / obter tokens do ML
-│
-├─ views/
-│   ├─ validar-dimensoes.html             # Tela “Validar Dimensões (MLB)”
-│   │   • header com conta atual + botão "Status" + "Trocar conta"
-│   │   • nav com abas (Dashboard, Produtos, IA & Analytics, etc.)
-│   │   • card "Validar Dimensões":
-│   │       - input MLB único + botão "Analisar"
-│   │       - textarea para lote de MLBs + delay entre requisições
-│   │       - barra de progresso (atual / total)
-│   │       - tabela de resultados:
-│   │           #, MLB, Altura, Largura, Comprimento, Peso, String bruta, Status
-│   │       - botão "Exportar CSV"
-│   │   • inclui:
-│   │       <link rel="stylesheet" href="/css/validar-dimensoes.css">
-│   │       <script src="/js/validar-dimensoes.js"></script>
-│   │
-│   └─ ... (outras views: dashboard.html, analise-anuncios.html, etc.)
-│
-└─ public/
-    ├─ js/
-    │   ├─ validar-dimensoes.js           # Frontend da tela de validação de dimensões
-    │   │   • helpers:
-    │   │       - $, qs, qsa
-    │   │       - ACCOUNT_LABELS
-    │   │       - parseDimensions(dimStr)  // versão de front, usada pra exibir na tabela/CSV
-    │   │   • estado:
-    │   │       - currentAccountKey
-    │   │       - resultados[] (lista de itens já analisados)
-    │   │   • conta / token:
-    │   │       - carregarContaAtual()     -> /api/account/current
-    │   │       - trocarConta()           -> limpa cookie e redireciona /select-conta
-    │   │       - abrirModalStatus(), fecharModalStatus()
-    │   │       - verificarToken(updateModal)
-    │   │       - renovarToken(updateModal)
-    │   │   • comunicação com a API:
-    │   │       - fetchDimensoes(mlb)
-    │   │           -> POST /api/validar-dimensoes/analisar-item
-    │   │           -> trata HTTP != 200, erros de JSON, etc.
-    │   │           -> devolve { mlb, raw, error? }
-    │   │       - processarLote(mlbs[])
-    │   │           -> zera resultados
-    │   │           -> laço chamando fetchDimensoes com delay opcional
-    │   │           -> atualiza progresso + tabela
-    │   │   • UI:
-    │   │       - renderTabela()
-    │   │           -> monta <tbody> com #, MLB, altura, largura, comprimento, peso, raw, status
-    │   │       - atualizarProgresso(atual, total)
-    │   │       - exportarCSV()
-    │   │           -> gera CSV com:
-    │   │              MLB;Altura_cm;Largura_cm;Comprimento_cm;Peso_g;Bruto_shipping_dimensions;Status
-    │   │   • eventos:
-    │   │       - click em #btn-dim-analisar-um      -> processa um MLB
-    │   │       - click em #btn-dim-analisar-lote    -> processa lista de MLBs
-    │   │       - click em #btn-dim-download         -> baixa CSV
-    │   │       - click em #btn-status               -> abre modal de token e chama verificarToken(true)
-    │   │       - click em #account-switch           -> trocarConta()
-    │   │       - handlers data-action="verificar-token" / "renovar-token" no modal
-    │   │       - listener pra fechar o modal clicando fora
-    │   │       - DOMContentLoaded -> carregarContaAtual() + bindEvents()
-    │   │
-    │   └─ ... outros .js (analise-anuncio.js, ia-analytics-curva-abc.js, etc.)
-    │
-    ├─ css/
-    │   ├─ validar-dimensoes.css          # (separado) estilos específicos da tela
-    │   │   • layout dos cards
-    │   │   • grid dos inputs
-    │   │   • tabela de resultados
-    │   │   • barra de progresso
-    │   │
-    │   ├─ dashboard.css                  # estilos globais (header, abas, etc.)
-    │   └─ ... outros CSS
-    │
-    └─ img/
-        └─ ...                            # se tiver ícones/ilustrações específicas
-
-
-Produtos Estratégicos
-
-/ (raiz do projeto)
-├─ index.js # Sobe o Express, registra as rotas e páginas
-│ ├─ app.use(estrategicosRoutes) # expõe /api/estrategicos/*
-│ └─ GET /estrategicos # (via HtmlRoutes ou rota direta) abre a tela HTML
-│
-├─ routes/
-│ ├─ estrategicosRoutes.js # Rotas HTTP da feature "Produtos Estratégicos"
-│ │ • GET /api/estrategicos -> EstrategicosController.list
-│ │ • POST /api/estrategicos -> EstrategicosController.upsert (upsert 1 item)
-│ │ • DELETE /api/estrategicos/:mlb -> EstrategicosController.remove
-│ │ • POST /api/estrategicos/replace -> EstrategicosController.replace (upload CSV)
-│ │ • POST /api/estrategicos/apply -> EstrategicosController.apply (cria promoções)
-│ │ └─ (opcional futuro) filtros por grupo/lista: ?group=drossi etc.
-│ │
-│ └─ htmlRoutes.js (ou equivalente)
-│ • GET /estrategicos -> views/estrategicos.html
-│
-├─ controllers/
-│ ├─ EstrategicosController.js # Controller da lista de estratégicos
-│ │ • getAccountMeta(res) -> pega accountKey + label (res.locals)
-│ │ • list(req,res) -> EstrategicosService.listarPorConta()
-│ │ • upsert(req,res) -> valida body { mlb, name?, percent_default?, ... }
-│ │ • remove(req,res) -> EstrategicosService.removerUm(mlb)
-│ │ • replace(req,res) -> EstrategicosService.replaceLista(items, opts)
-│ │ • apply(req,res) -> EstrategicosService.aplicarPromocoes({ items, promotion_type })
-│ │ - monta payload para CriarPromocaoService (DEAL / SMART / PRICE_MATCHING / MARKETPLACE_CAMPAIGN)
-│ │ - dispara criação de promoções em lote para os MLBs recebidos
-│ │ └─ responde sempre JSON: { success, items?, error? }
-│ │
-│ └─ ... (outros controllers do projeto)
-│
-├─ services/
-│ ├─ estrategicosService.js # 💥 Núcleo da lógica de “Produtos Estratégicos”
-│ │ • carregarPorConta(accountKey) -> busca/gera lista da conta (DB ou JSON/arquivo)
-│ │ • salvarUm(accountKey, item) -> upsert de único MLB
-│ │ • removerUm(accountKey, mlb) -> remove da lista
-│ │ • replaceLista(accountKey, items, opts) -> substitui/mescla lista (upload CSV)
-│ │ - se opts.remove_missing === true, apaga os que não vierem no arquivo
-│ │ • listarPorConta(accountKey) -> retorna array normalizado:
-│ │ { mlb, name, percent_default, percent_cycle, percent_applied, status }[]
-│ │ • aplicarPromocoes({ accountKey, items, promotionType, mlCreds })
-│ │ - converte { mlb, percent } em payload de criação de promo
-│ │ - usa CriarPromocaoService / PromocoesService para falar com o ML
-│ │ - devolve resumo: ok, falha, mensagens de erro por MLB
-│ │ └─ (implementação atual pode estar em arquivo único ou usando DB/JSON)
-│ │
-│ └─ outros services (tokenService, CriarPromocaoService, etc.) usados internamente
-│
-├─ views/
-│ ├─ estrategicos.html # Tela “Produtos Estratégicos”
-│ │ • header padrão com barra de conta (📦 API Mercado Livre / Produtos)
-│ │ • seção “Configuração do ciclo atual”
-│ │ - input % padrão para o ciclo
-│ │ - botão “Preencher coluna ‘% deste ciclo’”
-│ │ - select “Tipo de campanha” (DEAL, SMART, PRICE_MATCHING, MARKETPLACE_CAMPAIGN)
-│ │ - botão “🚀 Aplicar promoção nos selecionados”
-│ │ - barra de progresso #bulkAddProgress (para lote de MLBs)
-│ │ • seção “Lista de produtos estratégicos”
-│ │ - resumo #summaryTotal / #summarySelected
-│ │ - tabela #tblStrategicos com colunas:
-│ │ [✓], MLB, Nome, % padrão, % deste ciclo, % aplicada atualmente, Status, Ações
-│ │ • painel de lote de MLBs (addMlbsPanel):
-│ │ - textarea #txtAddMlbs (um MLB por linha ou separados por vírgula/espaço)
-│ │ - #addMlbsStatus para feedback
-│ │ - botões “Adicionar MLBs” / “Cancelar”
-│ │ • painel de upload CSV (uploadPanel):
-│ │ - input #fileStrategicos
-│ │ - checkbox #chkRemoveMissing (“remover itens que não estiverem no arquivo”)
-│ │ - #uploadStatus
-│ │ • inclui:
-│ │ <link rel="stylesheet" href="/css/estrategicos.css">
-│ │ <script src="/js/account-bar.js" defer></script>
-│ │ <script src="/js/estrategicos.js" defer></script>
-│ │
-│ └─ ... (dashboard.html, publicidade.html, validar-dimensoes.html, etc.)
-│
-└─ public/
-├─ js/
-│ ├─ estrategicos.js # Frontend da tela de estratégicos
-│ │ • helpers: $, qs, fetchJSON, toast, formatPercent
-│ │ • estado: rows[] (lista na memória), currentGroup
-│ │ • loadRows() -> GET /api/estrategicos e chama renderTable()
-│ │ • renderTable() -> monta <tbody> com inputs editáveis e botões Salvar/Excluir
-│ │ • saveRow(mlb) -> POST /api/estrategicos (upsert 1)
-│ │ • deleteRow(mlb) -> DELETE /api/estrategicos/:mlb
-│ │ • painel de lote:
-│ │ - openAddMlbsPanel(), closeAddMlbsPanel()
-│ │ - handleAddMlbsConfirm()
-│ │ · lê textarea, normaliza MLBs
-│ │ · mostra barra de progresso bulkAddProgress
-│ │ · faz POST /api/estrategicos para cada MLB
-│ │ · atualiza rótulo X / total
-│ │ • upload CSV:
-│ │ - parseCsvToItems(text)
-│ │ - handleUploadProcess() -> POST /api/estrategicos/replace
-│ │ • handleFillFromGlobal() -> preenche % deste ciclo para todos os rows
-│ │ • handleApplySelected() -> monta { mlb, percent }[] e POST /api/estrategicos/apply
-│ │ • bindStaticEvents() -> liga todos os botões, selects, checkboxes, textarea, etc.
-│ │ • DOMContentLoaded -> bindStaticEvents() + loadRows()
-│ │
-│ └─ outros .js globais (account-bar.js, dashboard, etc.)
-│
-├─ css/
-│ ├─ estrategicos.css # Estilos específicos da tela
-│ │ • .estrategicos-wrap -> layout interno com o mesmo “look” das outras páginas
-│ │ • .estrategicos-header, .estrategicos-header__actions
-│ │ • .estrategicos-controls, .estrategicos-table-card (cards)
-│ │ • .estrategicos-bulk-add -> painel de lote (textarea + botões)
-│ │ • .bulk-progress, .bulk-progress__bar, .bulk-progress__fill
-│ │ • .status-pill, .status-pill--ok, --pending, --error
-│ │ • ajustes de tabela: .col-mlb, .col-name, .col-percent, .col-actions
-│ │
-│ ├─ dashboard.css # estilos globais (header, abas, botões .btn, .card, .table, etc.)
-│ └─ ... outros CSS
-│
-└─ img/
-└─ ... # se tiver ícones para a tela (estrela, etc.)
-
-Curva ABC (tempo real via API Mercado Livre)
+================================================================================
+1) Publicidade/Product ADS
+================================================================================
 
 / (raiz do projeto)
 ├─ index.js
-│ ├─ Sobe o Express, carrega middlewares globais, etc.
-│ ├─ const analyticsAbcRoutes = require('./routes/analytics-abc-Routes')
-│ ├─ app.use('/api/analytics', analyticsAbcRoutes) → expõe:
-│ │ • GET /api/analytics/abc-ml/summary
-│ │ • GET /api/analytics/abc-ml/items
-│ └─ Usa também htmlRoutes.js / HtmlController para servir a página HTML da Curva ABC
+│  └─ registra routes/publicidadeRoutes.js
 │
 ├─ routes/
-│ ├─ analytics-abc-Routes.js ← 💥 núcleo da funcionalidade Curva ABC (backend)
-│ │ • GET /abc-ml/summary
-│ │ - Agrega pedidos pagos via /orders/search (ML) no intervalo date_from–date_to
-│ │ - Faz classificação ABC por receita ou unidades (classifyABC)
-│ │ - Calcula totais, cards de curva A/B/C, ticket médio, top5 de cada curva, etc.
-│ │
-│ │ • GET /abc-ml/items
-│ │ - Lê parâmetros: datas, contas, métrica, curva, paginação, ordenação, flags de Ads/Promo/Visitas…
-│ │ - Busca pedidos até 90 dias antes do date_to para preencher janelas:
-│ │ units_7d, units_15d, units_30d, units_40d, units_60d, units_90d
-│ │ - Classifica ABC, calcula shares e aplica filtro/ordem/paginação
-│ │ - Enriquecimento por item (apenas da página):
-│ │ · Ads: fetchAdsMetricsByItems (Product Ads v2 /advertisers + /ads)
-│ │ · Promoções: Central de Promoções + /items/{id}/prices
-│ │ · Visitas: /items/visits (agora 1 item por chamada, com unit=day)
-│ │ - Resposta: { page, limit, total, data: [...], ads_debug?, promos_debug?, visits_debug? }
-│ │ • Helpers internos importantes:
-│ │ - iterOrders({ token, sellerId, date_from, date_to }) → pagina /orders/search
-│ │ - classifyABC(rows, { metric, aCut, bCut }) → marca curve A/B/C e share_cum
-│ │ - fetchVisitsForItems(...) → chama /items/visits respeitando limite de 1 id por request
-│ │ - fetchAdsMetricsByItems(...) + fetchAdsMetricsSingle(...)
-│ │ - fetchPromosByItems(...), fetchPromotionsForItemsBatch(...), enrichWithPromotions(...)
-│ │ • Dependências principais:
-│ │ - services/ml-auth.js (via getToken(app, req, accountId))
-│ │ - node-fetch / fetch para chamar APIs do Mercado Livre
-│ │
-│ ├─ htmlRoutes.js
-│ │ • Rota da página HTML da Curva ABC, algo como:
-│ │ - GET /ia-analytics/curva-abc (ou similar) → HtmlController.curvaAbc
-│ │ - Renderiza views/ia-analytics/curva-abc.html
-│ │ • Outras telas (dashboard, criar promoção, etc.) também vivem aqui
-│ │
-│ └─ (demais rotas do projeto: criarPromocaoRoutes, publicidadeRoutes, fullRoutes, etc.)
+│  ├─ publicidadeRoutes.js
+│  │  • GET /publicidade                               -> abre a tela (view)
+│  │  • GET /api/publicidade/product-ads/campaigns
+│  │  • GET /api/publicidade/product-ads/campaigns/:id/items
+│  │  • GET /api/publicidade/product-ads/metricas-diarias
+│  │  └─ chama PublicidadeController
+│  └─ ...
 │
 ├─ controllers/
-│ ├─ HtmlController.js
-│ │ • Método responsável por devolver a tela da Curva ABC, por ex.:
-│ │ - curvaAbc(req, res)
-│ │ · carrega informações de conta (res.locals.account, etc.)
-│ │ · responde com view views/ia-analytics/curva-abc.html
-│ │
-│ └─ (não existe um controller separado “CurvaAbcController”:
-│ toda a lógica da Curva ABC está concentrada em analytics-abc-Routes.js)
+│  ├─ PublicidadeController.js
+│  │  • listarCampanhas(req,res)       -> ProductAdsService.listarCampanhas()
+│  │  • listarItensCampanha(req,res)   -> ProductAdsService.listarItensCampanha()
+│  │  • metricasDiarias(req,res)       -> ProductAdsService.metricasDiarias()
+│  │  └─ responde JSON para o front
+│  └─ ...
 │
 ├─ services/
-│ ├─ ml-auth.js
-│ │ • getAccessTokenForAccount(accountKey, req)
-│ │ - usado por analytics-abc-Routes.js para obter o token de cada conta (drossi, diplany, etc.)
-│ │ - por trás, conversa com tokenService, config/accounts.js, etc.
-│ │ • Sem ele, os endpoints da Curva ABC não conseguem falar com:
-│ │ - /users/me, /orders/search, /items/visits, /advertising/*, /seller-promotions/*, /items/{id}/prices
-│ │
-│ ├─ tokenService.js (suporte para renovação de tokens)
-│ └─ outros services gerais (adsService, sellerPromotionsService, queueService, etc.)
-│ → não são chamados diretamente pela Curva ABC, porque o arquivo de rotas já chama as APIs do ML “na mão”.
+│  ├─ productAdsService.js             # lógica completa de Product Ads
+│  └─ tokenService.js / ml-auth.js     # suporte de token ML
 │
 ├─ views/
-│ ├─ ia-analytics/
-│ │ └─ curva-abc.html ← tela da Curva ABC
-│ │ • Estrutura de página:
-│ │ - Header padrão com barra de contas (usa account-bar.js)
-│ │ - Filtros de: datas, contas, curva (A/B/C/ALL), métrica (unidades/receita), FULL/all, etc.
-│ │ - Cards-resumo (totais, participação das curvas, etc.)
-│ │ - Tabela principal com métricas de vendas, janelas de dias, Ads, promoções e visitas
-│ │ • Includes típicos:
-│ │ - <link rel="stylesheet" href="/css/dashboard.css">
-│ │ - <link rel="stylesheet" href="/css/curva-abc.css">
-│ │ - <script src="/js/account-bar.js" defer></script>
-│ │ - <script src="/js/ia-analytics-curva-abc.js" defer></script>
-│ │
-│ └─ outras views (dashboard.html, criar-promocao.html, publicidade.html, etc.)
+│  ├─ publicidade.ejs                  # Tela “Painel de Product Ads”
+│  └─ ...
 │
-├─ public/
-│ ├─ js/
-│ │ ├─ ia-analytics-curva-abc.js ← frontend da Curva ABC
-│ │ │ • Faz os requests para:
-│ │ │ - GET /api/analytics/abc-ml/summary (cards e top5)
-│ │ │ - GET /api/analytics/abc-ml/items?... (tabela principal)
-│ │ │ • Mantém o estado da tela: filtro de datas, conta, curva, métrica, full/all, include_ads, include_promos, include_visits, página, ordenação…
-│ │ │ • Renderiza:
-│ │ │ - cards de curva A/B/C e TOTAL
-│ │ │ - tabela com colunas: MLB, título, unidades, receita, % participação,
-│ │ │ units_7d/15d/30d/40d/60d/90d, dados de Ads, promo (percentual/source), visitas, etc.
-│ │ │ • Liga eventos de UI (change em filtros, paginação, botões) e atualiza a DOM conforme a resposta da API.
-│ │ │ • Usa account-bar.js para descobrir e exibir a conta ativa.
-│ │ │
-│ │ ├─ account-bar.js
-│ │ │ • Componente global da barra de contas (seleção de conta Mercado Livre), reutilizado em Curva ABC e demais telas.
-│ │ └─ outros JS globais (dashboard.js, criar-promocao.js, etc.)
-│ │
-│ ├─ css/
-│ │ ├─ curva-abc.css
-│ │ │ • Estilos específicos da tela Curva ABC: layout do wrapper, filtros, cards, tabela, badges de curva, etc.
-│ │ │ • Complementa dashboard.css (botões, cards, grid geral).
-│ │ ├─ dashboard.css
-│ │ └─ demais CSS do projeto (criar-promocao, publicidade, etc.)
-│ │
-│ └─ img/ (se houver ícones ou artes usadas na tela)
-│
-└─ config/ & utils/
-├─ config/accounts.js
-│ • Define as contas (drossi, diplany, rossidecor…) usadas na barra de conta e filtros da Curva ABC.
-├─ config/config.js
-│ • Configurações gerais do app (porta, ambiente, chaves base).
-└─ utils/helper.js
-• Funções utilitárias compartilhadas (formatação, etc.) que podem ser usadas pelo front/back.
+└─ public/
+   ├─ js/publicidade.js
+   └─ css/publicidade.css + css globais
 
-Exclusão de Anúncios (único + lote, com painel de processos)
+================================================================================
+2) Produtos / Validar dimensões
+================================================================================
 
 / (raiz do projeto)
 ├─ index.js
-│ ├– Sobe o Express, middlewares globais (express.json, cors, cookieParser, estáticos em public/, etc.).
-│ ├– Aplica ensureAccount (garante conta selecionada) e authMiddleware.
-│ ├– Carrega e registra as rotas de exclusão:
-│ │ js │ │ const excluirAnuncioRoutes = require('./routes/excluirAnuncioRoutes'); │ │ app.use(excluirAnuncioRoutes); │ │ console.log('✅ ExcluirAnuncioRoutes carregado'); │ │
-│ │ → expõe no backend:
-│ │ • DELETE /anuncios/excluir/:mlb_id
-│ │ • POST /anuncios/excluir-lote
-│ │ • GET /anuncios/status-exclusao/:id
-│ ├– Carrega htmlRoutes.js, que inclui a rota da tela:
-│ │ • GET /excluir-anuncio → envia views/excluir-anuncio.html
-│ └– Logs de inicialização mostram o link:
-│ • http://localhost:PORT/excluir-anuncio - Painel de Exclusão de Anúncios
+│  ├─ app.use(routes/validarDimensoesRoutes.js)
+│  └─ GET /validar-dimensoes -> view HTML
 │
 ├─ routes/
-│ ├─ excluirAnuncioRoutes.js ← 💥 núcleo das rotas da feature
-│ │ • DELETE /anuncios/excluir/:mlb_id
-│ │ – Encaminha para ExcluirAnuncioController.excluirUnico
-│ │ • POST /anuncios/excluir-lote
-│ │ – Encaminha para ExcluirAnuncioController.excluirLote
-│ │ • GET /anuncios/status-exclusao/:id
-│ │ – Encaminha para ExcluirAnuncioController.status
-│ │ • Essa rota não tem prefixo /api, segue o mesmo padrão de /remover-promocao.
-│ │
-│ ├─ htmlRoutes.js
-│ │ • Inclui a rota da interface:
-│ │ – GET /excluir-anuncio → envia views/excluir-anuncio.html
-│ │ • Reaproveita o mesmo layout/cabeçalho (account-bar, nav, etc.) das outras telas.
-│ │
-│ └─ (demais rotas: removerPromocaoRoutes, criarPromocaoRoutes, publicidadeRoutes, etc.)
+│  └─ validarDimensoesRoutes.js
+│     • POST /api/validar-dimensoes/analisar-item -> ValidarDimensoesController.analisarItem()
 │
 ├─ controllers/
-│ ├─ ExcluirAnuncioController.js
-│ │ • excluirUnico(req, res)
-│ │ – Lê mlb_id de req.params.mlb_id (ou req.body.mlb_id como fallback).
-│ │ – Valida padrão MLB\d+.
-│ │ – Chama ExclusaoService.excluirUnico(mlbId).
-│ │ – Retorna o objeto completo do service (incluindo success, message, steps, etc.).
-│ │ – Usa statusCode = resultado.success ? 200 : 400.
-│ │
-│ │ • excluirLote(req, res)
-│ │ – Espera body: { mlb_ids: [...], delay_entre_remocoes? }.
-│ │ – Cria um processId e registra em processosExclusao[processId] um snapshot com:
-│ │ { id, status, total_anuncios, processados, sucessos, erros, progresso, iniciado_em, resultados }.
-│ │ – Responde imediatamente: { success: true, message, process_id }.
-│ │ – Dispara em segundo plano ExclusaoService.excluirLote(mlb_ids, processId, statusRef, delay) (sem await).
-│ │
-│ │ • status(req, res)
-│ │ – Lê req.params.id e retorna processosExclusao[id] ou 404 se não existir.
-│ │
-│ └─ (demais controllers: HtmlController, etc.)
+│  └─ ValidarDimensoesController.js
+│     • analisarItem(req,res) -> ValidarDimensoesService.analisarUm(mlb, opts)
 │
 ├─ services/
-│ ├─ excluirAnuncioService.js ← lógica de integração com a API do Mercado Livre
-│ │ Constantes:
-│ │ • urls.items = https://api.mercadolibre.com/items
-│ │ • urls.me = https://api.mercadolibre.com/users/me
-│ │
-│ │ Helpers internos:
-│ │ • delay(ms) – pausa entre exclusões no lote.
-│ │ • prepararState(options?) – junta credenciais (APP_ID, CLIENT_SECRET, REFRESH_TOKEN, ACCESS_TOKEN)
-│ │ com as opções e chama TokenService.renovarTokenSeNecessario, retornando { token, creds }.
-│ │ • authFetch(url, init, state) – faz fetch com Authorization: Bearer <token>,
-│ │ e se tomar 401 renova o token com TokenService.renovarToken(state.creds) e tenta de novo.
-│ │
-│ │ • async excluirUnico(mlbId, authState?)
-│ │ – state = authState || prepararState() (reaproveitável em lote).
-│ │ – GET /items/:id → carrega o anúncio.
-│ │ – GET /users/me → confirma que item.seller_id === me.id.
-│ │ – Registra steps com { step: 'item_carregado', status: item.status, seller_id }, etc.
-│ │ – Se item.status !== 'closed':
-│ │ · faz PUT /items/:id com { status: 'closed' }
-│ │ · adiciona step fechado_sucesso ou erro_ao_fechar.
-│ │ – Em seguida, tenta exclusão definitiva (segundo passo da documentação ML):
-│ │ · PUT /items/:id com { deleted: true }
-│ │ · Se ok: retorna { success: true, message: 'Anúncio excluído com sucesso', mlb_id, status_inicial, status_tentado: 'closed', steps, detalhes_ml? }.
-│ │ · Se 4xx/5xx: retorna { success: false, error: true, message: 'Erro ao excluir anúncio: HTTP X — ...', detalhes_ml: <body bruto>, ... }.
-│ │ – Em casos onde a API já não permite exclusão (anúncios com vendas / históricos), o service devolve um texto explicativo (como você viu no JSON).
-│ │
-│ │ • async excluirLote(mlbIds, processoId, statusRef, delayEntre)
-│ │ – Usa um único state com token compartilhado para todos os itens.
-│ │ – Para cada mlbId:
-│ │ · chama excluirUnico(id, state)
-│ │ · empurra o resultado em statusRef.resultados.
-│ │ · incrementa statusRef.sucessos ou statusRef.erros.
-│ │ · incrementa statusRef.processados e statusRef.progresso (processados / total_anuncios * 100).
-│ │ · aguarda delayEntre ms entre um e outro (quando não é o último).
-│ │ – Ao final: statusRef.status = 'concluido'; statusRef.concluido_em = new Date();
-│ │
-│ ├─ tokenService.js
-│ │ • usado por prepararState/authFetch para renovar tokens.
-│ │
-│ └─ outros services gerais (ml-auth, queueService, etc.) – não participam diretamente da exclusão,
-│ porque aqui a chamada à API do ML é “na mão” via fetch.
+│  └─ validarDimensoesService.js
+│     • authFetch c/ renovação (TokenService)
+│     • parseDimensions()
+│     • analisarUm()
 │
 ├─ views/
-│ ├─ excluir-anuncio.html ← tela da Exclusão de Anúncios
-│ │ • Reaproveita a moldura padrão:
-│ │ – <link rel="stylesheet" href="/css/dashboard.css">
-│ │ – <link rel="stylesheet" href="/css/excluir-anuncio.css?v=2">
-│ │ – <link rel="stylesheet" href="/css/promo-jobs.css"> (mesmo painel de processos da Remover Promoções)
-│ │ • Layout:
-│ │ – header.account-bar com conta atual + botão Status + Trocar Conta.
-│ │ – nav.main-nav com tabs (Dashboard, Produtos, IA & Analytics, etc.); marca “Produtos” como ativo.
-│ │ – <main class="page-wrap"> → <div class="container"> com:
-│ │ · <h1>🗑️ Exclusão de Anúncios</h1>
-│ │ · form-group para MLB único (#mlb-id).
-│ │ · form-group para lista de MLBs (#mlb-list).
-│ │ · div.buttons-row com:
-│ │ * #btn-excluir (Excluir Único)
-│ │ * #btn-excluir-lote (Excluir em Lote)
-│ │ * #btn-limpar (Limpar)
-│ │ · #result-panel.result-panel.hidden + <pre id="result-json">{}</pre>.
-│ │ • No fim da página:
-│ │ – <div id="bulkJobsPanel" class="jobs-panel"></div> (painel flutuante de processos).
-│ │ – Scripts globais de conta + modal de status + jobs:
-│ │ · /js/jobs-panel.js
-│ │ · /js/exclusao-bulk.js
-│ │ · /js/excluir-anuncio.js
-│ │
-│ └─ demais views (dashboard, remover-promocao, publicidade, etc.)
+│  └─ validar-dimensoes.html
 │
-├─ public/js/
-│ ├─ excluir-anuncio.js ← frontend da tela de exclusão
-│ │ • Seletores: #mlb-id, #mlb-list, #btn-excluir, #btn-excluir-lote, #btn-limpar, #result-panel, #result-json.
-│ │ • showResult(data) – mostra JSON formatado no panel.
-│ │ • limparTudo() – limpa inputs, esconde painel.
-│ │ • excluirUnico()
-│ │ – Valida MLB (/^MLB\d{5,}$/).
-│ │ – Faz DELETE /anuncios/excluir/:mlb.
-│ │ – Exibe o JSON retornado pelo service (incluindo steps).
-│ │ • excluirLote()
-│ │ – Quebra textarea em linhas, limpa e de-duplica.
-│ │ – Chama ExclusaoBulk.enqueue({ items: lista, delayMs: 250, title: 'Exclusão em lote (N)' }).
-│ │ – Mostra { ok: true, message: 'Enviado para processamento em segundo plano.' }.
-│ │ • Faz o addEventListener('click', ...) nos botões.
-│ │
-│ ├─ exclusao-bulk.js ← orquestrador de fila no front (versão para exclusão)
-│ │ • Mantém QUEUE e running para não rodar múltiplos loops.
-│ │ • enqueue({ items, delayMs, title })
-│ │ – limpa/valida lista de MLBs.
-│ │ – empilha em QUEUE e dispara pump().
-│ │ • pump()
-│ │ – enquanto houver itens na fila, chama startJob(entry).
-│ │ • startJob(entry)
-│ │ – Descobre a conta ativa (/api/account/current ou window.__ACCOUNT__).
-│ │ – Cria um job local no JobsPanel.addLocalJob({ title: 'Exclusão – N itens', accountKey/accountLabel }).
-│ │ – Chama POST /anuncios/excluir-lote com { mlb_ids, delay_entre_remocoes }.
-│ │ – Se success:
-│ │ · pega process_id
-│ │ · faz polling em GET /anuncios/status-exclusao/:id a cada 2.5s
-│ │ · atualiza barra/estado via JobsPanel.updateLocalJob(jobId, { progress, state, completed }).
-│ │ – Se erro ao iniciar: marca job como erro ao iniciar.
-│ │
-│ ├─ jobs-panel.js ← painel de processos genérico (reutilizado)
-│ │ • Mantém lista jobs[] e renderiza o painel fixo no canto inferior direito.
-│ │ • API global window.JobsPanel:
-│ │ – addLocalJob({ title, accountKey, accountLabel }) → jobId
-│ │ – updateLocalJob(jobId, { progress, state, completed, accountKey, accountLabel })
-│ │ – mergeApiJobs(list) (para integrações com backend que devolve lista de jobs)
-│ │ – show() / hide()
-│ │ • Exibe título, badge da conta, estado textual e barra de progresso.
-│ │
-│ └─ demais JS globais (dashboard.js, remover-promocao.js, account-bar.js, etc.)
-│
-├─ public/css/
-│ ├─ dashboard.css
-│ │ • Estilo global da aplicação: header amarelo, nav de abas, botões base, layout .page-wrap, .container, etc.
-│ │
-│ ├─ promo-jobs.css
-│ │ • Estilos do painel de processos (#bulkJobsPanel.jobs-panel, .job-row, .job-bar, etc.).
-│ │ • Reutilizado em Remover Promoções e Exclusão de Anúncios.
-│ │
-│ ├─ excluir-anuncio.css ← estilo específico da tela
-│ │ • Usa o mesmo “tema ML” da remover-promocao, mas com arquivo próprio:
-│ │ – .container → card branco central com borda suave e sombra.
-│ │ – h1 com ícone de lixeira e underline colorido.
-│ │ – .form-group para campos de MLB único e em lote.
-│ │ – input, textarea com bordas arredondadas, highlight em foco.
-│ │ – .buttons-row com espaçamento e uso das classes .btn-primary, .btn-warning, .btn-secondary.
-│ │ – .result-panel para o bloco JSON de resposta (fundo levemente verde e borda esquerda).
-│ │ • Complementa dashboard.css, não substitui.
-│ │
-│ └─ outros CSS (remover-promocao.css, publicidade.css, etc.)
-│
-└─ config/ & middleware/
-├─ middleware/ensureAccount.js
-│ • Garante res.locals.accountKey / res.locals.accountLabel e cookie ml_account antes de chegar nas rotas.
-├─ middleware/authMiddleware.js
-│ • Garante que o token ML esteja válido para a conta corrente (usado em quase todas as rotas protegidas).
-├─ config/config.js
-│ • URLs base do ML (items, users_me, etc.) usadas em excluirAnuncioService.
-└─ TokenService e demais configs – dão suporte à autenticação e renovação de token usada pela exclusão.
+└─ public/
+   ├─ js/validar-dimensoes.js
+   └─ css/validar-dimensoes.css (+ dashboard.css)
 
-
-Filtro Avançado de Anúncios (COM JOBS)
+================================================================================
+3) Produtos Estratégicos
+================================================================================
 
 / (raiz do projeto)
 ├─ index.js
-│ ├─ Sobe o Express, registra middlewares globais (cookieParser, json, estáticos, etc.)
-│ ├─ app.use('/api/analytics', analyticsFiltroAnunciosRoutes) # (ou app.use(analyticsFiltroAnunciosRoutes) dependendo do seu padrão)
-│ └─ GET /filtro-anuncios (via htmlRoutes/rota direta) → abre a tela HTML
+│  ├─ app.use(estrategicosRoutes)
+│  └─ GET /estrategicos -> views/estrategicos.html
 │
-├─ routes/
-│ ├─ analytics-filtro-anuncios-routes.js # Rotas HTTP da feature "Filtro Avançado de Anúncios"
-│ │ • POST /api/analytics/filtro-anuncios/jobs
-│ │ -> cria um job Bull (enqueue) com { token, filters }
-│ │ -> responde 202: { job_id, endpoints, filters }
-│ │
-│ │ • GET /api/analytics/filtro-anuncios/jobs/:job_id
-│ │ -> lê status do job + metadata do arquivo
-│ │ -> responde JSON: { status, progress, total, error?, endpoints }
-│ │
-│ │ • GET /api/analytics/filtro-anuncios/jobs/:job_id/items
-│ │ -> pagina resultados salvos no disco (JSON)
-│ │ -> aplica busca local opcional: ?q=...
-│ │ -> responde JSON: { page, limit, total, data:[...] }
-│ │
-│ │ • GET /api/analytics/filtro-anuncios/jobs/:job_id/download.csv
-│ │ -> gera CSV server-side a partir do JSON final do job
-│ │ -> Content-Disposition attachment
-│ │
-│ │ • COMPAT: GET /api/analytics/filtro-anuncios
-│ │ - sem job_id: cria job e responde 202
-│ │ - com job_id: retorna items do job chamando handleJobItems (sem loop)
-│ │
-│ │ Helpers internos importantes:
-│ │ • pickAccountKey(req) -> conta via cookie/header/query
-│ │ • resolveAccessToken(req, accountKey) -> pega token (middleware / bearer / ml-auth fallback)
-│ │ • parseFiltersFromReq(req) -> normaliza filtros (datas, status, vendas, visitas, envio/tipo/detalhes...)
-│ │ • handleJobItems(req,res) -> paginação + busca “pós-job” (q) e shape pro front
-│ │ • CSV helpers: csvEscape(), toCSV()
-│ │
-│ └─ htmlRoutes.js (ou equivalente)
-│ • GET /filtro-anuncios -> views/filtro-anuncios.html
+├─ routes/estrategicosRoutes.js
+│  • GET    /api/estrategicos
+│  • POST   /api/estrategicos
+│  • DELETE /api/estrategicos/:mlb
+│  • POST   /api/estrategicos/replace
+│  • POST   /api/estrategicos/apply
 │
-├─ services/
-│ ├─ filtroAnunciosQueueService.js # 💥 Núcleo do processamento assíncrono (Bull + ML APIs)
-│ │
-│ │ Infra:
-│ │ • Bull('Filtro Anuncios Export Queue') -> fila Redis
-│ │ • resultsDir = /results -> persiste meta + resultados por job
-│ │ • _metaPath(jobId) -> {jobId}_filtro_metadata.json
-│ │ • _dataPath(jobId) -> {jobId}_filtro_resultados.json
-│ │ • _writeMeta(jobId, patch) -> salva status/progresso/erro
-│ │
-│ │ Processador:
-│ │ • queue.process('export', 1, async(job)) -> executa pipeline de coleta+filtros
-│ │ Pipeline (ordem real):
-│ │ 1) getSellerId(token) -> /users/me
-│ │ 2) fetchAllItemIds({sellerId,status}) -> /users/:id/items/search (scan + fallback offset<=1000)
-│ │ 3) fetchItemsBatch({ids}) -> /items?ids=... (batch 20)
-│ │ -> normaliza “rows base”:
-│ │ { mlb, sku, title, listing_type_id, tipo, shipping_free, envio, catalog_listing, detalhes, visits:null, sales_units:0, sold_value_cents:0 }
-│ │ 4) Filtros baratos (sem período):
-│ │ - envio (free/buyer)
-│ │ - tipo (classic/premium via listing_type_id)
-│ │ - detalhes (catalog/normal via catalog_listing)
-│ │ 5) Vendas no período (sempre, para manter colunas e filtro):
-│ │ fetchSalesMap({date_from,date_to}) -> /orders/search (paid) paginado
-│ │ -> preenche sales_units e sold_value_cents
-│ │ -> aplica filtro sales_op (gt/lt) se ativo
-│ │ 6) Visitas (caro):
-│ │ - só busca se visits_op != all
-│ │ fetchVisitsMap({ids,date_from,date_to}) -> /items/visits (1 id por request) c/ concorrência
-│ │ -> aplica filtro visits_op (gt/lt) se ativo
-│ │ - se não ativo: visits = null (UI mostra "-")
-│ │ 7) Sort final:
-│ │ sort_by: sold_value | sales_units | title
-│ │ sort_dir: asc | desc
-│ │ 8) Persiste JSON final no disco + meta concluído
-│ │
-│ │ Helpers internos importantes:
-│ │ • httpGetJson(url, headers, retries) -> fetch com retry (429/5xx)
-│ │ • chunk(arr, size), sleep(ms)
-│ │ • mapTipo(), mapEnvio(), mapDetalhes()
-│ │
-│ │ API do service:
-│ │ • enqueue({token, filters}) -> job.id
-│ │ • getStatus(jobId) -> status + progress + meta.total/error
-│ │ • getResults(jobId) -> lê JSON final do disco
-│ │
-│ └─ lib/redisClient.js / services/ml-auth.js / tokenService.js
-│ • redisClient: conexão Bull/Redis
-│ • ml-auth/tokenService: usados pelo routes pra obter token (resolveAccessToken)
+├─ controllers/EstrategicosController.js
+│  • list/upsert/remove/replace/apply -> EstrategicosService
 │
-├─ views/
-│ ├─ filtro-anuncios.html # Tela “Filtro Avançado de Anúncios”
-│ │ • header padrão (conta atual + Status + Trocar Conta)
-│ │ • card de filtros (datas, vendas, status, envio/tipo/detalhes e filtros “cinza” guardados)
-│ │ • tabela com 8 colunas:
-│ │ MLB | SKU | Nome anúncio | Tipo | Envios | Valor venda | Qnt vendas | Visitas
-│ │ • inclui:
-│ │ <link rel="stylesheet" href="/css/dashboard.css">
-│ │ <link rel="stylesheet" href="/css/filtro-anuncios.css">
-│ │ <script src="/js/filtro-anuncios.js"></script>
-│ │
-│ └─ (partials/… se existirem)
+├─ services/estrategicosService.js
+│  • listarPorConta / upsert / replace / apply promos
 │
-└─ public/
-├─ js/
-│ ├─ filtro-anuncios.js # Frontend (orquestra JOBS + paginação + busca local)
-│ │ • Cria job: POST /api/analytics/filtro-anuncios/jobs
-│ │ • Poll status: GET /api/analytics/filtro-anuncios/jobs/:job_id
-│ │ • Carrega página: GET /api/analytics/filtro-anuncios/jobs/:job_id/items?page&limit&q
-│ │ • Exporta CSV: redireciona GET /api/analytics/filtro-anuncios/jobs/:job_id/download.csv
-│ │ • Mantém state (filtros, job_id, paginação, rows)
-│ │ • Render:
-│ │ - tabela (8 colunas; colspan=8)
-│ │ - pager
-│ │ - loading row e empty prompt
-│ │ • Retoma job por URL: ?job_id=...
-│ │
-│ └─ (outros JS globais: account-bar.js, etc.)
-│
-├─ css/
-│ ├─ filtro-anuncios.css # Estilos específicos da tela de filtro
-│ ├─ dashboard.css # Estilos globais
-│ └─ ...
-│
-└─ img/
-└─ ...
+├─ views/estrategicos.html
+└─ public/js/estrategicos.js + public/css/estrategicos.css
 
-Login (JWT do app)
+================================================================================
+4) Curva ABC (tempo real via API Mercado Livre)
+================================================================================
 
 / (raiz do projeto)
 ├─ index.js
-│ ├─ Sobe o Express, registra middlewares globais (json/urlencoded, cookieParser, estáticos)
-│ ├─ Rotas públicas:
-│ │ • GET /selecao-plataforma -> views/selecao-plataforma.html
-│ │ • GET /login -> views/login.html
-│ │ • app.use('/api/auth', authRoutes) -> rotas de autenticação (JWT)
-│ ├─ app.use(ensureAuth) # ✅ A PARTIR DAQUI tudo exige login (cookie auth_token)
-│ ├─ GET /select-conta -> views/select-conta.html (já autenticado)
-│ └─ app.use(ensureAccount) -> exige conta escolhida (cookie ml_account) p/ seguir no app
+│  ├─ app.use('/api/analytics', analyticsAbcRoutes)
+│  └─ GET /ia-analytics/curva-abc -> view
+│
+├─ routes/analytics-abc-routes.js
+│  • GET /api/analytics/abc-ml/summary
+│  • GET /api/analytics/abc-ml/items
+│
+├─ views/ia-analytics/curva-abc.html
+└─ public/js/ia-analytics-curva-abc.js + public/css/curva-abc.css
 
-├─ routes/
-│ ├─ authRoutes.js # ✅ Rotas HTTP do login (JWT do app)
-│ │ • POST /api/auth/login
-│ │ -> recebe { email, senha }
-│ │ -> busca usuário no banco (tabela usuarios)
-│ │ -> valida senha:
-│ │ - bcrypt.compare(senha, senha_hash) (quando senha_hash existe)
-│ │ -> gera JWT (12h) com { uid, email, nivel, nome }
-│ │ -> seta cookie httpOnly: auth_token
-│ │ -> responde { ok:true, user, redirect:'/select-conta' }
-│ │
-│ │ • POST /api/auth/logout
-│ │ -> res.clearCookie('auth_token')
-│ │ -> responde { ok:true }
-│ │
-│ │ • GET /api/auth/me
-│ │ -> lê cookie auth_token
-│ │ -> jwt.verify()
-│ │ -> responde { logged:true, user } ou { logged:false }
-│ │
-│ └─ accountRoutes.js
-│ • GET /api/account/current -> retorna conta selecionada (para header)
-│ • POST /api/account/select -> grava ml_account
-│ • POST /api/account/clear -> limpa ml_account
-
-├─ middleware/
-│ ├─ ensureAuth.js # ✅ Gate do sistema (login do app)
-│ │ • Lê cookie auth_token
-│ │ • jwt.verify(JWT_SECRET)
-│ │ • injeta req.user / res.locals.user
-│ │ • se não logado:
-│ │ - HTML -> redirect /login
-│ │ - API -> 401 JSON
-│ │
-│ ├─ ensureAccount.js # ✅ Exige conta selecionada (ml_account)
-│ │ • valida cookie ml_account
-│ │ • injeta res.locals.accountKey / accountLabel / mlCreds
-│ │ • se não tiver conta -> redirect /select-conta (ou 400/401 em API)
-│ │
-│ └─ (seu authMiddleware ML) middleware/authMiddleware.js
-│ • garante token do Mercado Livre válido para rotas ML do app (após conta selecionada)
-
-├─ db/
-│ ├─ db.js # pool/conexão Postgres
-│ └─ (tabela usuarios)
-│ • usuarios(id, nome, email, senha_hash, nivel, criado_em, ultimo_login_em)
-
-├─ views/
-│ ├─ selecao-plataforma.html # botão “Mercado Livre” -> /login
-│ ├─ login.html # form do login (frontend)
-│ └─ select-conta.html # seleção de conta após login
-
-└─ public/
-├─ css/
-│ ├─ selecao-plataforma.css
-│ └─ login.css
-└─ js/
-├─ login.js (se existir / recomendado)
-│ • intercepta submit
-│ • POST /api/auth/login com email/senha
-│ • se ok -> window.location = redirect
-│ • se erro -> mostra msg
-└─ (JS globais do dashboard etc.)
-
-Admin • Usuários (listagem + CRUD)
+================================================================================
+5) Exclusão de Anúncios (único + lote, com painel de processos)
+================================================================================
 
 / (raiz do projeto)
 ├─ index.js
-│ ├─ app.use(ensureAuth) # ✅ tudo abaixo exige login (JWT)
-│ ├─ /nao-autorizado (HTML)
-│ ├─ ensureAdminOnly (middleware inline ou separado)
-│ ├─ Rotas de página (HTML):
-│ │ • GET /admin/usuarios -> views/admin-usuarios.html (protegida)
-│ │ -> se não admin: redirect /nao-autorizado
-│ └─ Rotas API admin:
-│ • app.use('/api/admin', adminUsuariosRoutes)
-│ -> router usa ensureAuthApi + ensureAdmin
-
-├─ routes/
-│ ├─ adminUsuariosRoutes.js # ✅ Rotas HTTP da feature "Admin Usuários"
-│ │ (router.use(ensureAuthApi, ensureAdmin)) # só admin
-│ │
-│ │ • GET /api/admin/usuarios
-│ │ -> lista usuários (id, nome, email, nivel, criado_em, ultimo_login_em)
-│ │ -> responde { ok:true, usuarios:[...] }
-│ │
-│ │ • POST /api/admin/usuarios
-│ │ -> cria usuário com senha em HASH
-│ │ -> bcrypt.hash(senha, 10)
-│ │ -> insert em usuarios
-│ │ -> responde { ok:true, usuario }
-│ │
-│ │ • PUT /api/admin/usuarios/:id
-│ │ -> edita nome/email/nivel
-│ │ -> opcional: se senha veio, gera bcrypt.hash e atualiza senha_hash
-│ │ -> responde { ok:true, usuario }
-│ │
-│ │ • DELETE /api/admin/usuarios/:id
-│ │ -> remove usuário
-│ │ -> (opcional) bloqueia apagar a si mesmo
-│ │ -> responde { ok:true }
-│ │
-│ │ (melhoria recomendada p/ paginação server-side)
-│ │ • GET /api/admin/usuarios?page=1&limit=25&q=abc
-│ │ -> retorna { ok:true, page, limit, total, usuarios:[...] }
-│ │ -> reduz carga e facilita paginação real
-│ │
-│ └─ (htmlRoutes.js se você centraliza views)
-│ • GET /admin/usuarios -> views/admin-usuarios.html
-
-├─ middleware/
-│ ├─ jwtAuth.js # ✅ versão para API (JSON)
-│ │ • ensureAuthApi
-│ │ -> valida cookie auth_token
-│ │ -> injeta req.user
-│ │ -> se não logado: 401 JSON
-│ │
-│ │ • ensureAdmin
-│ │ -> req.user.nivel === 'administrador'
-│ │ -> se não: 403 JSON
-│ │
-│ └─ ensureAuth.js # gate para páginas HTML (redirect /login)
-
-├─ views/
-│ ├─ admin.html (se existir: card “Usuários” no dashboard/tab Admin)
-│ └─ admin-usuarios.html # Tela “Listagem de usuários” (estilo imagem 3)
-│ • sidebar + header + search + tabela
-│ • paginação (25 por página)
-│ • botões: Atualizar, + Cadastrar, Editar, Remover
-│ • inclui:
-│ <link rel="stylesheet" href="/css/dashboard.css?v=2">
-│ <link rel="stylesheet" href="/css/admin-usuarios.css?v=1"> (ou tudo no dashboard.css)
-│ <script src="/js/admin-usuarios.js?v=1"></script>
-
-└─ public/
-├─ js/
-│ └─ admin-usuarios.js # Frontend (orquestra listagem + CRUD)
-│ • loadUsers():
-│ - GET /api/admin/usuarios (ou com ?page&limit&q)
-│ • renderTable(rows)
-│ • paginação:
-│ - mantém state { page, limit=25, total }
-│ • criar usuário:
-│ - POST /api/admin/usuarios { nome, email, senha, nivel }
-│ - server faz hash (bcrypt) ✅
-│ • editar:
-│ - PUT /api/admin/usuarios/:id { nome,email,nivel, senha? }
-│ • remover:
-│ - DELETE /api/admin/usuarios/:id
-│ • tratamento de erro:
-│ - 401 -> redirect /login
-│ - 403 -> redirect /nao-autorizado
+│  ├─ app.use(excluirAnuncioRoutes)
+│  └─ HTML: GET /excluir-anuncio -> views/excluir-anuncio.html (via htmlRoutes)
 │
-└─ css/
-├─ dashboard.css # estilos globais
-└─ admin-usuarios.css # estilos da tela (sidebar sticky, tabela, etc.)
+├─ routes/excluirAnuncioRoutes.js
+│  • DELETE /anuncios/excluir/:mlb_id
+│  • POST   /anuncios/excluir-lote
+│  • GET    /anuncios/status-exclusao/:id
+│
+├─ controllers/ExcluirAnuncioController.js
+│  • excluirUnico / excluirLote / status
+│
+├─ services/excluirAnuncioService.js
+│  • excluirUnico() / excluirLote() com authFetch + TokenService
+│
+├─ views/excluir-anuncio.html
+└─ public/js/excluir-anuncio.js + exclusao-bulk.js + jobs-panel.js
 
+================================================================================
+6) Filtro Avançado de Anúncios (COM JOBS)
+================================================================================
+
+/ (raiz do projeto)
+├─ index.js
+│  ├─ app.use('/api/analytics', analyticsFiltroAnunciosRoutes)
+│  └─ GET /filtro-anuncios -> views/filtro-anuncios.html
+│
+├─ routes/analytics-filtro-anuncios-routes.js
+│  • POST /api/analytics/filtro-anuncios/jobs
+│  • GET  /api/analytics/filtro-anuncios/jobs/:job_id
+│  • GET  /api/analytics/filtro-anuncios/jobs/:job_id/items
+│  • GET  /api/analytics/filtro-anuncios/jobs/:job_id/download.csv
+│
+├─ services/filtroAnunciosQueueService.js (Bull + Redis)
+└─ public/js/filtro-anuncios.js + views/filtro-anuncios.html
+
+================================================================================
+7) Login (JWT do app) + Autorização (Admin/Master)
+================================================================================
+
+/ (raiz do projeto)
+├─ index.js
+│  ├─ Rotas públicas:
+│  │  • GET /selecao-plataforma -> views/selecao-plataforma.html
+│  │  • GET /login             -> views/login.html
+│  │  • app.use('/api/auth', authRoutes)
+│  │
+│  ├─ app.use(ensureAuth)  # ✅ abaixo exige login (cookie auth_token)
+│  │
+│  ├─ GET /select-conta      -> views/select-conta.html
+│  ├─ GET /vincular-conta    -> views/vincular-conta.html
+│  ├─ GET /nao-autorizado    -> página 403
+│  │
+│  ├─ (Admin HTML) /admin/*  -> gate MASTER (admin_master)
+│  └─ (App) app.use(ensureAccount) -> exige conta ML selecionada (meli_conta_id)
+│
+├─ routes/authRoutes.js
+│  • POST /api/auth/login
+│  • POST /api/auth/logout
+│  • GET  /api/auth/me
+│
+├─ middleware/ensureAuth.js
+│  • valida JWT do cookie auth_token
+│  • injeta req.user/res.locals.user
+│  • HTML: redirect /login
+│  • API: 401 JSON (ou via ensureAuthApi)
+│
+└─ tabelas base:
+   • usuarios(id, nome, email, senha_hash, nivel, criado_em, ultimo_login_em)
+   • niveis: usuario | admin | admin_master (MASTER)
+
+================================================================================
+8) SISTEMA NOVO — OAuth Mercado Livre + Seleção de Conta (novo fluxo)
+================================================================================
+
+Objetivo:
+- Parar de depender do cookie legado ml_account e dos tokens em .env por conta
+- Vincular contas do ML no banco (por empresa) e selecionar conta via cookie httpOnly meli_conta_id
 
 //SISTEMA NOVO MODELO
 OAuth Mercado Livre + Seleção de Conta (novo fluxo) + Segurança de Acesso + Fix do 403 (mapa atualizado)
 / (raiz do projeto)
-
 ├─ index.js
 │ ├─ Middlewares básicos (público)
 │ │ ├─ express.json / express.urlencoded
@@ -1158,7 +420,9 @@ routes/
   ├─ valida conta na empresa
   └─ retorna { ok:true, selected:true/false, label, site_id, status, ... }
 
-tabelas (banco)
+================================================================================
+9) Select Conta (frontend) — modo MASTER + paginação/filtros
+================================================================================
 
 ├─ oauth_states
 │ ├─ state (PK), empresa_id, usuario_id
@@ -1187,6 +451,12 @@ views/
 └─ (modo legacy pode existir/ficar oculto)
 
 public/js/
+└─ select-conta.js (NOVO)
+   • loadMe() -> GET /api/auth/me (detecta admin_master)
+   • loadContasOAuth() -> GET /api/meli/contas (master com filtros/paginação)
+   • selecionarContaOAuth(id) -> POST /api/meli/selecionar
+   • limparSelecaoOAuth() -> POST /api/meli/limpar-selecao
+   • masterControls: busca, onlyActive, pager (prev/next), badges tokens/expiração
 
 └─ select-conta.js (esperado)
 ├─ loadContas():

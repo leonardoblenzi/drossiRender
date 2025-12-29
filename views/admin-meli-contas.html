@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin • Contas ML</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css?v=2">
+  <link rel="stylesheet" href="/css/admin-usuarios.css?v=2">
+</head>
+
+<body>
+  <!-- Topbar padrão (igual as outras telas admin) -->
+  <header class="account-bar">
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
+    </div>
+
+    <div class="account-bar__right">
+      <a
+        class="account-bar__switch"
+        href="/select-conta"
+        style="text-decoration:none; display:inline-flex; align-items:center;"
+      >
+        Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar__brand">
+        <div class="admin-sidebar__logo">Painel Admin</div>
+        <div class="admin-sidebar__sub">Master Only</div>
+      </div>
+
+      <nav class="admin-menu">
+        <a class="admin-menu__item" href="/admin/usuarios">
+          <span class="ico">👤</span>
+          <span>Usuários</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/empresas">
+          <span class="ico">🏢</span>
+          <span>Empresas</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/vinculos">
+          <span class="ico">🔗</span>
+          <span>Vínculos</span>
+        </a>
+
+        <a class="admin-menu__item active" href="/admin/contas-ml">
+          <span class="ico">🟡</span>
+          <span>Contas ML</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/tokens-ml">
+          <span class="ico">🔑</span>
+          <span>Tokens ML</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/oauth-states">
+          <span class="ico">🧩</span>
+          <span>OAuth States</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/migracoes">
+          <span class="ico">📦</span>
+          <span>Migrações</span>
+        </a>
+
+        <a class="admin-menu__item" href="/admin/backup">
+          <span class="ico">🧰</span>
+          <span>Backup</span>
+        </a>
+      </nav>
+
+      <div class="admin-sidebar__footer">
+        <small>Área restrita</small>
+      </div>
+    </aside>
+
+    <section class="admin-content">
+      <!-- Header da página -->
+      <div class="admin-content__header">
+        <div>
+          <h1 class="admin-title">Contas ML</h1>
+          <p class="admin-subtitle">
+            CRUD de <code>meli_contas</code> (master). Tokens são geridos via OAuth.
+          </p>
+        </div>
+
+        <div class="admin-actions">
+          <button id="btn-refresh" class="btn-lite" type="button">Atualizar</button>
+          <button id="btn-create" class="btn-primary" type="button">Nova conta</button>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="admin-toolbar">
+        <div class="admin-actions" style="flex:1; min-width:260px;">
+          <div class="search-box" style="flex:1;">
+            <input
+              id="search"
+              placeholder="Buscar por empresa, apelido, meli_user_id, status ou ID…"
+              autocomplete="off"
+            />
+          </div>
+          <button id="btn-clear" class="btn-lite" type="button">Limpar</button>
+        </div>
+
+        <div class="admin-actions">
+          <span id="count-pill" class="pill">—</span>
+
+          <button id="btn-prev" class="btn-lite" type="button" title="Anterior">◀</button>
+          <span class="page-info" id="page-info">—</span>
+          <button id="btn-next" class="btn-lite" type="button" title="Próxima">▶</button>
+        </div>
+      </div>
+
+      <!-- Range info -->
+      <div id="range-info" class="hint">—</div>
+
+      <!-- Tabela -->
+      <div class="card" style="margin-top:10px;">
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width: 80px;">ID</th>
+                <th style="width: 90px;">Empresa</th>
+                <th>Empresa (nome)</th>
+                <th style="width: 140px;">ML User ID</th>
+                <th>Apelido</th>
+                <th style="width: 90px;">Site</th>
+                <th style="width: 110px;">Status</th>
+                <th style="width: 190px;">Atualizado</th>
+                <th style="width: 120px;">Ações</th>
+              </tr>
+            </thead>
+
+            <tbody id="tbody">
+              <tr><td colspan="9" class="table-empty">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal (reusando estilos do admin-usuarios.css) -->
+  <div id="modal-ml" class="modal" aria-hidden="true" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Nova conta ML</h3>
+        <button id="modal-close" class="close" type="button" title="Fechar">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="f-empresa-id">Empresa ID *</label>
+            <input id="f-empresa-id" inputmode="numeric" placeholder="Ex: 1" />
+          </div>
+
+          <div class="form-group">
+            <label for="f-meli-user-id">ML User ID *</label>
+            <input id="f-meli-user-id" inputmode="numeric" placeholder="Ex: 123456789" />
+          </div>
+
+          <div class="form-group">
+            <label for="f-apelido">Apelido</label>
+            <input id="f-apelido" placeholder="Ex: Loja Principal" />
+          </div>
+
+          <div class="form-group">
+            <label for="f-site-id">Site</label>
+            <input id="f-site-id" placeholder="MLB" />
+          </div>
+
+          <div class="form-group">
+            <label for="f-status">Status</label>
+            <select id="f-status">
+              <option value="ativa">ativa</option>
+              <option value="revogada">revogada</option>
+              <option value="erro">erro</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hint">
+          Dica: normalmente o OAuth cria/atualiza automaticamente. Use o painel só quando precisar
+          ajustar apelido/status ou corrigir registros.
+        </div>
+
+        <div id="form-error" class="form-error" style="display:none;"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-cancel" class="btn-lite" type="button">Cancelar</button>
+        <button id="btn-save" class="btn-primary" type="button">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none;">—</div>
+
+  <script src="/js/admin-meli-contas.js"></script>
+</body>
+</html>
