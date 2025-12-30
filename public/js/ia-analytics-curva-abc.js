@@ -143,6 +143,7 @@
     lastItems: [],
     totals: null,
     curveCards: null,
+    accountKey: null,
 
     // Conta atual (cookie OAuth)
     currentAccountLabel: "—",
@@ -151,41 +152,45 @@
 
   // Topbar
   async function initTopBar() {
-    // Mostra conta atual (OAuth cookie meli_conta_id)
     try {
       const r = await fetch("/api/account/current", {
+        credentials: "include",
         cache: "no-store",
-        credentials: "same-origin",
+        headers: { Accept: "application/json" },
       });
-      const j = await r.json();
-      const shown = j?.label || j?.accountKey || "—";
-      state.currentAccountLabel = shown;
-      state.currentAccountKey = j?.accountKey || null;
+
+      const j = await r.json().catch(() => null);
+
+      // ✅ guarda a conta atual no state (ajuda no fallback do getFilters)
+      state.accountKey = j?.accountKey || j?.current?.id || null;
+
+      const shown = j?.label || j?.accountKey || j?.current?.label || "—";
       const el = $("account-current");
       if (el) el.textContent = shown;
-    } catch {}
+    } catch {
+      // silencioso
+    }
 
     const btnSwitch = $("account-switch");
-    if (btnSwitch)
+    if (btnSwitch) {
       btnSwitch.addEventListener("click", async () => {
-        // limpa cookie e volta selecionar
         try {
           await fetch("/api/account/clear", {
             method: "POST",
-            credentials: "same-origin",
-            cache: "no-store",
+            credentials: "include",
           });
         } catch {}
         location.href = "/select-conta";
       });
+    }
 
     const btnStatus = $("btn-status");
-    if (btnStatus)
+    if (btnStatus) {
       btnStatus.addEventListener("click", async () => {
         try {
           const r = await fetch("/verificar-token", {
+            credentials: "include",
             cache: "no-store",
-            credentials: "same-origin",
           });
           const d = await r.json();
           alert(
@@ -194,9 +199,10 @@
               : `❌ ${d.error || "Falha ao verificar"}`
           );
         } catch (e) {
-          alert("❌ " + e.message);
+          alert("❌ " + (e?.message || e));
         }
       });
+    }
   }
 
   function setDefaultDates() {
@@ -219,65 +225,35 @@
 
     sel.innerHTML = "";
 
-    // Se você quiser "forçar" single-account, pode até esconder o select no HTML.
-    // Aqui mantemos compat: uma opção = conta atual.
-    const addOption = (id, label) => {
-      const op = document.createElement("option");
-      op.value = String(id ?? "");
-      op.textContent = String(label ?? id ?? "—");
-      sel.appendChild(op);
-    };
+    // ✅ Novo padrão: pega conta selecionada no backend (cookie httpOnly)
+    const r = await fetch("/api/account/current", {
+      credentials: "include",
+      cache: "no-store",
+    });
 
-    // 1) tenta listar contas (novo)
-    try {
-      const r = await fetch("/api/meli/contas", {
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const j = await r.json();
-
-      const contas = Array.isArray(j?.contas) ? j.contas : [];
-      const currentId = j?.current_meli_conta_id || null;
-
-      if (contas.length) {
-        contas.forEach((c) =>
-          addOption(c.id, c.label || c.apelido || `Conta ${c.meli_user_id}`)
-        );
-        if (currentId != null) {
-          const opt = Array.from(sel.options).find(
-            (o) => Number(o.value) === Number(currentId)
-          );
-          if (opt) opt.selected = true;
-          else sel.options[0].selected = true;
-        } else {
-          sel.options[0].selected = true;
-        }
-      } else {
-        // fallback: mostra pelo menos a conta atual
-        addOption(
-          state.currentAccountKey || "current",
-          state.currentAccountLabel || "Conta atual"
-        );
-        sel.options[0].selected = true;
-      }
-
-      // 🔒 No padrão novo, trocar conta é pelo /select-conta, não por esse select.
-      sel.disabled = true;
-      sel.title = "Para trocar a conta, use o botão de trocar conta no topo.";
+    // Se não conseguiu, força voltar pra seleção
+    if (!r.ok) {
+      location.href = "/select-conta";
       return;
-    } catch (e) {
-      console.warn("loadAccounts: falha em /api/meli/contas:", e?.message || e);
     }
 
-    // 2) fallback total: 1 opção com conta atual
-    addOption(
-      state.currentAccountKey || "current",
-      state.currentAccountLabel || "Conta atual"
-    );
-    sel.options[0].selected = true;
-    sel.disabled = true;
-    sel.title = "Para trocar a conta, use o botão de trocar conta no topo.";
+    const j = await r.json().catch(() => null);
+
+    const key = j?.accountKey || j?.current?.id || null;
+    const label = j?.label || j?.current?.label || null;
+
+    if (!key) {
+      // sem conta selecionada -> volta pra tela certa
+      location.href = "/select-conta";
+      return;
+    }
+
+    // Cria 1 opção (modo OAuth é 1 conta por sessão)
+    const op = document.createElement("option");
+    op.value = String(key);
+    op.textContent = String(label || `Conta ${key}`);
+    op.selected = true;
+    sel.appendChild(op);
   }
 
   /**
@@ -286,10 +262,19 @@
    * o backend deve usar a conta do cookie (meli_conta_id) via ensureAccount.
    */
   function getFilters(extra = {}) {
+    // garante accounts sempre preenchido (select OU fallback do state.accountKey)
+    const sel = $("fAccounts");
+    const selected = sel ? asArray(sel).join(",") : "";
+    const accountsVal =
+      selected || (state?.accountKey ? String(state.accountKey) : "");
+
     const base = {
       date_from: $("fDateFrom").value,
       date_to: $("fDateTo").value,
-      // accounts: removido (OAuth cookie)
+
+      // ✅ sempre manda accounts, senão seu backend tende a retornar 400
+      accounts: accountsVal,
+
       full: $("fFull").value || "all",
       metric: state.metric,
       group_by: state.groupBy,
@@ -299,7 +284,9 @@
       limit: state.limit,
       page: state.page,
     };
+
     if (state.sort) base.sort = state.sort;
+
     return Object.assign(base, extra);
   }
 
