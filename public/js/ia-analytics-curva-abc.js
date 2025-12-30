@@ -266,15 +266,9 @@
    * preenchendo com o select OU com state.accountKey como fallback.
    */
   function getFilters(extra = {}) {
-    const sel = $("fAccounts");
-    const selected = sel ? asArray(sel).join(",") : "";
-    const accountsVal =
-      selected || (state?.accountKey ? String(state.accountKey) : "");
-
     const base = {
       date_from: $("fDateFrom")?.value || "",
       date_to: $("fDateTo")?.value || "",
-      accounts: accountsVal,
       full: $("fFull")?.value || "all",
       metric: state.metric,
       group_by: state.groupBy,
@@ -284,6 +278,11 @@
       limit: state.limit,
       page: state.page,
     };
+
+    // ✅ Só manda accounts se tiver algo selecionado
+    const sel = $("fAccounts");
+    const selected = sel ? asArray(sel).join(",") : "";
+    if (selected) base.accounts = selected;
 
     if (state.sort) base.sort = state.sort;
 
@@ -1077,11 +1076,10 @@
     $("fAccounts")?.addEventListener("change", renderAccountChips);
 
     // ✅ BIND CSV (o que faltava)
+    // ✅ BIND CSV
     const btnCsv = $("btnExportCsv");
     if (btnCsv) {
-      if (btnCsv.tagName === "BUTTON" && !btnCsv.getAttribute("type")) {
-        btnCsv.setAttribute("type", "button");
-      }
+      btnCsv.setAttribute("type", "button"); // evita submit
       btnCsv.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
