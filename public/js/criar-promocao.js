@@ -207,23 +207,133 @@ const HUD = {
 
 const JobsWatcher = (function () {
   let timer = null;
-  const PERIOD_MS = 3000;
+  let periodMs = 3000;
+
+  let idleTicks = 0;
+  const IDLE_TICKS_TO_STOP = 3; // para depois de 3 polls "sem jobs ativos"
+
+  const ACTIVE_PERIOD = 3000;
+  const IDLE_PERIOD = 12000;
+  const HIDDEN_PERIOD = 20000;
+
+  function normalizeJobState(job) {
+    const sRaw = String(job?.state || job?.status || "").toLowerCase();
+
+    const processed = Number(job?.processed ?? 0);
+    const total = Number(job?.total ?? 0);
+
+    const progress =
+      Number(job?.progress ?? NaN) ||
+      (total > 0 ? Math.round((processed / total) * 100) : 0);
+
+    const byCounts = total > 0 && processed >= total && progress >= 100;
+
+    const failed =
+      sRaw.includes("fail") ||
+      sRaw.includes("erro") ||
+      sRaw.includes("error") ||
+      sRaw.includes("falhou");
+
+    const canceled =
+      sRaw.includes("cancel") ||
+      sRaw.includes("canceled") ||
+      sRaw.includes("aborted");
+
+    const completed =
+      !failed &&
+      !canceled &&
+      (byCounts ||
+        sRaw.includes("conclu") ||
+        sRaw.includes("completed") ||
+        sRaw.includes("done") ||
+        sRaw.includes("finaliz"));
+
+    if (failed) return { state: "failed", progress, processed, total };
+    if (canceled) return { state: "canceled", progress, processed, total };
+    if (completed)
+      return { state: "completed", progress: 100, processed, total };
+
+    // queued/pending
+    if (
+      sRaw.includes("queue") ||
+      sRaw.includes("waiting") ||
+      sRaw.includes("pend") ||
+      sRaw.includes("scheduled") ||
+      sRaw.includes("agend")
+    ) {
+      return { state: "queued", progress, processed, total };
+    }
+
+    // default: active
+    return { state: "active", progress, processed, total };
+  }
+
+  function normalizeJob(job) {
+    const norm = normalizeJobState(job);
+    // Força um formato “compatível” com painéis que esperam state/status padronizado
+    return {
+      ...job,
+      state: norm.state,
+      status: norm.state,
+      progress: norm.progress,
+      processed: norm.processed,
+      total: norm.total,
+    };
+  }
+
+  function anyRunning(list) {
+    // considera "queued" também como job vivo
+    return list.some((j) => j.state === "active" || j.state === "queued");
+  }
+
+  function setPeriod(ms) {
+    ms = Number(ms);
+    if (!isFinite(ms) || ms <= 0) return;
+
+    if (!timer) {
+      periodMs = ms;
+      return;
+    }
+    if (ms === periodMs) return;
+
+    periodMs = ms;
+    clearInterval(timer);
+    timer = setInterval(poll, periodMs);
+  }
 
   async function poll() {
     try {
       const r = await fetch("/api/promocoes/jobs", {
         credentials: "same-origin",
         cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
+        headers: { Accept: "application/json", "Cache-Control": "no-cache" },
       });
-
       if (!r.ok) return;
 
       const data = await r.json().catch(() => ({}));
-      const list = data?.jobs || [];
+      const raw = Array.isArray(data?.jobs) ? data.jobs : [];
 
+      const list = raw.map(normalizeJob);
+
+      // Entrega para o painel já normalizado (resolve “concluído” virar “completed”)
       if (window.JobsPanel?.mergeApiJobs && Array.isArray(list)) {
         window.JobsPanel.mergeApiJobs(list);
+      }
+
+      const running = anyRunning(list);
+
+      if (running) {
+        idleTicks = 0;
+        setPeriod(ACTIVE_PERIOD);
+        return;
+      }
+
+      // Não tem jobs ativos → entra em idle (poll mais lento) e depois para.
+      idleTicks++;
+      setPeriod(document.hidden ? HIDDEN_PERIOD : IDLE_PERIOD);
+
+      if (idleTicks >= IDLE_TICKS_TO_STOP) {
+        stop(); // ✅ PARA o polling automático
       }
     } catch (e) {
       // silencioso
@@ -232,7 +342,9 @@ const JobsWatcher = (function () {
 
   function start() {
     if (timer) return;
-    timer = setInterval(poll, PERIOD_MS);
+    idleTicks = 0;
+    periodMs = document.hidden ? HIDDEN_PERIOD : ACTIVE_PERIOD;
+    timer = setInterval(poll, periodMs);
     poll();
   }
 
@@ -245,6 +357,12 @@ const JobsWatcher = (function () {
   function isRunning() {
     return !!timer;
   }
+
+  // Se a aba ficar oculta, reduz frequência
+  document.addEventListener("visibilitychange", () => {
+    if (!timer) return;
+    setPeriod(document.hidden ? HIDDEN_PERIOD : ACTIVE_PERIOD);
+  });
 
   return { start, stop, isRunning, poll };
 })();
@@ -2855,24 +2973,16 @@ const Flags = {
 
 console.log("Flags ativas: " + JSON.stringify(Flags));
 
-// Auto-iniciar watcher se a flag estiver ativa
-if (Flags.jobsWatcherEnabled) {
-  setTimeout(() => {
-    JobsWatcher.start();
-    console.log("JobsWatcher auto-iniciado:", {
-      isRunning: JobsWatcher.isRunning(),
-      flagEnabled: Flags.jobsWatcherEnabled,
-    });
-  }, 1000);
-}
-
 /* ======================== Boot ======================== */
 
 document.addEventListener("DOMContentLoaded", async () => {
   hideLeadingRebateColumnIfPresent();
   updateSelectedCampaignName();
   HUD.reset();
-  JobsWatcher.start();
+
+  if (Flags.jobsWatcherEnabled) JobsWatcher.start();
+  else JobsWatcher.stop();
+
   await carregarCards();
   atualizarFaixaSelecaoCampanha();
 });
