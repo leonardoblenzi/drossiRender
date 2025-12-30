@@ -13,18 +13,20 @@
       style: "currency",
       currency: "BRL",
     });
+
   const fmtPct = (x) =>
     `${(Number(x || 0) * 100).toLocaleString("pt-BR", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}%`;
+
   const asArray = (sel) =>
-    Array.from(sel.selectedOptions)
+    Array.from(sel?.selectedOptions || [])
       .map((o) => o.value)
       .filter(Boolean);
 
   // =========================================================
-  // PROGRESS UI (barra lateral)
+  // PROGRESS UI (barra lateral) - opcional (mantido)
   // =========================================================
   function ensureProgressPanel() {
     let panel = $("reportProgressPanel");
@@ -54,7 +56,7 @@
     document.body.appendChild(panel);
     panel
       .querySelector("#rpClose")
-      .addEventListener("click", () => hideProgress());
+      ?.addEventListener("click", () => hideProgress());
     return panel;
   }
 
@@ -89,7 +91,9 @@
     qs("#rpPct", p).textContent = clamped.toFixed(0) + "%";
   }
 
+  // =========================================================
   // Helpers
+  // =========================================================
   function keepOnlySold(row) {
     return Number(row?.units || 0) > 0;
   }
@@ -129,6 +133,9 @@
     return `<span class="ads-badge ${cls}" title="${hint}"><span class="dot"></span>${statusText}</span>`;
   }
 
+  // =========================================================
+  // Estado
+  // =========================================================
   const state = {
     curveTab: "ALL",
     loading: false,
@@ -144,13 +151,11 @@
     totals: null,
     curveCards: null,
     accountKey: null,
-
-    // Conta atual (cookie OAuth)
-    currentAccountLabel: "—",
-    currentAccountKey: null,
   };
 
+  // =========================================================
   // Topbar
+  // =========================================================
   async function initTopBar() {
     try {
       const r = await fetch("/api/account/current", {
@@ -178,6 +183,7 @@
           await fetch("/api/account/clear", {
             method: "POST",
             credentials: "include",
+            cache: "no-store",
           });
         } catch {}
         location.href = "/select-conta";
@@ -209,15 +215,16 @@
     const to = new Date();
     const from = new Date(to);
     from.setDate(to.getDate() - 29);
-    $("fDateFrom").value = from.toISOString().slice(0, 10);
-    $("fDateTo").value = to.toISOString().slice(0, 10);
+    const a = $("fDateFrom");
+    const b = $("fDateTo");
+    if (a) a.value = from.toISOString().slice(0, 10);
+    if (b) b.value = to.toISOString().slice(0, 10);
   }
 
   /**
-   * ✅ NOVO PADRÃO:
+   * ✅ NOVO PADRÃO (OAuth):
    * - a conta ativa é o cookie httpOnly (meli_conta_id)
-   * - então esse select vira apenas "informativo" / compat com HTML antigo.
-   * - buscamos /api/meli/contas (rota do seu fluxo novo).
+   * - select vira "informativo"
    */
   async function loadAccounts() {
     const sel = $("fAccounts");
@@ -225,30 +232,27 @@
 
     sel.innerHTML = "";
 
-    // ✅ Novo padrão: pega conta selecionada no backend (cookie httpOnly)
     const r = await fetch("/api/account/current", {
       credentials: "include",
       cache: "no-store",
+      headers: { Accept: "application/json" },
     });
 
-    // Se não conseguiu, força voltar pra seleção
     if (!r.ok) {
       location.href = "/select-conta";
       return;
     }
 
     const j = await r.json().catch(() => null);
-
     const key = j?.accountKey || j?.current?.id || null;
     const label = j?.label || j?.current?.label || null;
 
     if (!key) {
-      // sem conta selecionada -> volta pra tela certa
       location.href = "/select-conta";
       return;
     }
 
-    // Cria 1 opção (modo OAuth é 1 conta por sessão)
+    // 1 opção por sessão
     const op = document.createElement("option");
     op.value = String(key);
     op.textContent = String(label || `Conta ${key}`);
@@ -258,24 +262,20 @@
 
   /**
    * ✅ IMPORTANTE:
-   * no padrão OAuth, NÃO enviamos `accounts` no querystring.
-   * o backend deve usar a conta do cookie (meli_conta_id) via ensureAccount.
+   * Mesmo em OAuth, seu backend pode exigir `accounts` -> então sempre enviamos,
+   * preenchendo com o select OU com state.accountKey como fallback.
    */
   function getFilters(extra = {}) {
-    // garante accounts sempre preenchido (select OU fallback do state.accountKey)
     const sel = $("fAccounts");
     const selected = sel ? asArray(sel).join(",") : "";
     const accountsVal =
       selected || (state?.accountKey ? String(state.accountKey) : "");
 
     const base = {
-      date_from: $("fDateFrom").value,
-      date_to: $("fDateTo").value,
-
-      // ✅ sempre manda accounts, senão seu backend tende a retornar 400
+      date_from: $("fDateFrom")?.value || "",
+      date_to: $("fDateTo")?.value || "",
       accounts: accountsVal,
-
-      full: $("fFull").value || "all",
+      full: $("fFull")?.value || "all",
       metric: state.metric,
       group_by: state.groupBy,
       a_cut: state.aCut,
@@ -311,6 +311,9 @@
     }
   }
 
+  // =========================================================
+  // Render: Cards e listas
+  // =========================================================
   function renderMiniCards() {
     const cc = state.curveCards || {};
     const T = state.totals || {};
@@ -327,11 +330,17 @@
       );
       const rShare = Number(data.revenue_share ?? data.share ?? 0);
 
-      $(`k${pref}_units`).textContent = units.toLocaleString("pt-BR");
-      $(`k${pref}_value`).textContent = fmtMoneyCents(revCts);
-      $(`k${pref}_items`).textContent = items.toLocaleString("pt-BR");
-      $(`k${pref}_ticket`).textContent = fmtMoneyCents(ticket);
-      $(`k${pref}_share`).textContent = fmtPct(rShare);
+      const a = $(`k${pref}_units`);
+      const b = $(`k${pref}_value`);
+      const c = $(`k${pref}_items`);
+      const d = $(`k${pref}_ticket`);
+      const e = $(`k${pref}_share`);
+
+      if (a) a.textContent = units.toLocaleString("pt-BR");
+      if (b) b.textContent = fmtMoneyCents(revCts);
+      if (c) c.textContent = items.toLocaleString("pt-BR");
+      if (d) d.textContent = fmtMoneyCents(ticket);
+      if (e) e.textContent = fmtPct(rShare);
     };
 
     fill("A", cc.A);
@@ -340,14 +349,18 @@
 
     const tUnits = Number(T.units_total || 0);
     const tRev = Number(T.revenue_cents_total || 0);
-    $("kT_units").textContent = tUnits.toLocaleString("pt-BR");
-    $("kT_value").textContent = fmtMoneyCents(tRev);
-    $("kT_items").textContent = Number(T.items_total || 0).toLocaleString(
-      "pt-BR"
-    );
-    $("kT_ticket").textContent = fmtMoneyCents(
-      tUnits > 0 ? Math.round(tRev / tUnits) : 0
-    );
+
+    if ($("kT_units"))
+      $("kT_units").textContent = tUnits.toLocaleString("pt-BR");
+    if ($("kT_value")) $("kT_value").textContent = fmtMoneyCents(tRev);
+    if ($("kT_items"))
+      $("kT_items").textContent = Number(T.items_total || 0).toLocaleString(
+        "pt-BR"
+      );
+    if ($("kT_ticket"))
+      $("kT_ticket").textContent = fmtMoneyCents(
+        tUnits > 0 ? Math.round(tRev / tUnits) : 0
+      );
   }
 
   function renderCardsMeta(curves) {
@@ -355,19 +368,24 @@
     const A = safe(curves?.A),
       B = safe(curves?.B),
       C = safe(curves?.C);
-    $("cardAmeta").textContent = `${(A.share * 100).toFixed(1)}% • ${
-      A.count_items
-    } itens`;
-    $("cardBmeta").textContent = `${(B.share * 100).toFixed(1)}% • ${
-      B.count_items
-    } itens`;
-    $("cardCmeta").textContent = `${(C.share * 100).toFixed(1)}% • ${
-      C.count_items
-    } itens`;
+
+    if ($("cardAmeta"))
+      $("cardAmeta").textContent = `${(A.share * 100).toFixed(1)}% • ${
+        A.count_items
+      } itens`;
+    if ($("cardBmeta"))
+      $("cardBmeta").textContent = `${(B.share * 100).toFixed(1)}% • ${
+        B.count_items
+      } itens`;
+    if ($("cardCmeta"))
+      $("cardCmeta").textContent = `${(C.share * 100).toFixed(1)}% • ${
+        C.count_items
+      } itens`;
   }
 
   function fillUL(id, arr) {
     const ul = $(id);
+    if (!ul) return;
     ul.innerHTML = "";
     (arr || []).forEach((i) => {
       const li = document.createElement("li");
@@ -381,6 +399,9 @@
     });
   }
 
+  // =========================================================
+  // Load Summary
+  // =========================================================
   async function loadSummary() {
     setLoading(true);
     try {
@@ -419,11 +440,15 @@
     }
   }
 
+  // =========================================================
+  // Grid
+  // =========================================================
   function renderTable(rows, page, total, limit) {
     state.lastItems = Array.isArray(rows) ? rows : [];
     state.page = page;
 
     const tb = qs("#grid tbody");
+    if (!tb) return;
     tb.innerHTML = "";
 
     const T = state.totals || {};
@@ -519,7 +544,7 @@
         include_visits: "1",
       });
 
-      const s = $("fSearch").value?.trim();
+      const s = $("fSearch")?.value?.trim();
       if (s) base.search = s;
 
       const params = new URLSearchParams(base).toString();
@@ -547,6 +572,7 @@
       let rows = j.data.slice();
 
       rows = rows.filter(keepOnlySold);
+
       if (state.sort === "share") {
         const T = state.totals || {};
         const rTotal = Number(T.revenue_cents_total || 0);
@@ -582,8 +608,13 @@
     }
   }
 
+  // =========================================================
+  // Paginação
+  // =========================================================
   function renderPagination(page, total, limit) {
     const pager = $("pager");
+    if (!pager) return;
+
     const totalPages = Math.max(1, Math.ceil((total || 0) / (limit || 20)));
 
     const mkBtn = (p, label = null, disabled = false, active = false) => {
@@ -616,111 +647,178 @@
     loadItems(curve, p);
   }
 
-  // CSV / progressFab (mantido como estava, só garantindo no-store em fetch)
-  function debounce(fn, ms = 300) {
-    let t;
-    return (...a) => {
-      clearTimeout(t);
-      t = setTimeout(() => fn(...a), ms);
-    };
-  }
-  function applySwitchDefaults() {
-    qsa("#switch-groupby .btn-switch").forEach((b) =>
-      b.classList.toggle("active", b.dataset.group === state.groupBy)
-    );
-    qsa("#switch-metric  .btn-switch").forEach((b) =>
-      b.classList.toggle("active", b.dataset.metric === state.metric)
-    );
-  }
+  // =========================================================
+  // CSV: progress FAB + fetchAllPages + exportCSV
+  // =========================================================
+  const progressFab = (() => {
+    let root, icon, msgEl, pctEl;
 
-  function renderAccountChips() {
-    const sel = $("fAccounts");
-    const box = $("accChips");
-    if (!sel || !box) return;
-    const opts = Array.from(sel.selectedOptions);
-    if (!opts.length) {
-      box.innerHTML = "";
-      return;
-    }
-    box.innerHTML = opts
-      .map((o) => `<span class="chip">${o.textContent}</span>`)
-      .join("");
-  }
+    function ensure() {
+      if (root) return root;
+      root = document.createElement("div");
+      root.id = "reportFab";
+      root.style.cssText = `
+        position: fixed; right: 16px; bottom: 16px; z-index: 10001;
+        background: #fff; border: 1px solid #eee; border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,.12);
+        padding: 12px 12px; display: none;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        min-width: 320px;
+      `;
+      root.innerHTML = `
+        <div class="rf-row" style="display:flex;gap:10px;align-items:flex-start">
+          <span id="rfIcon" class="rf-spinner" style="
+            width:18px;height:18px;border-radius:999px;
+            border:2px solid #e5e7eb;border-top-color:#111827;
+            display:inline-block; margin-top:2px;
+            animation: rfspin 0.9s linear infinite;"></span>
+          <div style="display:flex;flex-direction:column;gap:2px;flex:1">
+            <div class="rf-title" style="font-weight:700">Processando relatório</div>
+            <div id="rfMsg" class="rf-msg" style="color:#444;font-size:13px">Preparando…</div>
+            <div id="rfPct" class="rf-pct" style="color:#666;font-size:12px" aria-live="polite"></div>
+          </div>
+          <button id="rfClose" class="rf-close" title="Fechar" type="button"
+            style="border:none;background:#f3f4f6;border-radius:10px;padding:6px 10px;cursor:pointer">×</button>
+        </div>
+      `;
+      const st = document.createElement("style");
+      st.textContent = `
+        @keyframes rfspin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+      `;
+      document.head.appendChild(st);
 
-  function bind() {
-    $("btnPesquisar").addEventListener("click", () => {
-      state.page = 1;
-      loadSummary();
-      loadItems("ALL", 1);
-    });
-
-    qsa(".cards .card[data-curve]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const curve = el.getAttribute("data-curve") || "ALL";
-        state.sort = null;
-        state.page = 1;
-        loadItems(curve, 1);
-      });
-    });
-
-    const totalCard = $("cardTotal");
-    if (totalCard) {
-      totalCard.addEventListener("click", () => {
-        $("fSearch").value = "";
-        state.sort = "share";
-        state.page = 1;
-        loadItems("ALL", 1);
-      });
+      document.body.appendChild(root);
+      icon = root.querySelector("#rfIcon");
+      msgEl = root.querySelector("#rfMsg");
+      pctEl = root.querySelector("#rfPct");
+      root.querySelector("#rfClose").onclick = hide;
+      return root;
     }
 
-    qsa("#switch-groupby .btn-switch").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        qsa("#switch-groupby .btn-switch").forEach((b) =>
-          b.classList.remove("active")
-        );
-        btn.classList.add("active");
-        state.groupBy = btn.dataset.group;
-        state.page = 1;
-        loadSummary();
-        loadItems(state.curveTab || "ALL", 1);
-      });
-    });
+    function show(message = "Processando…") {
+      ensure();
+      root.style.display = "block";
+      icon.style.animation = "rfspin 0.9s linear infinite";
+      icon.style.borderTopColor = "#111827";
+      msgEl.textContent = message;
+      pctEl.textContent = "";
+    }
 
-    qsa("#switch-metric .btn-switch").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        qsa("#switch-metric .btn-switch").forEach((b) =>
-          b.classList.remove("active")
-        );
-        btn.classList.add("active");
-        state.metric = btn.dataset.metric;
-        state.page = 1;
-        loadSummary();
-        loadItems(state.curveTab || "ALL", 1);
-      });
-    });
+    function message(m) {
+      ensure();
+      msgEl.textContent = m;
+    }
 
-    $("fSearch").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        state.page = 1;
-        loadItems("ALL", 1);
+    function progress(current, total, opts = {}) {
+      ensure();
+      const safeTotal = Math.max(1, Number(total || 1));
+      const cur = Math.max(0, Math.min(Number(current || 0), safeTotal));
+      const pct = Math.floor((cur / safeTotal) * 100);
+      const hint = opts.withAds === false ? " • (sem ADS nesta página)" : "";
+      pctEl.textContent = `${cur}/${safeTotal} (${pct}%)${hint}`;
+    }
+
+    function done(ok = true) {
+      ensure();
+      // “check”
+      icon.style.animation = "none";
+      icon.style.border = "2px solid " + (ok ? "#22c55e" : "#ef4444");
+      icon.style.borderTopColor = ok ? "#22c55e" : "#ef4444";
+      setTimeout(hide, 2200);
+    }
+
+    function hide() {
+      if (root) root.style.display = "none";
+    }
+
+    return { show, message, progress, done, hide };
+  })();
+
+  // Busca paginada com total real e opção "strictAds"
+  async function fetchAllPages(onProgress, opts = {}) {
+    const {
+      limit = 120,
+      withAds = true,
+      timeoutMs = 120000,
+      maxRetries = 3,
+      strictAds = false,
+    } = opts;
+
+    const fetchItemsPage = async (page, tryWithAds) => {
+      const base = getFilters({
+        curve: state.curveTab || "ALL",
+        page,
+        limit,
+        include_ads: tryWithAds ? "1" : "0",
+        include_visits: "1",
+      });
+      const params = new URLSearchParams(base).toString();
+      const url = `/api/analytics/abc-ml/items?${params}`;
+
+      let lastErr;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const r = await fetchWithTimeout(
+            url,
+            { credentials: "same-origin" },
+            timeoutMs
+          );
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return await r.json();
+        } catch (e) {
+          lastErr = e;
+          await new Promise((res) => setTimeout(res, 400 * attempt));
+        }
       }
-    });
-    $("fSearch").addEventListener(
-      "input",
-      debounce(() => {
-        state.page = 1;
-        loadItems(state.curveTab || "ALL", 1);
-      }, 500)
-    );
+      throw lastErr || new Error("Falha ao buscar página");
+    };
 
-    $("fFull").addEventListener("change", () => {
-      state.page = 1;
-      loadSummary();
-      loadItems(state.curveTab || "ALL", 1);
-    });
+    const all = [];
 
-    // ⚠️ no padrão novo, esse select é informativo; não recarrega por ele
-    $("fAccounts")?.addEventListener("change", renderAccountChips);
+    let first,
+      totalPages,
+      usedAdsForFirst = withAds;
+
+    try {
+      first = await fetchItemsPage(1, withAds);
+    } catch (e1) {
+      if (strictAds)
+        throw new Error("Página 1 falhou com ADS (strictAds ativo).");
+      logProgress("Página 1: timeout/erro com ADS — tentando sem ADS…", "warn");
+      first = await fetchItemsPage(1, false);
+      usedAdsForFirst = false;
+    }
+
+    const firstLimit = Number(first?.limit || limit) || limit;
+    const firstTotal = Number(first?.total || 0);
+    totalPages = Math.max(1, Math.ceil(firstTotal / firstLimit));
+
+    typeof onProgress === "function" &&
+      onProgress({ page: 0, totalPages, withAds: usedAdsForFirst });
+
+    if (Array.isArray(first?.data)) all.push(...first.data);
+
+    for (let page = 2; page <= totalPages; page++) {
+      try {
+        const j = await fetchItemsPage(page, withAds);
+        if (Array.isArray(j?.data)) all.push(...j.data);
+        typeof onProgress === "function" &&
+          onProgress({ page, totalPages, withAds: true });
+      } catch (e1) {
+        if (strictAds)
+          throw new Error(`Página ${page} falhou com ADS (strictAds ativo).`);
+        logProgress(
+          `Página ${page}: timeout/erro com ADS — tentando sem ADS…`,
+          "warn"
+        );
+        const j2 = await fetchItemsPage(page, false);
+        if (Array.isArray(j2?.data)) all.push(...j2.data);
+        typeof onProgress === "function" &&
+          onProgress({ page, totalPages, withAds: false });
+      }
+    }
+
+    return all;
   }
 
   async function exportCSV() {
@@ -869,6 +967,134 @@
     }
   }
 
+  // =========================================================
+  // UI: switches + chips + bind
+  // =========================================================
+  function debounce(fn, ms = 300) {
+    let t;
+    return (...a) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...a), ms);
+    };
+  }
+
+  function applySwitchDefaults() {
+    qsa("#switch-groupby .btn-switch").forEach((b) =>
+      b.classList.toggle("active", b.dataset.group === state.groupBy)
+    );
+    qsa("#switch-metric .btn-switch").forEach((b) =>
+      b.classList.toggle("active", b.dataset.metric === state.metric)
+    );
+  }
+
+  function renderAccountChips() {
+    const sel = $("fAccounts");
+    const box = $("accChips");
+    if (!sel || !box) return;
+    const opts = Array.from(sel.selectedOptions);
+    if (!opts.length) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = opts
+      .map((o) => `<span class="chip">${o.textContent}</span>`)
+      .join("");
+  }
+
+  function bind() {
+    $("btnPesquisar")?.addEventListener("click", () => {
+      state.page = 1;
+      loadSummary();
+      loadItems("ALL", 1);
+    });
+
+    qsa(".cards .card[data-curve]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const curve = el.getAttribute("data-curve") || "ALL";
+        state.sort = null;
+        state.page = 1;
+        loadItems(curve, 1);
+      });
+    });
+
+    const totalCard = $("cardTotal");
+    if (totalCard) {
+      totalCard.addEventListener("click", () => {
+        const s = $("fSearch");
+        if (s) s.value = "";
+        state.sort = "share";
+        state.page = 1;
+        loadItems("ALL", 1);
+      });
+    }
+
+    qsa("#switch-groupby .btn-switch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        qsa("#switch-groupby .btn-switch").forEach((b) =>
+          b.classList.remove("active")
+        );
+        btn.classList.add("active");
+        state.groupBy = btn.dataset.group;
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
+      });
+    });
+
+    qsa("#switch-metric .btn-switch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        qsa("#switch-metric .btn-switch").forEach((b) =>
+          b.classList.remove("active")
+        );
+        btn.classList.add("active");
+        state.metric = btn.dataset.metric;
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
+      });
+    });
+
+    $("fSearch")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        state.page = 1;
+        loadItems("ALL", 1);
+      }
+    });
+    $("fSearch")?.addEventListener(
+      "input",
+      debounce(() => {
+        state.page = 1;
+        loadItems(state.curveTab || "ALL", 1);
+      }, 500)
+    );
+
+    $("fFull")?.addEventListener("change", () => {
+      state.page = 1;
+      loadSummary();
+      loadItems(state.curveTab || "ALL", 1);
+    });
+
+    $("fAccounts")?.addEventListener("change", renderAccountChips);
+
+    // ✅ BIND CSV (o que faltava)
+    const btnCsv = $("btnExportCsv");
+    if (btnCsv) {
+      if (btnCsv.tagName === "BUTTON" && !btnCsv.getAttribute("type")) {
+        btnCsv.setAttribute("type", "button");
+      }
+      btnCsv.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        exportCSV();
+      });
+    } else {
+      console.warn("⚠️ Botão CSV não encontrado: id=btnExportCsv");
+    }
+  }
+
+  // =========================================================
+  // Start
+  // =========================================================
   window.addEventListener("DOMContentLoaded", async () => {
     await initTopBar();
     setDefaultDates();
@@ -876,7 +1102,6 @@
     renderAccountChips();
     applySwitchDefaults();
     bind();
-    bindExportCsvButton();
     await loadSummary();
     await loadItems("ALL", 1);
   });
