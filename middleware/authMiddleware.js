@@ -6,11 +6,9 @@ const TokenService = require("../services/tokenService");
 // Rotas/métodos que não precisam de token ML (evita refresh desnecessário)
 const SKIP_PATHS = [
   // ✅ OAuth / seleção/vinculação (não precisa token ML)
-  /^\/api\/meli\/contas(?:\/|$)/i,
-  /^\/api\/meli\/select(?:\/|$)/i,
-  /^\/api\/meli\/clear(?:\/|$)/i,
-  /^\/api\/meli\/oauth\/start(?:\/|$)/i,
-  /^\/api\/meli\/oauth\/callback(?:\/|$)/i,
+  // (mais seguro: pula tudo do /api/meli e /api/account)
+  /^\/api\/meli(?:\/|$)/i,
+  /^\/api\/account(?:\/|$)/i,
 
   // health checks
   /^\/api\/health(?:\/|$)/i,
@@ -24,12 +22,6 @@ const SKIP_PATHS = [
 
   // polling/download filtro-anuncios (não precisa token ML)
   /^\/api\/analytics\/filtro-anuncios\/jobs\/[^\/]+(?:\/|$)/i,
-
-  /* ============================
-   * LEGADO (comentado)
-   * ============================
-   * /^\/api\/account\/current(?:\/|$)/i,
-   */
 ];
 
 const SKIP_METHODS = new Set(["OPTIONS", "HEAD"]);
@@ -75,8 +67,11 @@ function attachAuthContext(req, res, accessToken) {
 }
 
 function wantsHtml(req) {
-  const accept = String(req.headers.accept || "");
-  return accept.includes("text/html");
+  // Evita tratar fetch "*/*" como HTML
+  const accept = String(req.headers?.accept || "").toLowerCase();
+  return (
+    accept.includes("text/html") || accept.includes("application/xhtml+xml")
+  );
 }
 
 /**
@@ -115,9 +110,6 @@ const authMiddleware = async (req, res, next) => {
 
     // ✅ Com OAuth, ensureAccount injeta:
     // creds.meli_conta_id, refresh_token, access_token, access_expires_at, etc.
-    // TokenService:
-    // - usa refresh_token para renovar
-    // - se creds.meli_conta_id existir, pode salvar tokens no banco
     const token = await TokenService.renovarTokenSeNecessario(creds);
 
     if (!token) {

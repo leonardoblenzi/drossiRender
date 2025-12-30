@@ -12,6 +12,14 @@ const db = require("../db/db");
 // ====== Cookie (NOVO padrão) ======
 const COOKIE_OAUTH = "meli_conta_id"; // ✅ OAuth
 
+// ✅ Flag opcional: manter compat com código antigo que lê process.env.*
+// (DESLIGADO por padrão para não vazar token entre contas/usuários)
+const LEGACY_ENV_COMPAT = String(process.env.LEGACY_ENV_COMPAT || "") === "1";
+
+// ✅ Log opcional (DESLIGADO por padrão)
+const ENSURE_ACCOUNT_DEBUG =
+  String(process.env.ENSURE_ACCOUNT_DEBUG || "") === "1";
+
 // ====== Rotas abertas (não exigem conta selecionada) ======
 const OPEN_PREFIXES = [
   // home / públicos
@@ -301,10 +309,6 @@ async function ensureAccount(req, res, next) {
       : await getOAuthCredsForUserAndContaId(uid, meliContaId);
 
     if (!pack) {
-      // Se chegou aqui:
-      // - master: conta não existe
-      // - não-master: conta não pertence à empresa OU usuário sem empresa
-      // Evita "apagar cookie" em cascata sem diagnóstico — mas mantemos a limpeza por segurança.
       clearOAuthCookie(res);
 
       return deny(req, res, {
@@ -319,8 +323,13 @@ async function ensureAccount(req, res, next) {
     // Identidade da conta para UI/log
     res.locals.accountMode = "oauth";
     res.locals.accountKey = String(pack.conta.id);
+
+    // ✅ label mais informativo no modo master
+    const baseLabel = pack.conta.apelido || `Conta ${pack.conta.meli_user_id}`;
     res.locals.accountLabel =
-      pack.conta.apelido || `Conta ${pack.conta.meli_user_id}`;
+      master && pack.empresa_nome
+        ? `${pack.empresa_nome} • ${baseLabel}`
+        : baseLabel;
 
     res.locals.account = {
       mode: "oauth",
@@ -369,16 +378,27 @@ async function ensureAccount(req, res, next) {
       creds.scope = null;
     }
 
-    // Compat (legado)
-    if (creds.access_token)
-      process.env.ACCESS_TOKEN = String(creds.access_token);
-    if (creds.app_id) process.env.APP_ID = String(creds.app_id);
-    if (creds.client_secret)
-      process.env.CLIENT_SECRET = String(creds.client_secret);
-    if (creds.refresh_token)
-      process.env.REFRESH_TOKEN = String(creds.refresh_token);
-    if (creds.redirect_uri)
-      process.env.REDIRECT_URI = String(creds.redirect_uri);
+    // ✅ IMPORTANTÍSSIMO:
+    // Não escrever token em process.env por padrão (evita vazar token entre contas/usuários).
+    // Se você ainda tiver serviços antigos que dependem disso, ligue:
+    //   LEGACY_ENV_COMPAT=1
+    if (LEGACY_ENV_COMPAT) {
+      if (creds.access_token)
+        process.env.ACCESS_TOKEN = String(creds.access_token);
+      if (creds.app_id) process.env.APP_ID = String(creds.app_id);
+      if (creds.client_secret)
+        process.env.CLIENT_SECRET = String(creds.client_secret);
+      if (creds.refresh_token)
+        process.env.REFRESH_TOKEN = String(creds.refresh_token);
+      if (creds.redirect_uri)
+        process.env.REDIRECT_URI = String(creds.redirect_uri);
+    }
+
+    if (ENSURE_ACCOUNT_DEBUG) {
+      console.log(
+        `🔐 ensureAccount oauth ok | uid=${uid} master=${master} conta=${creds.meli_conta_id} empresa=${pack.empresa_nome} label="${res.locals.accountLabel}"`
+      );
+    }
 
     return next();
   } catch (e) {

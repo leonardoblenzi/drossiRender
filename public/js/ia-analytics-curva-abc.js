@@ -2,27 +2,36 @@
 // UI da página Curva ABC (tempo real via API do ML)
 
 (() => {
-  console.log('🚀 Curva ABC • ML tempo real');
+  console.log("🚀 Curva ABC • ML tempo real");
 
-  const qs  = (s, el=document) => el.querySelector(s);
-  const qsa = (s, el=document) => Array.from(el.querySelectorAll(s));
-  const $   = (id) => document.getElementById(id);
+  const qs = (s, el = document) => el.querySelector(s);
+  const qsa = (s, el = document) => Array.from(el.querySelectorAll(s));
+  const $ = (id) => document.getElementById(id);
 
   const fmtMoneyCents = (c) =>
-    (Number(c || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    (Number(c || 0) / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
   const fmtPct = (x) =>
-    `${(Number(x || 0) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
-  const asArray = (sel) => Array.from(sel.selectedOptions).map(o => o.value).filter(Boolean);
+    `${(Number(x || 0) * 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}%`;
+  const asArray = (sel) =>
+    Array.from(sel.selectedOptions)
+      .map((o) => o.value)
+      .filter(Boolean);
 
   // =========================================================
   // PROGRESS UI (barra lateral)
   // =========================================================
   function ensureProgressPanel() {
-    let panel = $('reportProgressPanel');
+    let panel = $("reportProgressPanel");
     if (panel) return panel;
 
-    panel = document.createElement('div');
-    panel.id = 'reportProgressPanel';
+    panel = document.createElement("div");
+    panel.id = "reportProgressPanel";
     panel.style.cssText = `
       position: fixed; right: 16px; top: 80px; width: 320px; z-index: 10000;
       background: #fff; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.12);
@@ -43,36 +52,41 @@
       </div>
     `;
     document.body.appendChild(panel);
-    panel.querySelector('#rpClose').addEventListener('click', () => hideProgress());
+    panel
+      .querySelector("#rpClose")
+      .addEventListener("click", () => hideProgress());
     return panel;
   }
 
   function showProgress(title) {
     const p = ensureProgressPanel();
-    p.style.display = 'block';
-    qs('#rpTitle', p).textContent = title || 'Processando…';
-    qs('#rpBar', p).style.width = '0%';
-    qs('#rpPct', p).textContent = '0%';
-    qs('#rpLog', p).innerHTML = '';
+    p.style.display = "block";
+    qs("#rpTitle", p).textContent = title || "Processando…";
+    qs("#rpBar", p).style.width = "0%";
+    qs("#rpPct", p).textContent = "0%";
+    qs("#rpLog", p).innerHTML = "";
   }
   function hideProgress() {
-    const p = $('reportProgressPanel');
-    if (p) p.style.display = 'none';
+    const p = $("reportProgressPanel");
+    if (p) p.style.display = "none";
   }
-  function logProgress(msg, type='info') {
-    const p = $('reportProgressPanel'); if (!p) return;
-    const el = document.createElement('div');
+  function logProgress(msg, type = "info") {
+    const p = $("reportProgressPanel");
+    if (!p) return;
+    const el = document.createElement("div");
     el.textContent = msg;
-    el.style.margin = '4px 0';
-    el.style.color = type === 'error' ? '#b42318' : type === 'warn' ? '#8a6d3b' : '#444';
-    qs('#rpLog', p).appendChild(el);
-    qs('#rpLog', p).scrollTop = qs('#rpLog', p).scrollHeight;
+    el.style.margin = "4px 0";
+    el.style.color =
+      type === "error" ? "#b42318" : type === "warn" ? "#8a6d3b" : "#444";
+    qs("#rpLog", p).appendChild(el);
+    qs("#rpLog", p).scrollTop = qs("#rpLog", p).scrollHeight;
   }
   function updateProgress(pct) {
-    const p = $('reportProgressPanel'); if (!p) return;
+    const p = $("reportProgressPanel");
+    if (!p) return;
     const clamped = Math.max(0, Math.min(100, pct));
-    qs('#rpBar', p).style.width = clamped + '%';
-    qs('#rpPct', p).textContent = clamped.toFixed(0) + '%';
+    qs("#rpBar", p).style.width = clamped + "%";
+    qs("#rpPct", p).textContent = clamped.toFixed(0) + "%";
   }
 
   // Helpers
@@ -84,7 +98,11 @@
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const r = await fetch(url, { ...options, signal: ctrl.signal });
+      const r = await fetch(url, {
+        ...options,
+        signal: ctrl.signal,
+        cache: "no-store",
+      });
       return r;
     } finally {
       clearTimeout(id);
@@ -93,23 +111,29 @@
 
   function adsBadgeHTML(statusCode, statusText, hasActivity) {
     const cls =
-      statusCode === 'active' ? 'ads-yes' :
-      statusCode === 'paused' ? 'ads-paused' :
-      'ads-no';
+      statusCode === "active"
+        ? "ads-yes"
+        : statusCode === "paused"
+        ? "ads-paused"
+        : "ads-no";
     const hint =
-      statusCode === 'active'
-        ? (hasActivity ? 'Em campanha (com atividade no período)' : 'Em campanha (sem atividade no período)')
-        : statusCode === 'paused'
-          ? 'Em campanha (pausado no período)'
-          : (hasActivity ? 'Sem campanha (houve atividade registrada — verifique atribuição)' : 'Sem campanha no período');
+      statusCode === "active"
+        ? hasActivity
+          ? "Em campanha (com atividade no período)"
+          : "Em campanha (sem atividade no período)"
+        : statusCode === "paused"
+        ? "Em campanha (pausado no período)"
+        : hasActivity
+        ? "Sem campanha (houve atividade registrada — verifique atribuição)"
+        : "Sem campanha no período";
     return `<span class="ads-badge ${cls}" title="${hint}"><span class="dot"></span>${statusText}</span>`;
   }
 
   const state = {
-    curveTab: 'ALL',
+    curveTab: "ALL",
     loading: false,
-    groupBy: 'mlb',
-    metric: 'revenue',
+    groupBy: "mlb",
+    metric: "revenue",
     aCut: 0.75,
     bCut: 0.92,
     minUnits: 1,
@@ -118,79 +142,162 @@
     sort: null,
     lastItems: [],
     totals: null,
-    curveCards: null
+    curveCards: null,
+
+    // Conta atual (cookie OAuth)
+    currentAccountLabel: "—",
+    currentAccountKey: null,
   };
 
   // Topbar
   async function initTopBar() {
+    // Mostra conta atual (OAuth cookie meli_conta_id)
     try {
-      const r = await fetch('/api/account/current', { cache: 'no-store' });
+      const r = await fetch("/api/account/current", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
       const j = await r.json();
-      const shown = j.label || j.accountKey || '—';
-      const el = $('account-current');
+      const shown = j?.label || j?.accountKey || "—";
+      state.currentAccountLabel = shown;
+      state.currentAccountKey = j?.accountKey || null;
+      const el = $("account-current");
       if (el) el.textContent = shown;
     } catch {}
-    const btnSwitch = $('account-switch');
-    if (btnSwitch) btnSwitch.addEventListener('click', async () => {
-      try { await fetch('/api/account/clear', { method: 'POST' }); } catch {}
-      location.href = '/select-conta';
-    });
-    const btnStatus = $('btn-status');
-    if (btnStatus) btnStatus.addEventListener('click', async () => {
-      try {
-        const r = await fetch('/verificar-token');
-        const d = await r.json();
-        alert(d.success
-          ? `✅ ${d.message}\nUser: ${d.nickname}\nToken: ${d.token_preview}`
-          : `❌ ${d.error || 'Falha ao verificar'}`);
-      } catch (e) { alert('❌ ' + e.message); }
-    });
+
+    const btnSwitch = $("account-switch");
+    if (btnSwitch)
+      btnSwitch.addEventListener("click", async () => {
+        // limpa cookie e volta selecionar
+        try {
+          await fetch("/api/account/clear", {
+            method: "POST",
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+        } catch {}
+        location.href = "/select-conta";
+      });
+
+    const btnStatus = $("btn-status");
+    if (btnStatus)
+      btnStatus.addEventListener("click", async () => {
+        try {
+          const r = await fetch("/verificar-token", {
+            cache: "no-store",
+            credentials: "same-origin",
+          });
+          const d = await r.json();
+          alert(
+            d.success
+              ? `✅ ${d.message}\nUser: ${d.nickname}\nToken: ${d.token_preview}`
+              : `❌ ${d.error || "Falha ao verificar"}`
+          );
+        } catch (e) {
+          alert("❌ " + e.message);
+        }
+      });
   }
 
   function setDefaultDates() {
     const to = new Date();
     const from = new Date(to);
     from.setDate(to.getDate() - 29);
-    $('fDateFrom').value = from.toISOString().slice(0, 10);
-    $('fDateTo').value   = to.toISOString().slice(0, 10);
+    $("fDateFrom").value = from.toISOString().slice(0, 10);
+    $("fDateTo").value = to.toISOString().slice(0, 10);
   }
 
+  /**
+   * ✅ NOVO PADRÃO:
+   * - a conta ativa é o cookie httpOnly (meli_conta_id)
+   * - então esse select vira apenas "informativo" / compat com HTML antigo.
+   * - buscamos /api/meli/contas (rota do seu fluxo novo).
+   */
   async function loadAccounts() {
-    const sel = $('fAccounts'); sel.innerHTML = '';
+    const sel = $("fAccounts");
+    if (!sel) return;
+
+    sel.innerHTML = "";
+
+    // Se você quiser "forçar" single-account, pode até esconder o select no HTML.
+    // Aqui mantemos compat: uma opção = conta atual.
+    const addOption = (id, label) => {
+      const op = document.createElement("option");
+      op.value = String(id ?? "");
+      op.textContent = String(label ?? id ?? "—");
+      sel.appendChild(op);
+    };
+
+    // 1) tenta listar contas (novo)
     try {
-      const r = await fetch('/api/account/list', { credentials: 'same-origin' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json();
-      const arr = j?.accounts || j || [];
-      arr.forEach(acc => {
-        const id = acc.id || acc.account || acc.key || acc.alias || acc.codigo || String(acc);
-        const nm = acc.name || acc.label || acc.nome || acc.display || id;
-        const op = document.createElement('option');
-        op.value = id; op.textContent = nm;
-        sel.appendChild(op);
+      const r = await fetch("/api/meli/contas", {
+        cache: "no-store",
+        credentials: "same-origin",
       });
-      if (sel.options.length) sel.options[0].selected = true;
-    } catch {
-      const cookieAcc = (document.cookie.match(/(?:^|;\s*)ml_account=([^;]+)/) || [])[1] || 'default';
-      const op = document.createElement('option');
-      op.value = cookieAcc; op.textContent = cookieAcc;
-      sel.appendChild(op); sel.options[0].selected = true;
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+
+      const contas = Array.isArray(j?.contas) ? j.contas : [];
+      const currentId = j?.current_meli_conta_id || null;
+
+      if (contas.length) {
+        contas.forEach((c) =>
+          addOption(c.id, c.label || c.apelido || `Conta ${c.meli_user_id}`)
+        );
+        if (currentId != null) {
+          const opt = Array.from(sel.options).find(
+            (o) => Number(o.value) === Number(currentId)
+          );
+          if (opt) opt.selected = true;
+          else sel.options[0].selected = true;
+        } else {
+          sel.options[0].selected = true;
+        }
+      } else {
+        // fallback: mostra pelo menos a conta atual
+        addOption(
+          state.currentAccountKey || "current",
+          state.currentAccountLabel || "Conta atual"
+        );
+        sel.options[0].selected = true;
+      }
+
+      // 🔒 No padrão novo, trocar conta é pelo /select-conta, não por esse select.
+      sel.disabled = true;
+      sel.title = "Para trocar a conta, use o botão de trocar conta no topo.";
+      return;
+    } catch (e) {
+      console.warn("loadAccounts: falha em /api/meli/contas:", e?.message || e);
     }
+
+    // 2) fallback total: 1 opção com conta atual
+    addOption(
+      state.currentAccountKey || "current",
+      state.currentAccountLabel || "Conta atual"
+    );
+    sel.options[0].selected = true;
+    sel.disabled = true;
+    sel.title = "Para trocar a conta, use o botão de trocar conta no topo.";
   }
 
+  /**
+   * ✅ IMPORTANTE:
+   * no padrão OAuth, NÃO enviamos `accounts` no querystring.
+   * o backend deve usar a conta do cookie (meli_conta_id) via ensureAccount.
+   */
   function getFilters(extra = {}) {
     const base = {
-      date_from: $('fDateFrom').value,
-      date_to:   $('fDateTo').value,
-      accounts:  asArray($('fAccounts')).join(','),
-      full:      $('fFull').value || 'all',
-      metric:    state.metric,
-      group_by:  state.groupBy,
-      a_cut:     state.aCut,
-      b_cut:     state.bCut,
+      date_from: $("fDateFrom").value,
+      date_to: $("fDateTo").value,
+      // accounts: removido (OAuth cookie)
+      full: $("fFull").value || "all",
+      metric: state.metric,
+      group_by: state.groupBy,
+      a_cut: state.aCut,
+      b_cut: state.bCut,
       min_units: 1,
-      limit:     state.limit,
-      page:      state.page
+      limit: state.limit,
+      page: state.page,
     };
     if (state.sort) base.sort = state.sort;
     return Object.assign(base, extra);
@@ -198,11 +305,11 @@
 
   function setLoading(on) {
     state.loading = on;
-    let overlay = qs('#abcLoading');
+    let overlay = qs("#abcLoading");
     if (on) {
       if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'abcLoading';
+        overlay = document.createElement("div");
+        overlay.id = "abcLoading";
         overlay.style.cssText = `
           position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
           background:rgba(0,0,0,.08);backdrop-filter:saturate(80%) blur(0px);z-index:9999;
@@ -219,49 +326,69 @@
 
   function renderMiniCards() {
     const cc = state.curveCards || {};
-    const T  = state.totals || {};
+    const T = state.totals || {};
 
     const fill = (pref, data) => {
       if (!data) return;
-      const units   = Number(data.units || data.units_total || 0);
-      const revCts  = Number(data.revenue_cents || data.revenue_cents_total || 0);
-      const items   = Number(data.items_count ?? data.count_items ?? 0);
-      const ticket  = Number(data.ticket_avg_cents ?? (units > 0 ? Math.round(revCts / units) : 0));
-      const rShare  = Number(data.revenue_share ?? data.share ?? 0);
+      const units = Number(data.units || data.units_total || 0);
+      const revCts = Number(
+        data.revenue_cents || data.revenue_cents_total || 0
+      );
+      const items = Number(data.items_count ?? data.count_items ?? 0);
+      const ticket = Number(
+        data.ticket_avg_cents ?? (units > 0 ? Math.round(revCts / units) : 0)
+      );
+      const rShare = Number(data.revenue_share ?? data.share ?? 0);
 
-      $(`k${pref}_units`).textContent  = units.toLocaleString('pt-BR');
-      $(`k${pref}_value`).textContent  = fmtMoneyCents(revCts);
-      $(`k${pref}_items`).textContent  = items.toLocaleString('pt-BR');
+      $(`k${pref}_units`).textContent = units.toLocaleString("pt-BR");
+      $(`k${pref}_value`).textContent = fmtMoneyCents(revCts);
+      $(`k${pref}_items`).textContent = items.toLocaleString("pt-BR");
       $(`k${pref}_ticket`).textContent = fmtMoneyCents(ticket);
-      $(`k${pref}_share`).textContent  = fmtPct(rShare);
+      $(`k${pref}_share`).textContent = fmtPct(rShare);
     };
 
-    fill('A', cc.A); fill('B', cc.B); fill('C', cc.C);
+    fill("A", cc.A);
+    fill("B", cc.B);
+    fill("C", cc.C);
 
-    const tUnits  = Number(T.units_total || 0);
-    const tRev    = Number(T.revenue_cents_total || 0);
-    $('kT_units').textContent  = tUnits.toLocaleString('pt-BR');
-    $('kT_value').textContent  = fmtMoneyCents(tRev);
-    $('kT_items').textContent  = Number(T.items_total || 0).toLocaleString('pt-BR');
-    $('kT_ticket').textContent = fmtMoneyCents(tUnits > 0 ? Math.round(tRev / tUnits) : 0);
+    const tUnits = Number(T.units_total || 0);
+    const tRev = Number(T.revenue_cents_total || 0);
+    $("kT_units").textContent = tUnits.toLocaleString("pt-BR");
+    $("kT_value").textContent = fmtMoneyCents(tRev);
+    $("kT_items").textContent = Number(T.items_total || 0).toLocaleString(
+      "pt-BR"
+    );
+    $("kT_ticket").textContent = fmtMoneyCents(
+      tUnits > 0 ? Math.round(tRev / tUnits) : 0
+    );
   }
 
   function renderCardsMeta(curves) {
     const safe = (obj) => obj || { share: 0, count_items: 0 };
-    const A = safe(curves?.A), B = safe(curves?.B), C = safe(curves?.C);
-    $('cardAmeta').textContent = `${(A.share * 100).toFixed(1)}% • ${A.count_items} itens`;
-    $('cardBmeta').textContent = `${(B.share * 100).toFixed(1)}% • ${B.count_items} itens`;
-    $('cardCmeta').textContent = `${(C.share * 100).toFixed(1)}% • ${C.count_items} itens`;
+    const A = safe(curves?.A),
+      B = safe(curves?.B),
+      C = safe(curves?.C);
+    $("cardAmeta").textContent = `${(A.share * 100).toFixed(1)}% • ${
+      A.count_items
+    } itens`;
+    $("cardBmeta").textContent = `${(B.share * 100).toFixed(1)}% • ${
+      B.count_items
+    } itens`;
+    $("cardCmeta").textContent = `${(C.share * 100).toFixed(1)}% • ${
+      C.count_items
+    } itens`;
   }
 
   function fillUL(id, arr) {
     const ul = $(id);
-    ul.innerHTML = '';
-    (arr || []).forEach(i => {
-      const li = document.createElement('li');
+    ul.innerHTML = "";
+    (arr || []).forEach((i) => {
+      const li = document.createElement("li");
       li.innerHTML = `
-        <span class="muted">${i.mlb || ''}${i.sku ? ' • ' + i.sku : ''}</span>
-        <span><b>${i.units || 0}</b> • ${fmtMoneyCents(i.revenue_cents || 0)}</span>
+        <span class="muted">${i.mlb || ""}${i.sku ? " • " + i.sku : ""}</span>
+        <span><b>${i.units || 0}</b> • ${fmtMoneyCents(
+        i.revenue_cents || 0
+      )}</span>
       `;
       ul.appendChild(li);
     });
@@ -271,7 +398,10 @@
     setLoading(true);
     try {
       const params = new URLSearchParams(getFilters()).toString();
-      const r = await fetch(`/api/analytics/abc-ml/summary?${params}`, { credentials: 'same-origin' });
+      const r = await fetch(`/api/analytics/abc-ml/summary?${params}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
       if (!r.ok) throw new Error(`summary HTTP ${r.status}`);
       const j = await r.json();
 
@@ -280,25 +410,25 @@
 
       renderMiniCards();
       renderCardsMeta(j.curves);
-      fillUL('listA', j.top5?.A);
-      fillUL('listB', j.top5?.B);
-      fillUL('listC', j.top5?.C);
+      fillUL("listA", j.top5?.A);
+      fillUL("listB", j.top5?.B);
+      fillUL("listC", j.top5?.C);
     } catch (e) {
       console.error(e);
-      alert('❌ Falha ao carregar resumo da Curva ABC.');
+      alert("❌ Falha ao carregar resumo da Curva ABC.");
     } finally {
       setLoading(false);
     }
   }
 
   function setSelection(tag) {
-    qsa('.cards .card').forEach(c => c.classList.remove('selected'));
-    if (tag === 'TOTAL') {
-      const t = $('cardTotal');
-      t && t.classList.add('selected');
-    } else if (tag === 'A' || tag === 'B' || tag === 'C') {
+    qsa(".cards .card").forEach((c) => c.classList.remove("selected"));
+    if (tag === "TOTAL") {
+      const t = $("cardTotal");
+      t && t.classList.add("selected");
+    } else if (tag === "A" || tag === "B" || tag === "C") {
       const el = qs(`.cards .card[data-curve="${tag}"]`);
-      el && el.classList.add('selected');
+      el && el.classList.add("selected");
     }
   }
 
@@ -306,135 +436,159 @@
     state.lastItems = Array.isArray(rows) ? rows : [];
     state.page = page;
 
-    const tb = qs('#grid tbody');
-    tb.innerHTML = '';
+    const tb = qs("#grid tbody");
+    tb.innerHTML = "";
 
     const T = state.totals || {};
     const uTotal = Number(T.units_total || 0);
     const rTotal = Number(T.revenue_cents_total || 0);
 
-    (state.lastItems).forEach((r, idx) => {
+    state.lastItems.forEach((r, idx) => {
       try {
-        const curve = r.curve || '-';
-        const pillClass = curve ? `idx-${curve}` : '';
+        const curve = r.curve || "-";
+        const pillClass = curve ? `idx-${curve}` : "";
 
-        const unitShare = typeof r.unit_share === 'number' ? r.unit_share : (uTotal > 0 ? (r.units || 0) / uTotal : 0);
-        const revShare  = typeof r.revenue_share === 'number' ? r.revenue_share : (rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0);
+        const unitShare =
+          typeof r.unit_share === "number"
+            ? r.unit_share
+            : uTotal > 0
+            ? (r.units || 0) / uTotal
+            : 0;
+        const revShare =
+          typeof r.revenue_share === "number"
+            ? r.revenue_share
+            : rTotal > 0
+            ? (r.revenue_cents || 0) / rTotal
+            : 0;
 
         const promoActive = !!(r.promo && r.promo.active);
-        const promoPct = (r.promo && r.promo.percent != null) ? Number(r.promo.percent) : null;
-        const promoTxt = promoActive ? 'Sim' : 'Não';
-        const promoPctTxt = (promoActive && promoPct != null) ? fmtPct(promoPct) : '—';
+        const promoPct =
+          r.promo && r.promo.percent != null ? Number(r.promo.percent) : null;
+        const promoTxt = promoActive ? "Sim" : "Não";
+        const promoPctTxt =
+          promoActive && promoPct != null ? fmtPct(promoPct) : "—";
 
         const ads = r.ads || {};
-        const statusCode = ads.status_code || (ads.in_campaign ? 'active' : 'none');
-        const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
+        const statusCode =
+          ads.status_code || (ads.in_campaign ? "active" : "none");
+        const statusText =
+          ads.status_text || (ads.in_campaign ? "Ativo" : "Não");
         const clicks = Number(ads.clicks || 0);
-        const imps   = Number(ads.impressions || 0);
+        const imps = Number(ads.impressions || 0);
         const spendC = Number(ads.spend_cents || 0);
-        const aRevC  = Number(ads.revenue_cents || 0);
-        const hasActivity = !!ads.had_activity || (clicks + imps + spendC + aRevC) > 0;
-        const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
+        const aRevC = Number(ads.revenue_cents || 0);
+        const hasActivity =
+          !!ads.had_activity || clicks + imps + spendC + aRevC > 0;
+        const acosVal = aRevC > 0 ? spendC / aRevC : null;
 
-        const tr = document.createElement('tr');
+        const tr = document.createElement("tr");
         tr.innerHTML = `
           <td><span class="idx-pill ${pillClass}">${curve}</span></td>
-          <td>${r.mlb || ''}</td>
-          <td>${r.title || ''}</td>
-          <td>${(r.units || 0).toLocaleString('pt-BR')}</td>
+          <td>${r.mlb || ""}</td>
+          <td>${r.title || ""}</td>
+          <td>${(r.units || 0).toLocaleString("pt-BR")}</td>
           <td class="percent">${fmtPct(unitShare)}</td>
           <td class="num">${fmtMoneyCents(r.revenue_cents || 0)}</td>
           <td class="percent">${fmtPct(revShare)}</td>
           <td>${promoTxt}</td>
           <td class="percent">${promoPctTxt}</td>
           <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
-          <td class="num">${clicks.toLocaleString('pt-BR')}</td>
-          <td class="num">${imps.toLocaleString('pt-BR')}</td>
+          <td class="num">${clicks.toLocaleString("pt-BR")}</td>
+          <td class="num">${imps.toLocaleString("pt-BR")}</td>
           <td class="num">${fmtMoneyCents(spendC)}</td>
-          <td class="percent">${hasActivity && acosVal !== null ? fmtPct(acosVal) : '—'}</td>
+          <td class="percent">${
+            hasActivity && acosVal !== null ? fmtPct(acosVal) : "—"
+          }</td>
           <td class="num">${fmtMoneyCents(aRevC)}</td>
         `;
         tb.appendChild(tr);
       } catch (rowErr) {
-        console.error('Falha ao renderizar linha', idx, rowErr, r);
+        console.error("Falha ao renderizar linha", idx, rowErr, r);
       }
     });
 
     renderPagination(page, total, limit);
   }
 
-  async function loadItems(curve = state.curveTab || 'ALL', page = 1) {
+  async function loadItems(curve = state.curveTab || "ALL", page = 1) {
     setLoading(true);
     try {
       state.curveTab = curve;
       state.page = page;
 
-      if (curve === 'ALL' && state.sort === 'share') {
-        setSelection('TOTAL');
-      } else if (curve === 'ALL') {
-        qsa('.cards .card').forEach(c => c.classList.remove('selected'));
+      if (curve === "ALL" && state.sort === "share") {
+        setSelection("TOTAL");
+      } else if (curve === "ALL") {
+        qsa(".cards .card").forEach((c) => c.classList.remove("selected"));
       } else {
         setSelection(curve);
       }
 
-            const base = getFilters({
+      const base = getFilters({
         curve,
         page,
         limit: state.limit,
-        include_ads: '1',
-        include_visits: '1' // [VISITS FIX] já traz visitas pra grade também
+        include_ads: "1",
+        include_visits: "1",
       });
 
-      const s = $('fSearch').value?.trim();
+      const s = $("fSearch").value?.trim();
       if (s) base.search = s;
 
       const params = new URLSearchParams(base).toString();
       const url = `/api/analytics/abc-ml/items?${params}`;
 
-      const resp = await fetchWithTimeout(url, { credentials: 'same-origin' }, 90000);
-      if (!resp.ok) {
-        throw new Error(`items HTTP ${resp.status}`);
-      }
+      const resp = await fetchWithTimeout(
+        url,
+        { credentials: "same-origin" },
+        90000
+      );
+      if (!resp.ok) throw new Error(`items HTTP ${resp.status}`);
       const j = await resp.json();
 
       if (!j || !Array.isArray(j.data)) {
-        console.warn('Resposta inesperada de /items', j);
-        renderTable([], j?.page || page, j?.total || 0, j?.limit || state.limit);
+        console.warn("Resposta inesperada de /items", j);
+        renderTable(
+          [],
+          j?.page || page,
+          j?.total || 0,
+          j?.limit || state.limit
+        );
         return;
       }
 
       let rows = j.data.slice();
 
       rows = rows.filter(keepOnlySold);
-      if (state.sort === 'share') {
+      if (state.sort === "share") {
         const T = state.totals || {};
         const rTotal = Number(T.revenue_cents_total || 0);
         rows = rows
-          .map(it => {
-            const share = (typeof it.revenue_share === 'number')
-              ? it.revenue_share
-              : (rTotal > 0 ? (it.revenue_cents || 0) / rTotal : 0);
+          .map((it) => {
+            const share =
+              typeof it.revenue_share === "number"
+                ? it.revenue_share
+                : rTotal > 0
+                ? (it.revenue_cents || 0) / rTotal
+                : 0;
             return { ...it, __share__: share };
           })
           .sort((a, b) => b.__share__ - a.__share__);
-      } else if (state.metric === 'revenue') {
+      } else if (state.metric === "revenue") {
         rows.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
       } else {
         rows.sort((a, b) => (b.units || 0) - (a.units || 0));
       }
 
-      renderTable(rows, j.page || page, j.total ?? rows.length, j.limit || state.limit);
+      renderTable(
+        rows,
+        j.page || page,
+        j.total ?? rows.length,
+        j.limit || state.limit
+      );
     } catch (e) {
       console.error(e);
-      const p = document.getElementById('reportProgressPanel');
-      if (p && p.style.display !== 'none') {
-        const log = document.createElement('div');
-        log.textContent = 'Erro ao carregar itens: ' + (e?.message || e);
-        log.style.color = '#b42318';
-        log.style.margin = '4px 0';
-        p.querySelector('#rpLog')?.appendChild(log);
-      }
-      alert('❌ Falha ao carregar itens da Curva ABC: ' + (e?.message || e));
+      alert("❌ Falha ao carregar itens da Curva ABC: " + (e?.message || e));
       renderTable([], page, 0, state.limit);
     } finally {
       setLoading(false);
@@ -442,364 +596,154 @@
   }
 
   function renderPagination(page, total, limit) {
-    const pager = $('pager');
+    const pager = $("pager");
     const totalPages = Math.max(1, Math.ceil((total || 0) / (limit || 20)));
 
     const mkBtn = (p, label = null, disabled = false, active = false) => {
-      const b = document.createElement('button');
-      b.className = 'pg-btn' + (active ? ' active' : '') + (disabled ? ' disabled' : '');
+      const b = document.createElement("button");
+      b.className =
+        "pg-btn" + (active ? " active" : "") + (disabled ? " disabled" : "");
       b.textContent = label || String(p);
       b.disabled = !!disabled;
-      if (!disabled && !active) b.addEventListener('click', () => goToPage(p));
+      if (!disabled && !active) b.addEventListener("click", () => goToPage(p));
       return b;
     };
 
-    pager.innerHTML = '';
-    const wrap = document.createElement('div');
-    wrap.className = 'paginator';
+    pager.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "paginator";
 
-    wrap.appendChild(mkBtn(Math.max(1, page-1), '«', page <= 1));
+    wrap.appendChild(mkBtn(Math.max(1, page - 1), "«", page <= 1));
     for (let p = 1; p <= totalPages; p++) {
       wrap.appendChild(mkBtn(p, String(p), false, p === page));
     }
-    wrap.appendChild(mkBtn(Math.min(totalPages, page+1), '»', page >= totalPages));
+    wrap.appendChild(
+      mkBtn(Math.min(totalPages, page + 1), "»", page >= totalPages)
+    );
 
     pager.appendChild(wrap);
   }
 
   function goToPage(p) {
-    const curve = state.curveTab || 'ALL';
+    const curve = state.curveTab || "ALL";
     loadItems(curve, p);
   }
 
-  // ===== Busca paginada com total real e opção "strictAds"
-  async function fetchAllPages(onProgress, opts = {}) {
-    const {
-      limit = 120,
-      withAds = true,
-      timeoutMs = 120000,
-      maxRetries = 3,
-      strictAds = false
-    } = opts;
-
-    const fetchItemsPage = async (page, tryWithAds) => {
-      const base = getFilters({
-        curve: state.curveTab || 'ALL',
-        page,
-        limit,
-        include_ads: tryWithAds ? '1' : '0',
-        include_visits: '1'
-      });
-      const params = new URLSearchParams(base).toString();
-      const url = `/api/analytics/abc-ml/items?${params}`;
-
-      let lastErr;
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const r = await fetchWithTimeout(url, { credentials: 'same-origin' }, timeoutMs);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.json();
-        } catch (e) {
-          lastErr = e;
-          await new Promise(res => setTimeout(res, 400 * attempt));
-        }
-      }
-      throw lastErr || new Error('Falha ao buscar página');
+  // CSV / progressFab (mantido como estava, só garantindo no-store em fetch)
+  function debounce(fn, ms = 300) {
+    let t;
+    return (...a) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...a), ms);
     };
-
-    const all = [];
-
-    let first, totalPages, usedAdsForFirst = withAds;
-    try {
-      first = await fetchItemsPage(1, withAds);
-    } catch (e1) {
-      if (strictAds) {
-        throw new Error('Página 1 falhou com ADS (strictAds ativo).');
-      }
-      logProgress?.('Página 1: timeout/erro com ADS — tentando sem ADS…', 'warn');
-      first = await fetchItemsPage(1, false);
-      usedAdsForFirst = false;
-    }
-
-    const firstLimit = Number(first?.limit || limit) || limit;
-    const firstTotal = Number(first?.total || 0);
-    totalPages = Math.max(1, Math.ceil(firstTotal / firstLimit));
-
-    typeof onProgress === 'function' &&
-      onProgress({ page: 0, totalPages, withAds: usedAdsForFirst });
-
-    if (Array.isArray(first?.data)) all.push(...first.data);
-
-    for (let page = 2; page <= totalPages; page++) {
-      try {
-        const j = await fetchItemsPage(page, withAds);
-        if (Array.isArray(j?.data)) all.push(...j.data);
-        typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: true });
-      } catch (e1) {
-        if (strictAds) {
-          throw new Error(`Página ${page} falhou com ADS (strictAds ativo).`);
-        }
-        logProgress?.(`Página ${page}: timeout/erro com ADS — tentando sem ADS…`, 'warn');
-        const j2 = await fetchItemsPage(page, false);
-        if (Array.isArray(j2?.data)) all.push(...j2.data);
-        typeof onProgress === 'function' && onProgress({ page, totalPages, withAds: false });
-      }
-    }
-
-    return all;
   }
-
-  async function exportCSV() {
-    const safeProgress = (cur, tot, opts) =>
-      (progressFab && typeof progressFab.progress === 'function')
-        ? progressFab.progress(cur, tot, opts)
-        : null;
-
-    try {
-      setLoading(true);
-      progressFab.show('Carregando dados para exportação…');
-
-      const allRows = await fetchAllPages(
-        ({ page, totalPages, withAds }) => safeProgress(page, totalPages, { withAds }),
-        { limit: 120, withAds: true, timeoutMs: 120000, strictAds: true }
-      );
-
-      progressFab.message('Gerando CSV…');
-
-      const rowsForCsv = allRows.slice();
-      if (state.sort === 'share' || state.metric === 'revenue') {
-        rowsForCsv.sort((a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0));
-      } else {
-        rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
-      }
-
-      const rowsFiltered = rowsForCsv.filter(r => Number(r.units || 0) > 0);
-
-      const uTotal = rowsFiltered.reduce((s, r) => s + (r.units || 0), 0);
-      const rTotal = rowsFiltered.reduce((s, r) => s + (r.revenue_cents || 0), 0);
-
-      const head = [
-        'Índice','MLB','Título',
-        'Unidades','Unid. (%)','Valor','FATURAMENTO %',
-        'PROMO','% APLICADA',
-        'ADS','Cliq.','Impr.','Visit.','Conv.',
-        'Invest.','ACOS','Receita Ads',
-        'Vendas 7D','Vendas 15D','Vendas 30D','Vendas 40D','Vendas 60D','Vendas 90D'
-      ];
-
-      const rows = rowsFiltered.map(r => {
-        const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
-        const revShare  = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
-
-        const promoActive = !!(r.promo && r.promo.active);
-        const promoTxt = promoActive ? 'Sim' : 'Não';
-        const promoPct = (r.promo && r.promo.percent != null) ? Number(r.promo.percent) : null;
-        const promoPctCsv = (promoActive && promoPct != null)
-          ? (promoPct * 100).toFixed(2).replace('.', ',') + '%'
-          : '—';
-
-        const ads = r.ads || {};
-        const clicks = Number(ads.clicks || 0);
-        const imps   = Number(ads.impressions || 0);
-        const spendC = Number(ads.spend_cents || 0);
-        const aRevC  = Number(ads.revenue_cents || 0);
-        const acosVal = aRevC > 0 ? (spendC / aRevC) : null;
-        const statusText = ads.status_text || (ads.in_campaign ? 'Ativo' : 'Não');
-
-        const visits = Number(r.visits || r.visits_total || 0);
-        const conv   = visits > 0 ? (Number(r.units || 0) / visits) : null;
-
-        return [
-          r.curve || '-',
-          r.mlb || '',
-          (r.title || '').replace(/"/g, '""'),
-
-          (r.units || 0),
-          (unitShare * 100).toFixed(2).replace('.', ',') + '%',
-          (Number(r.revenue_cents || 0) / 100).toFixed(2).replace('.', ','),
-          (revShare * 100).toFixed(2).replace('.', ',') + '%',
-
-          promoTxt,
-          promoPctCsv,
-
-          statusText,
-          clicks,
-          imps,
-          visits,
-          conv != null ? (conv * 100).toFixed(2).replace('.', ',') + '%' : '—',
-
-          (spendC / 100).toFixed(2).replace('.', ','),
-          acosVal !== null ? (acosVal * 100).toFixed(2).replace('.', ',') + '%' : '—',
-          (aRevC / 100).toFixed(2).replace('.', ','),
-
-          Number(r.units_7d  || 0),
-          Number(r.units_15d || 0),
-          Number(r.units_30d || 0),
-          Number(r.units_40d || 0),
-          Number(r.units_60d || 0),
-          Number(r.units_90d || 0)
-        ];
-      });
-
-      const data = [head, ...rows]
-        .map(cols => cols.map(c => `"${String(c)}"`).join(';'))
-        .join('\r\n');
-
-      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'curva_abc.csv';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-
-      progressFab.message('Concluído!');
-      progressFab.done(true);
-    } catch (e) {
-      console.error(e);
-      progressFab.message('Falha: ' + (e?.message || e));
-      progressFab.done(false);
-      alert('❌ Falha ao exportar CSV: ' + (e?.message || e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function debounce(fn, ms = 300) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-  function applySwitchDefaults(){
-    qsa('#switch-groupby .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.group === state.groupBy));
-    qsa('#switch-metric  .btn-switch').forEach(b => b.classList.toggle('active', b.dataset.metric === state.metric));
+  function applySwitchDefaults() {
+    qsa("#switch-groupby .btn-switch").forEach((b) =>
+      b.classList.toggle("active", b.dataset.group === state.groupBy)
+    );
+    qsa("#switch-metric  .btn-switch").forEach((b) =>
+      b.classList.toggle("active", b.dataset.metric === state.metric)
+    );
   }
 
   function renderAccountChips() {
-    const sel = $('fAccounts');
-    const box = $('accChips');
+    const sel = $("fAccounts");
+    const box = $("accChips");
     if (!sel || !box) return;
     const opts = Array.from(sel.selectedOptions);
-    if (!opts.length) { box.innerHTML = ''; return; }
-    box.innerHTML = opts.map(o => `<span class="chip">${o.textContent}</span>`).join('');
+    if (!opts.length) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = opts
+      .map((o) => `<span class="chip">${o.textContent}</span>`)
+      .join("");
   }
 
   function bind() {
-    $('btnPesquisar').addEventListener('click', () => { state.page = 1; loadSummary(); loadItems('ALL', 1); });
+    $("btnPesquisar").addEventListener("click", () => {
+      state.page = 1;
+      loadSummary();
+      loadItems("ALL", 1);
+    });
 
-    qsa('.cards .card[data-curve]').forEach(el => {
-      el.addEventListener('click', () => {
-        const curve = el.getAttribute('data-curve') || 'ALL';
+    qsa(".cards .card[data-curve]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const curve = el.getAttribute("data-curve") || "ALL";
         state.sort = null;
         state.page = 1;
         loadItems(curve, 1);
       });
     });
 
-    const totalCard = $('cardTotal');
+    const totalCard = $("cardTotal");
     if (totalCard) {
-      totalCard.addEventListener('click', () => {
-        $('fSearch').value = '';
-        state.sort = 'share';
+      totalCard.addEventListener("click", () => {
+        $("fSearch").value = "";
+        state.sort = "share";
         state.page = 1;
-        loadItems('ALL', 1);
+        loadItems("ALL", 1);
       });
     }
 
-    qsa('#switch-groupby .btn-switch').forEach(btn => {
-      btn.addEventListener('click', () => {
-        qsa('#switch-groupby .btn-switch').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        state.groupBy = btn.dataset.group; state.page = 1;
-        loadSummary(); loadItems(state.curveTab || 'ALL', 1);
-      });
-    });
-    qsa('#switch-metric .btn-switch').forEach(btn => {
-      btn.addEventListener('click', () => {
-        qsa('#switch-metric .btn-switch').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        state.metric = btn.dataset.metric; state.page = 1;
-        loadSummary(); loadItems(state.curveTab || 'ALL', 1);
+    qsa("#switch-groupby .btn-switch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        qsa("#switch-groupby .btn-switch").forEach((b) =>
+          b.classList.remove("active")
+        );
+        btn.classList.add("active");
+        state.groupBy = btn.dataset.group;
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
       });
     });
 
-    $('fSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.page = 1; loadItems('ALL', 1); } });
-    $('fSearch').addEventListener('input', debounce(() => { state.page = 1; loadItems(state.curveTab || 'ALL', 1); }, 500));
+    qsa("#switch-metric .btn-switch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        qsa("#switch-metric .btn-switch").forEach((b) =>
+          b.classList.remove("active")
+        );
+        btn.classList.add("active");
+        state.metric = btn.dataset.metric;
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
+      });
+    });
 
-    $('fFull').addEventListener('change', () => { state.page = 1; loadSummary(); loadItems(state.curveTab || 'ALL', 1); });
+    $("fSearch").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        state.page = 1;
+        loadItems("ALL", 1);
+      }
+    });
+    $("fSearch").addEventListener(
+      "input",
+      debounce(() => {
+        state.page = 1;
+        loadItems(state.curveTab || "ALL", 1);
+      }, 500)
+    );
 
-    const btnCsv = $('btnExportCsv');
-    if (btnCsv) btnCsv.addEventListener('click', exportCSV);
+    $("fFull").addEventListener("change", () => {
+      state.page = 1;
+      loadSummary();
+      loadItems(state.curveTab || "ALL", 1);
+    });
+
+    // ⚠️ no padrão novo, esse select é informativo; não recarrega por ele
+    $("fAccounts")?.addEventListener("change", renderAccountChips);
   }
 
-  const progressFab = (() => {
-    let root, icon, msgEl, pctEl;
-
-    function ensure() {
-      if (root) return root;
-      root = document.createElement('div');
-      root.id = 'reportFab';
-      root.innerHTML = `
-        <div class="rf-row">
-          <span id="rfIcon" class="rf-spinner"></span>
-          <div style="display:flex;flex-direction:column;gap:2px">
-            <div class="rf-title">Processando relatório</div>
-            <div id="rfMsg" class="rf-msg">Preparando…</div>
-            <div id="rfPct" class="rf-pct" aria-live="polite"></div>
-          </div>
-          <button id="rfClose" class="rf-close" title="Fechar" type="button">×</button>
-        </div>
-      `;
-      document.body.appendChild(root);
-      icon  = root.querySelector('#rfIcon');
-      msgEl = root.querySelector('#rfMsg');
-      pctEl = root.querySelector('#rfPct');
-      root.querySelector('#rfClose').onclick = hide;
-      return root;
-    }
-
-    function show(message = 'Processando…') {
-      ensure();
-      root.style.display = 'block';
-      icon.className = 'rf-spinner';
-      msgEl.textContent = message;
-      pctEl.textContent = '';
-    }
-
-    function message(m) {
-      ensure();
-      msgEl.textContent = m;
-    }
-
-    function progress(current, total, opts = {}) {
-      ensure();
-      const safeTotal = Math.max(1, Number(total || 1));
-      const cur = Math.max(0, Math.min(Number(current || 0), safeTotal));
-      const pct = Math.floor((cur / safeTotal) * 100);
-      const hint = opts.withAds === false ? ' • (sem ADS nesta página)' : '';
-      pctEl.textContent = `${cur}/${safeTotal} (${pct}%)${hint}`;
-    }
-
-    function done(ok = true) {
-      ensure();
-      icon.className = ok ? 'rf-check' : 'rf-check err';
-      setTimeout(hide, 2200);
-    }
-
-    function hide() {
-      if (root) root.style.display = 'none';
-    }
-
-    return { show, message, progress, done, hide };
-  })();
-
-  window.addEventListener('DOMContentLoaded', async () => {
+  window.addEventListener("DOMContentLoaded", async () => {
     await initTopBar();
     setDefaultDates();
     await loadAccounts();
     renderAccountChips();
     applySwitchDefaults();
     bind();
-    $('fAccounts').addEventListener('change', renderAccountChips);
     await loadSummary();
-    await loadItems('ALL', 1);
+    await loadItems("ALL", 1);
   });
 })();

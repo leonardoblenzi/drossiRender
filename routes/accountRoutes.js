@@ -16,7 +16,9 @@ const COOKIE_OAUTH = "meli_conta_id";
 // Helpers: role
 // ===============================
 function normalizeNivel(n) {
-  return String(n || "").trim().toLowerCase();
+  return String(n || "")
+    .trim()
+    .toLowerCase();
 }
 function isMaster(req) {
   return (
@@ -42,7 +44,8 @@ async function getEmpresaDoUsuario(client, usuarioId) {
 
 /** Cookie options */
 function cookieOptions() {
-  const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  const isProd =
+    String(process.env.NODE_ENV || "").toLowerCase() === "production";
   return {
     httpOnly: true,
     sameSite: "lax",
@@ -67,7 +70,8 @@ function buildCurrentPayload(cur) {
 
   // OAuth-only
   const key = String(cur.id);
-  const label = String(cur.label || "").trim() || `Conta ${cur.meli_user_id || key}`;
+  const label =
+    String(cur.label || "").trim() || `Conta ${cur.meli_user_id || key}`;
 
   return {
     ok: true,
@@ -78,6 +82,118 @@ function buildCurrentPayload(cur) {
     label,
   };
 }
+
+// ===============================
+// ✅ NOVO: GET /api/account/list
+// ===============================
+/**
+ * GET /api/account/list
+ * Lista contas disponíveis (OAuth only).
+ * - Usuário comum: lista contas da sua empresa
+ * - Master: lista global (com empresa no label) — útil para debug/admin
+ *
+ * Retorna formato compat com seu front:
+ * { ok:true, success:true, oauth:[...], legacy:[], current, accountType, accountKey, label }
+ */
+router.get("/list", async (req, res) => {
+  try {
+    const uid = Number(req.user?.uid);
+    if (!Number.isFinite(uid)) {
+      return res.status(401).json({ ok: false, error: "Não autenticado." });
+    }
+
+    const master = isMaster(req);
+
+    const oauthId = req.cookies?.[COOKIE_OAUTH]
+      ? Number(req.cookies[COOKIE_OAUTH])
+      : null;
+    const cookieHasValidId = Number.isFinite(oauthId) && oauthId > 0;
+
+    const data = await db.withClient(async (client) => {
+      if (master) {
+        const r = await client.query(
+          `select mc.id,
+                  mc.empresa_id,
+                  e.nome as empresa_nome,
+                  mc.apelido,
+                  mc.meli_user_id,
+                  mc.status,
+                  mc.site_id,
+                  (mt.meli_conta_id is not null) as has_tokens
+             from meli_contas mc
+             join empresas e on e.id = mc.empresa_id
+        left join meli_tokens mt on mt.meli_conta_id = mc.id
+         order by e.nome asc, mc.id asc`
+        );
+
+        return { empresa: null, contas: r.rows || [] };
+      }
+
+      const emp = await getEmpresaDoUsuario(client, uid);
+      if (!emp) return { empresa: null, contas: [] };
+
+      const r = await client.query(
+        `select mc.id,
+                mc.empresa_id,
+                $1::text as empresa_nome,
+                mc.apelido,
+                mc.meli_user_id,
+                mc.status,
+                mc.site_id,
+                (mt.meli_conta_id is not null) as has_tokens
+           from meli_contas mc
+      left join meli_tokens mt on mt.meli_conta_id = mc.id
+          where mc.empresa_id = $2
+          order by mc.id asc`,
+        [emp.empresa_nome || null, emp.empresa_id]
+      );
+
+      return { empresa: emp, contas: r.rows || [] };
+    });
+
+    const oauth = (data.contas || []).map((c) => {
+      const baseLabel = c.apelido || `Conta ${c.meli_user_id || c.id}`;
+      const label =
+        master && c.empresa_nome
+          ? `${c.empresa_nome} • ${baseLabel}`
+          : baseLabel;
+
+      return {
+        type: "oauth",
+        id: c.id,
+        label,
+        empresa_id: c.empresa_id,
+        empresa_nome: c.empresa_nome || null,
+        meli_user_id: c.meli_user_id,
+        status: c.status,
+        site_id: c.site_id,
+        has_tokens: !!c.has_tokens,
+      };
+    });
+
+    // valida current contra a lista (evita cookie apontando pra conta que não pode)
+    let current = null;
+    if (cookieHasValidId) {
+      current = oauth.find((x) => Number(x.id) === Number(oauthId)) || null;
+      if (!current) {
+        res.clearCookie(COOKIE_OAUTH, { path: "/" });
+      }
+    }
+
+    const payloadCurrent = buildCurrentPayload(current);
+
+    return res.json({
+      ok: true,
+      success: true,
+      oauth,
+      legacy: [], // (compat) você disse OAuth-only aqui
+      ...payloadCurrent,
+    });
+  } catch (err) {
+    console.error("GET /api/account/list erro:", err);
+    return res.status(500).json({ ok: false, error: "Erro ao listar contas" });
+  }
+});
 
 /**
  * GET /api/account/current
@@ -94,7 +210,9 @@ router.get("/current", async (req, res) => {
 
     const master = isMaster(req);
 
-    const oauthId = req.cookies?.[COOKIE_OAUTH] ? Number(req.cookies[COOKIE_OAUTH]) : null;
+    const oauthId = req.cookies?.[COOKIE_OAUTH]
+      ? Number(req.cookies[COOKIE_OAUTH])
+      : null;
     if (!Number.isFinite(oauthId) || oauthId <= 0) {
       return res.json(buildCurrentPayload(null));
     }
@@ -146,7 +264,10 @@ router.get("/current", async (req, res) => {
     const baseLabel = info.apelido || `Conta ${info.meli_user_id}`;
 
     // ✅ Master mostra empresa no label (ajuda muito)
-    const label = master && info.empresa_nome ? `${info.empresa_nome} • ${baseLabel}` : baseLabel;
+    const label =
+      master && info.empresa_nome
+        ? `${info.empresa_nome} • ${baseLabel}`
+        : baseLabel;
 
     return res.json(
       buildCurrentPayload({
@@ -162,7 +283,9 @@ router.get("/current", async (req, res) => {
     );
   } catch (err) {
     console.error("GET /api/account/current erro:", err);
-    return res.status(500).json({ ok: false, error: "Erro ao obter conta atual" });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Erro ao obter conta atual" });
   }
 });
 
@@ -191,7 +314,9 @@ router.post("/select", express.json({ limit: "100kb" }), async (req, res) => {
     const meliContaId = Number(req.body?.meliContaId);
 
     if (!Number.isFinite(meliContaId) || meliContaId <= 0) {
-      return res.status(400).json({ ok: false, error: "meliContaId inválido." });
+      return res
+        .status(400)
+        .json({ ok: false, error: "meliContaId inválido." });
     }
 
     const selected = await db.withClient(async (client) => {
@@ -221,14 +346,18 @@ router.post("/select", express.json({ limit: "100kb" }), async (req, res) => {
     });
 
     if (!selected) {
-      return res.status(404).json({ ok: false, error: "Conta não encontrada (ou não permitida)." });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Conta não encontrada (ou não permitida)." });
     }
 
     res.cookie(COOKIE_OAUTH, String(selected.id), cookieOptions());
 
     const baseLabel = selected.apelido || `Conta ${selected.meli_user_id}`;
     const label =
-      master && selected.empresa_nome ? `${selected.empresa_nome} • ${baseLabel}` : baseLabel;
+      master && selected.empresa_nome
+        ? `${selected.empresa_nome} • ${baseLabel}`
+        : baseLabel;
 
     return res.json(
       buildCurrentPayload({
@@ -244,7 +373,9 @@ router.post("/select", express.json({ limit: "100kb" }), async (req, res) => {
     );
   } catch (err) {
     console.error("POST /api/account/select erro:", err);
-    return res.status(500).json({ ok: false, error: "Erro ao selecionar conta" });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Erro ao selecionar conta" });
   }
 });
 

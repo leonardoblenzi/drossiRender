@@ -104,13 +104,17 @@
   }
 
   function sanitize(str) {
-    return String(str ?? "").replace(/[<>&'"]/g, (c) => ({
-      "<": "&lt;",
-      ">": "&gt;",
-      "&": "&amp;",
-      '"': "&quot;",
-      "'": "&#39;",
-    }[c]));
+    return String(str ?? "").replace(
+      /[<>&'"]/g,
+      (c) =>
+        ({
+          "<": "&lt;",
+          ">": "&gt;",
+          "&": "&amp;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[c])
+    );
   }
 
   function debounce(fn, ms = 220) {
@@ -199,7 +203,11 @@
     // Seu /api/auth/me retorna { ok, logged, user, flags:{is_master,...} }
     if (meData?.flags?.is_master === true) return true;
     const nivel = meData?.user?.nivel;
-    return String(nivel || "").trim().toLowerCase() === "admin_master";
+    return (
+      String(nivel || "")
+        .trim()
+        .toLowerCase() === "admin_master"
+    );
   }
 
   async function loadMe() {
@@ -350,8 +358,7 @@
         "background: rgba(255,90,90,.12); color:#ff5a5a; border-color: rgba(255,90,90,.25);"
       );
     return (
-      base +
-      "background: rgba(255,255,255,.06); color: rgba(255,255,255,.85);"
+      base + "background: rgba(255,255,255,.06); color: rgba(255,255,255,.85);"
     );
   }
 
@@ -383,9 +390,16 @@
 
     let expBadge = `<span style="${badgeStyle("muted")}">⏳ Expira: —</span>`;
     if (mins !== null) {
-      if (mins < 0) expBadge = `<span style="${badgeStyle("err")}">⏳ Expirado</span>`;
-      else if (mins <= 10) expBadge = `<span style="${badgeStyle("warn")}">⚠️ Expira em ${mins} min</span>`;
-      else expBadge = `<span style="${badgeStyle("muted")}">⏳ Expira em ${mins} min</span>`;
+      if (mins < 0)
+        expBadge = `<span style="${badgeStyle("err")}">⏳ Expirado</span>`;
+      else if (mins <= 10)
+        expBadge = `<span style="${badgeStyle(
+          "warn"
+        )}">⚠️ Expira em ${mins} min</span>`;
+      else
+        expBadge = `<span style="${badgeStyle(
+          "muted"
+        )}">⏳ Expira em ${mins} min</span>`;
     }
 
     return `
@@ -423,7 +437,8 @@
     if (elCurrent) {
       if (currentId) {
         const cur = contas.find((c) => Number(c.id) === Number(currentId));
-        if (cur) elCurrent.textContent = cur.apelido || `Conta ${cur.meli_user_id}`;
+        if (cur)
+          elCurrent.textContent = cur.apelido || `Conta ${cur.meli_user_id}`;
         else elCurrent.textContent = "Não selecionada";
       } else {
         elCurrent.textContent = "Selecione uma conta";
@@ -437,7 +452,8 @@
         const title = sanitize(c.apelido || `Conta ${c.meli_user_id}`);
 
         const empresa = sanitize(c.empresa_nome || "");
-        const empresaLine = state.isMaster && empresa ? `Empresa: ${empresa}<br>` : "";
+        const empresaLine =
+          state.isMaster && empresa ? `Empresa: ${empresa}<br>` : "";
 
         const sub = [
           `${empresaLine}ML User ID: ${sanitize(c.meli_user_id)}`,
@@ -460,7 +476,11 @@
             ${badges}
 
             <span style="display:block; margin-top:10px; font-size:.9rem; opacity:.9;">
-              ${isCurrent ? "✅ Selecionada nesta sessão" : "👉 Clique para usar esta conta"}
+              ${
+                isCurrent
+                  ? "✅ Selecionada nesta sessão"
+                  : "👉 Clique para usar esta conta"
+              }
             </span>
           </button>
         `;
@@ -529,7 +549,8 @@
 
       const { r, data } = await fetchJson(buildContasUrl());
       if (!r.ok || !data || data.ok !== true) {
-        const msg = data?.error || `Falha ao carregar contas (HTTP ${r.status}).`;
+        const msg =
+          data?.error || `Falha ao carregar contas (HTTP ${r.status}).`;
         throw new Error(msg);
       }
 
@@ -541,7 +562,8 @@
         state.totalPages = Number(data.totalPages || 1) || 1;
 
         if (Number.isFinite(Number(data.page))) state.page = Number(data.page);
-        if (Number.isFinite(Number(data.pageSize))) state.pageSize = Number(data.pageSize);
+        if (Number.isFinite(Number(data.pageSize)))
+          state.pageSize = Number(data.pageSize);
       } else {
         state.total = state.contas.length;
         state.totalPages = 1;
@@ -554,6 +576,25 @@
       showAlert(`Erro ao carregar contas: ${e.message}`, "err");
       elList.innerHTML = `<div class="hint" style="padding:14px;">Falha ao carregar contas.</div>`;
     }
+  }
+
+  // ✅ NOVO: valida seleção sem depender de /api/meli/current (que pode exigir token ML)
+  async function validarSelecaoSemTokenML(expectedId) {
+    // /api/meli/contas costuma estar em SKIP no authMiddleware => sempre JSON
+    const { r, data } = await fetchJson("/api/meli/contas");
+    if (!r.ok || !data || data.ok !== true) {
+      throw new Error(`Não foi possível validar seleção (HTTP ${r.status}).`);
+    }
+    const cur = Number(data.current_meli_conta_id || 0);
+    if (!Number.isFinite(cur) || cur <= 0) {
+      throw new Error("Validação retornou current_meli_conta_id vazio.");
+    }
+    if (Number(cur) !== Number(expectedId)) {
+      throw new Error(
+        `Conta atual (${cur}) diferente da selecionada (${expectedId}).`
+      );
+    }
+    return true;
   }
 
   async function selecionarContaOAuth(meli_conta_id) {
@@ -569,16 +610,18 @@
         throw new Error(msg);
       }
 
-      // ✅ Confere rapidamente se a seleção ficou válida (ajuda MUITO no caso master)
+      // ✅ Atualiza estado local imediatamente (melhora UX)
+      state.currentId = meli_conta_id;
+      render();
+
+      // ✅ Valida via /api/meli/contas (não depende de token ML)
       try {
-        const chk = await fetchJson("/api/meli/current");
-        if (chk?.r?.ok && chk?.data?.ok === true && chk?.data?.selected !== true) {
-          throw new Error("Conta não ficou selecionada (current.selected=false).");
-        }
+        await validarSelecaoSemTokenML(meli_conta_id);
       } catch (e) {
-        // se falhar, não redireciona cego
-        showAlert(`Conta selecionada, mas falhou ao validar sessão: ${e.message}`, "warn");
-        // ainda assim tenta seguir, porque alguns setups bloqueiam /api/meli/current sem conta
+        showAlert(
+          `Conta selecionada, mas não consegui validar sessão: ${e.message}`,
+          "warn"
+        );
       }
 
       // ✅ segue para o app
@@ -621,7 +664,10 @@
 
   btnSair?.addEventListener("click", async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
     } catch {}
     window.location.href = "/login";
   });
