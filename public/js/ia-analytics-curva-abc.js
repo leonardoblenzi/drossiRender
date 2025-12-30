@@ -1,5 +1,8 @@
 // public/js/ia-analytics-curva-abc.js
-// UI da página Curva ABC (tempo real via API do ML)
+// UI da página Curva ABC (tempo real via API do ML) — NOVO PADRÃO (cookie meli_conta_id)
+// ✅ não manda accounts no querystring
+// ✅ export CSV funcionando (btnExportCsv)
+// ✅ inclui fetchAllPages + progressFab (não depende de libs externas)
 
 (() => {
   console.log("🚀 Curva ABC • ML tempo real");
@@ -20,13 +23,8 @@
       maximumFractionDigits: 2,
     })}%`;
 
-  const asArray = (sel) =>
-    Array.from(sel?.selectedOptions || [])
-      .map((o) => o.value)
-      .filter(Boolean);
-
   // =========================================================
-  // PROGRESS UI (barra lateral) - opcional (mantido)
+  // PROGRESS UI (barra lateral)
   // =========================================================
   function ensureProgressPanel() {
     let panel = $("reportProgressPanel");
@@ -56,7 +54,7 @@
     document.body.appendChild(panel);
     panel
       .querySelector("#rpClose")
-      ?.addEventListener("click", () => hideProgress());
+      .addEventListener("click", () => hideProgress());
     return panel;
   }
 
@@ -133,9 +131,6 @@
     return `<span class="ads-badge ${cls}" title="${hint}"><span class="dot"></span>${statusText}</span>`;
   }
 
-  // =========================================================
-  // Estado
-  // =========================================================
   const state = {
     curveTab: "ALL",
     loading: false,
@@ -154,7 +149,92 @@
   };
 
   // =========================================================
-  // Topbar
+  // Progress FAB (para exportação)
+  // =========================================================
+  const progressFab = (() => {
+    let el = null;
+
+    function ensure() {
+      if (el) return el;
+
+      el = document.createElement("div");
+      el.id = "progressFab";
+      el.style.cssText = `
+        position: fixed; right: 18px; bottom: 18px; z-index: 10001;
+        width: 360px; max-width: calc(100vw - 36px);
+        background: #fff; border: 1px solid #eee; border-radius: 14px;
+        box-shadow: 0 14px 40px rgba(0,0,0,.14);
+        overflow: hidden; display: none;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      `;
+
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #f1f1f1">
+          <div style="font-weight:700">Exportação</div>
+          <button type="button" id="pfClose" style="border:none;background:#f6f6f6;border-radius:10px;padding:6px 10px;cursor:pointer">Fechar</button>
+        </div>
+        <div style="padding:12px 14px">
+          <div id="pfMsg" style="font-size:13px;color:#555">Preparando…</div>
+          <div style="height:10px;background:#f3f3f3;border-radius:999px;margin:10px 0 6px 0;overflow:hidden">
+            <div id="pfBar" style="height:100%;width:0;background:#16a34a;transition:width .2s ease"></div>
+          </div>
+          <div id="pfPct" style="font-size:12px;color:#666">0%</div>
+          <div id="pfMeta" style="margin-top:8px;font-size:12px;color:#666"></div>
+        </div>
+      `;
+      document.body.appendChild(el);
+
+      el.querySelector("#pfClose").addEventListener("click", () => {
+        el.style.display = "none";
+      });
+
+      return el;
+    }
+
+    function show(msg = "Preparando…") {
+      const p = ensure();
+      p.style.display = "block";
+      p.querySelector("#pfMsg").textContent = msg;
+      p.querySelector("#pfBar").style.width = "0%";
+      p.querySelector("#pfPct").textContent = "0%";
+      p.querySelector("#pfMeta").textContent = "";
+    }
+
+    function message(msg) {
+      const p = ensure();
+      p.querySelector("#pfMsg").textContent = msg;
+    }
+
+    function progress(cur, total, opts = {}) {
+      const p = ensure();
+      const pct = total > 0 ? Math.round((cur / total) * 100) : 0;
+      p.querySelector("#pfBar").style.width = `${Math.max(
+        0,
+        Math.min(100, pct)
+      )}%`;
+      p.querySelector("#pfPct").textContent = `${Math.max(
+        0,
+        Math.min(100, pct)
+      )}%`;
+      const metaBits = [];
+      if (opts.withAds) metaBits.push("Ads: ON");
+      if (opts.withVisits) metaBits.push("Visits: ON");
+      if (opts.limit) metaBits.push(`limit=${opts.limit}`);
+      p.querySelector("#pfMeta").textContent = metaBits.join(" • ");
+    }
+
+    function done(ok) {
+      const p = ensure();
+      p.querySelector("#pfBar").style.width = "100%";
+      p.querySelector("#pfPct").textContent = "100%";
+      p.querySelector("#pfMsg").textContent = ok ? "Concluído ✅" : "Falhou ❌";
+    }
+
+    return { show, message, progress, done };
+  })();
+
+  // =========================================================
+  // Topbar / Account
   // =========================================================
   async function initTopBar() {
     try {
@@ -163,12 +243,8 @@
         cache: "no-store",
         headers: { Accept: "application/json" },
       });
-
       const j = await r.json().catch(() => null);
-
-      // ✅ guarda a conta atual no state (ajuda no fallback do getFilters)
       state.accountKey = j?.accountKey || j?.current?.id || null;
-
       const shown = j?.label || j?.accountKey || j?.current?.label || "—";
       const el = $("account-current");
       if (el) el.textContent = shown;
@@ -183,7 +259,6 @@
           await fetch("/api/account/clear", {
             method: "POST",
             credentials: "include",
-            cache: "no-store",
           });
         } catch {}
         location.href = "/select-conta";
@@ -215,16 +290,16 @@
     const to = new Date();
     const from = new Date(to);
     from.setDate(to.getDate() - 29);
-    const a = $("fDateFrom");
-    const b = $("fDateTo");
-    if (a) a.value = from.toISOString().slice(0, 10);
-    if (b) b.value = to.toISOString().slice(0, 10);
+    const f1 = $("fDateFrom");
+    const f2 = $("fDateTo");
+    if (f1) f1.value = from.toISOString().slice(0, 10);
+    if (f2) f2.value = to.toISOString().slice(0, 10);
   }
 
   /**
-   * ✅ NOVO PADRÃO (OAuth):
-   * - a conta ativa é o cookie httpOnly (meli_conta_id)
-   * - select vira "informativo"
+   * ✅ Novo padrão:
+   * - conta ativa é cookie httpOnly (meli_conta_id)
+   * - este select vira apenas informativo (compat)
    */
   async function loadAccounts() {
     const sel = $("fAccounts");
@@ -235,7 +310,6 @@
     const r = await fetch("/api/account/current", {
       credentials: "include",
       cache: "no-store",
-      headers: { Accept: "application/json" },
     });
 
     if (!r.ok) {
@@ -252,7 +326,6 @@
       return;
     }
 
-    // 1 opção por sessão
     const op = document.createElement("option");
     op.value = String(key);
     op.textContent = String(label || `Conta ${key}`);
@@ -260,35 +333,30 @@
     sel.appendChild(op);
   }
 
-  /**
-   * ✅ IMPORTANTE:
-   * Mesmo em OAuth, seu backend pode exigir `accounts` -> então sempre enviamos,
-   * preenchendo com o select OU com state.accountKey como fallback.
-   */
+  // =========================================================
+  // Filters (✅ sem accounts)
+  // =========================================================
   function getFilters(extra = {}) {
     const base = {
-      date_from: $("fDateFrom")?.value || "",
-      date_to: $("fDateTo")?.value || "",
+      date_from: $("fDateFrom")?.value,
+      date_to: $("fDateTo")?.value,
       full: $("fFull")?.value || "all",
       metric: state.metric,
       group_by: state.groupBy,
       a_cut: state.aCut,
       b_cut: state.bCut,
-      min_units: 1,
+      min_units: state.minUnits,
       limit: state.limit,
       page: state.page,
     };
 
-    // ✅ Só manda accounts se tiver algo selecionado
-    const sel = $("fAccounts");
-    const selected = sel ? asArray(sel).join(",") : "";
-    if (selected) base.accounts = selected;
-
     if (state.sort) base.sort = state.sort;
-
     return Object.assign(base, extra);
   }
 
+  // =========================================================
+  // Loading overlay
+  // =========================================================
   function setLoading(on) {
     state.loading = on;
     let overlay = qs("#abcLoading");
@@ -311,7 +379,7 @@
   }
 
   // =========================================================
-  // Render: Cards e listas
+  // Cards / UI
   // =========================================================
   function renderMiniCards() {
     const cc = state.curveCards || {};
@@ -329,17 +397,11 @@
       );
       const rShare = Number(data.revenue_share ?? data.share ?? 0);
 
-      const a = $(`k${pref}_units`);
-      const b = $(`k${pref}_value`);
-      const c = $(`k${pref}_items`);
-      const d = $(`k${pref}_ticket`);
-      const e = $(`k${pref}_share`);
-
-      if (a) a.textContent = units.toLocaleString("pt-BR");
-      if (b) b.textContent = fmtMoneyCents(revCts);
-      if (c) c.textContent = items.toLocaleString("pt-BR");
-      if (d) d.textContent = fmtMoneyCents(ticket);
-      if (e) e.textContent = fmtPct(rShare);
+      $(`k${pref}_units`).textContent = units.toLocaleString("pt-BR");
+      $(`k${pref}_value`).textContent = fmtMoneyCents(revCts);
+      $(`k${pref}_items`).textContent = items.toLocaleString("pt-BR");
+      $(`k${pref}_ticket`).textContent = fmtMoneyCents(ticket);
+      $(`k${pref}_share`).textContent = fmtPct(rShare);
     };
 
     fill("A", cc.A);
@@ -348,18 +410,14 @@
 
     const tUnits = Number(T.units_total || 0);
     const tRev = Number(T.revenue_cents_total || 0);
-
-    if ($("kT_units"))
-      $("kT_units").textContent = tUnits.toLocaleString("pt-BR");
-    if ($("kT_value")) $("kT_value").textContent = fmtMoneyCents(tRev);
-    if ($("kT_items"))
-      $("kT_items").textContent = Number(T.items_total || 0).toLocaleString(
-        "pt-BR"
-      );
-    if ($("kT_ticket"))
-      $("kT_ticket").textContent = fmtMoneyCents(
-        tUnits > 0 ? Math.round(tRev / tUnits) : 0
-      );
+    $("kT_units").textContent = tUnits.toLocaleString("pt-BR");
+    $("kT_value").textContent = fmtMoneyCents(tRev);
+    $("kT_items").textContent = Number(T.items_total || 0).toLocaleString(
+      "pt-BR"
+    );
+    $("kT_ticket").textContent = fmtMoneyCents(
+      tUnits > 0 ? Math.round(tRev / tUnits) : 0
+    );
   }
 
   function renderCardsMeta(curves) {
@@ -367,17 +425,19 @@
     const A = safe(curves?.A),
       B = safe(curves?.B),
       C = safe(curves?.C);
-
-    if ($("cardAmeta"))
-      $("cardAmeta").textContent = `${(A.share * 100).toFixed(1)}% • ${
+    const aEl = $("cardAmeta");
+    const bEl = $("cardBmeta");
+    const cEl = $("cardCmeta");
+    if (aEl)
+      aEl.textContent = `${(A.share * 100).toFixed(1)}% • ${
         A.count_items
       } itens`;
-    if ($("cardBmeta"))
-      $("cardBmeta").textContent = `${(B.share * 100).toFixed(1)}% • ${
+    if (bEl)
+      bEl.textContent = `${(B.share * 100).toFixed(1)}% • ${
         B.count_items
       } itens`;
-    if ($("cardCmeta"))
-      $("cardCmeta").textContent = `${(C.share * 100).toFixed(1)}% • ${
+    if (cEl)
+      cEl.textContent = `${(C.share * 100).toFixed(1)}% • ${
         C.count_items
       } itens`;
   }
@@ -399,7 +459,7 @@
   }
 
   // =========================================================
-  // Load Summary
+  // API calls
   // =========================================================
   async function loadSummary() {
     setLoading(true);
@@ -409,7 +469,12 @@
         credentials: "same-origin",
         cache: "no-store",
       });
-      if (!r.ok) throw new Error(`summary HTTP ${r.status}`);
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        throw new Error(
+          `summary HTTP ${r.status} ${t ? "• " + t.slice(0, 180) : ""}`
+        );
+      }
       const j = await r.json();
 
       state.totals = j.totals || null;
@@ -422,7 +487,7 @@
       fillUL("listC", j.top5?.C);
     } catch (e) {
       console.error(e);
-      alert("❌ Falha ao carregar resumo da Curva ABC.");
+      alert("❌ Falha ao carregar resumo da Curva ABC.\n" + (e?.message || e));
     } finally {
       setLoading(false);
     }
@@ -439,9 +504,6 @@
     }
   }
 
-  // =========================================================
-  // Grid
-  // =========================================================
   function renderTable(rows, page, total, limit) {
     state.lastItems = Array.isArray(rows) ? rows : [];
     state.page = page;
@@ -465,6 +527,7 @@
             : uTotal > 0
             ? (r.units || 0) / uTotal
             : 0;
+
         const revShare =
           typeof r.revenue_share === "number"
             ? r.revenue_share
@@ -492,6 +555,9 @@
           !!ads.had_activity || clicks + imps + spendC + aRevC > 0;
         const acosVal = aRevC > 0 ? spendC / aRevC : null;
 
+        const visits = Number(r.visits || r.visits_total || 0);
+        const conv = visits > 0 ? Number(r.units || 0) / visits : null;
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td><span class="idx-pill ${pillClass}">${curve}</span></td>
@@ -506,6 +572,8 @@
           <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
           <td class="num">${clicks.toLocaleString("pt-BR")}</td>
           <td class="num">${imps.toLocaleString("pt-BR")}</td>
+          <td class="num">${visits.toLocaleString("pt-BR")}</td>
+          <td class="percent">${conv != null ? fmtPct(conv) : "—"}</td>
           <td class="num">${fmtMoneyCents(spendC)}</td>
           <td class="percent">${
             hasActivity && acosVal !== null ? fmtPct(acosVal) : "—"
@@ -554,7 +622,12 @@
         { credentials: "same-origin" },
         90000
       );
-      if (!resp.ok) throw new Error(`items HTTP ${resp.status}`);
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => "");
+        throw new Error(
+          `items HTTP ${resp.status} ${t ? "• " + t.slice(0, 180) : ""}`
+        );
+      }
       const j = await resp.json();
 
       if (!j || !Array.isArray(j.data)) {
@@ -600,7 +673,7 @@
       );
     } catch (e) {
       console.error(e);
-      alert("❌ Falha ao carregar itens da Curva ABC: " + (e?.message || e));
+      alert("❌ Falha ao carregar itens da Curva ABC:\n" + (e?.message || e));
       renderTable([], page, 0, state.limit);
     } finally {
       setLoading(false);
@@ -608,7 +681,7 @@
   }
 
   // =========================================================
-  // Paginação
+  // Pagination
   // =========================================================
   function renderPagination(page, total, limit) {
     const pager = $("pager");
@@ -631,13 +704,36 @@
     wrap.className = "paginator";
 
     wrap.appendChild(mkBtn(Math.max(1, page - 1), "«", page <= 1));
-    for (let p = 1; p <= totalPages; p++) {
+
+    // evita renderizar 200 botões em telas grandes:
+    // janela com ellipsis: 1 … (p-2..p+2) … last
+    const windowSize = 2;
+    const addPage = (p) =>
       wrap.appendChild(mkBtn(p, String(p), false, p === page));
+    const addDots = () => {
+      const sp = document.createElement("span");
+      sp.textContent = "…";
+      sp.style.cssText = "padding:0 8px;color:#777;align-self:center";
+      wrap.appendChild(sp);
+    };
+
+    if (totalPages <= 9) {
+      for (let p = 1; p <= totalPages; p++) addPage(p);
+    } else {
+      addPage(1);
+      if (page > 1 + windowSize + 1) addDots();
+
+      const start = Math.max(2, page - windowSize);
+      const end = Math.min(totalPages - 1, page + windowSize);
+      for (let p = start; p <= end; p++) addPage(p);
+
+      if (page < totalPages - (windowSize + 1)) addDots();
+      addPage(totalPages);
     }
+
     wrap.appendChild(
       mkBtn(Math.min(totalPages, page + 1), "»", page >= totalPages)
     );
-
     pager.appendChild(wrap);
   }
 
@@ -647,198 +743,226 @@
   }
 
   // =========================================================
-  // CSV: progress FAB + fetchAllPages + exportCSV
+  // UI bindings
   // =========================================================
-  const progressFab = (() => {
-    let root, icon, msgEl, pctEl;
-
-    function ensure() {
-      if (root) return root;
-      root = document.createElement("div");
-      root.id = "reportFab";
-      root.style.cssText = `
-        position: fixed; right: 16px; bottom: 16px; z-index: 10001;
-        background: #fff; border: 1px solid #eee; border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0,0,0,.12);
-        padding: 12px 12px; display: none;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        min-width: 320px;
-      `;
-      root.innerHTML = `
-        <div class="rf-row" style="display:flex;gap:10px;align-items:flex-start">
-          <span id="rfIcon" class="rf-spinner" style="
-            width:18px;height:18px;border-radius:999px;
-            border:2px solid #e5e7eb;border-top-color:#111827;
-            display:inline-block; margin-top:2px;
-            animation: rfspin 0.9s linear infinite;"></span>
-          <div style="display:flex;flex-direction:column;gap:2px;flex:1">
-            <div class="rf-title" style="font-weight:700">Processando relatório</div>
-            <div id="rfMsg" class="rf-msg" style="color:#444;font-size:13px">Preparando…</div>
-            <div id="rfPct" class="rf-pct" style="color:#666;font-size:12px" aria-live="polite"></div>
-          </div>
-          <button id="rfClose" class="rf-close" title="Fechar" type="button"
-            style="border:none;background:#f3f4f6;border-radius:10px;padding:6px 10px;cursor:pointer">×</button>
-        </div>
-      `;
-      const st = document.createElement("style");
-      st.textContent = `
-        @keyframes rfspin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
-      `;
-      document.head.appendChild(st);
-
-      document.body.appendChild(root);
-      icon = root.querySelector("#rfIcon");
-      msgEl = root.querySelector("#rfMsg");
-      pctEl = root.querySelector("#rfPct");
-      root.querySelector("#rfClose").onclick = hide;
-      return root;
-    }
-
-    function show(message = "Processando…") {
-      ensure();
-      root.style.display = "block";
-      icon.style.animation = "rfspin 0.9s linear infinite";
-      icon.style.borderTopColor = "#111827";
-      msgEl.textContent = message;
-      pctEl.textContent = "";
-    }
-
-    function message(m) {
-      ensure();
-      msgEl.textContent = m;
-    }
-
-    function progress(current, total, opts = {}) {
-      ensure();
-      const safeTotal = Math.max(1, Number(total || 1));
-      const cur = Math.max(0, Math.min(Number(current || 0), safeTotal));
-      const pct = Math.floor((cur / safeTotal) * 100);
-      const hint = opts.withAds === false ? " • (sem ADS nesta página)" : "";
-      pctEl.textContent = `${cur}/${safeTotal} (${pct}%)${hint}`;
-    }
-
-    function done(ok = true) {
-      ensure();
-      // “check”
-      icon.style.animation = "none";
-      icon.style.border = "2px solid " + (ok ? "#22c55e" : "#ef4444");
-      icon.style.borderTopColor = ok ? "#22c55e" : "#ef4444";
-      setTimeout(hide, 2200);
-    }
-
-    function hide() {
-      if (root) root.style.display = "none";
-    }
-
-    return { show, message, progress, done, hide };
-  })();
-
-  // Busca paginada com total real e opção "strictAds"
-  async function fetchAllPages(onProgress, opts = {}) {
-    const {
-      limit = 120,
-      withAds = true,
-      timeoutMs = 120000,
-      maxRetries = 3,
-      strictAds = false,
-    } = opts;
-
-    const fetchItemsPage = async (page, tryWithAds) => {
-      const base = getFilters({
-        curve: state.curveTab || "ALL",
-        page,
-        limit,
-        include_ads: tryWithAds ? "1" : "0",
-        include_visits: "1",
-      });
-      const params = new URLSearchParams(base).toString();
-      const url = `/api/analytics/abc-ml/items?${params}`;
-
-      let lastErr;
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const r = await fetchWithTimeout(
-            url,
-            { credentials: "same-origin" },
-            timeoutMs
-          );
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.json();
-        } catch (e) {
-          lastErr = e;
-          await new Promise((res) => setTimeout(res, 400 * attempt));
-        }
-      }
-      throw lastErr || new Error("Falha ao buscar página");
+  function debounce(fn, ms = 300) {
+    let t;
+    return (...a) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...a), ms);
     };
+  }
 
-    const all = [];
+  function applySwitchDefaults() {
+    qsa("#switch-groupby .btn-switch").forEach((b) =>
+      b.classList.toggle("active", b.dataset.group === state.groupBy)
+    );
+    qsa("#switch-metric  .btn-switch").forEach((b) =>
+      b.classList.toggle("active", b.dataset.metric === state.metric)
+    );
+  }
 
-    let first,
-      totalPages,
-      usedAdsForFirst = withAds;
+  function renderAccountChips() {
+    const sel = $("fAccounts");
+    const box = $("accChips");
+    if (!sel || !box) return;
+    const opts = Array.from(sel.selectedOptions);
+    if (!opts.length) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = opts
+      .map((o) => `<span class="chip">${o.textContent}</span>`)
+      .join("");
+  }
 
-    try {
-      first = await fetchItemsPage(1, withAds);
-    } catch (e1) {
-      if (strictAds)
-        throw new Error("Página 1 falhou com ADS (strictAds ativo).");
-      logProgress("Página 1: timeout/erro com ADS — tentando sem ADS…", "warn");
-      first = await fetchItemsPage(1, false);
-      usedAdsForFirst = false;
+  function bind() {
+    const btnPesquisar = $("btnPesquisar");
+    if (btnPesquisar) {
+      btnPesquisar.addEventListener("click", () => {
+        state.page = 1;
+        loadSummary();
+        loadItems("ALL", 1);
+      });
     }
 
-    const firstLimit = Number(first?.limit || limit) || limit;
-    const firstTotal = Number(first?.total || 0);
-    totalPages = Math.max(1, Math.ceil(firstTotal / firstLimit));
+    qsa(".cards .card[data-curve]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const curve = el.getAttribute("data-curve") || "ALL";
+        state.sort = null;
+        state.page = 1;
+        loadItems(curve, 1);
+      });
+    });
 
-    typeof onProgress === "function" &&
-      onProgress({ page: 0, totalPages, withAds: usedAdsForFirst });
+    const totalCard = $("cardTotal");
+    if (totalCard) {
+      totalCard.addEventListener("click", () => {
+        const fSearch = $("fSearch");
+        if (fSearch) fSearch.value = "";
+        state.sort = "share";
+        state.page = 1;
+        loadItems("ALL", 1);
+      });
+    }
 
-    if (Array.isArray(first?.data)) all.push(...first.data);
-
-    for (let page = 2; page <= totalPages; page++) {
-      try {
-        const j = await fetchItemsPage(page, withAds);
-        if (Array.isArray(j?.data)) all.push(...j.data);
-        typeof onProgress === "function" &&
-          onProgress({ page, totalPages, withAds: true });
-      } catch (e1) {
-        if (strictAds)
-          throw new Error(`Página ${page} falhou com ADS (strictAds ativo).`);
-        logProgress(
-          `Página ${page}: timeout/erro com ADS — tentando sem ADS…`,
-          "warn"
+    qsa("#switch-groupby .btn-switch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        qsa("#switch-groupby .btn-switch").forEach((b) =>
+          b.classList.remove("active")
         );
-        const j2 = await fetchItemsPage(page, false);
-        if (Array.isArray(j2?.data)) all.push(...j2.data);
-        typeof onProgress === "function" &&
-          onProgress({ page, totalPages, withAds: false });
+        btn.classList.add("active");
+        state.groupBy = btn.dataset.group || "mlb";
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
+      });
+    });
+
+    qsa("#switch-metric .btn-switch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        qsa("#switch-metric .btn-switch").forEach((b) =>
+          b.classList.remove("active")
+        );
+        btn.classList.add("active");
+        state.metric = btn.dataset.metric || "revenue";
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
+      });
+    });
+
+    const fSearch = $("fSearch");
+    if (fSearch) {
+      fSearch.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          state.page = 1;
+          loadItems("ALL", 1);
+        }
+      });
+      fSearch.addEventListener(
+        "input",
+        debounce(() => {
+          state.page = 1;
+          loadItems(state.curveTab || "ALL", 1);
+        }, 500)
+      );
+    }
+
+    const fFull = $("fFull");
+    if (fFull) {
+      fFull.addEventListener("change", () => {
+        state.page = 1;
+        loadSummary();
+        loadItems(state.curveTab || "ALL", 1);
+      });
+    }
+
+    // informativo apenas
+    const fAccounts = $("fAccounts");
+    if (fAccounts) fAccounts.addEventListener("change", renderAccountChips);
+  }
+
+  // =========================================================
+  // CSV Export (btnExportCsv)
+  // =========================================================
+  async function fetchAllPages(onProgress, opts = {}) {
+    const limit = Math.max(20, Math.min(Number(opts.limit || 120), 200));
+    const timeoutMs = Number(opts.timeoutMs || 120000);
+    const withAds = opts.withAds !== false;
+    const withVisits = opts.withVisits !== false;
+
+    // mantém export sempre em ALL (não exporta só A/B/C por padrão)
+    const base = getFilters({
+      curve: "ALL",
+      page: 1,
+      limit,
+      include_ads: withAds ? "1" : "0",
+      include_visits: withVisits ? "1" : "0",
+    });
+
+    const s = $("fSearch")?.value?.trim();
+    if (s) base.search = s;
+
+    // 1) busca primeira página para descobrir total
+    const p1Url = `/api/analytics/abc-ml/items?${new URLSearchParams(
+      base
+    ).toString()}`;
+    const r1 = await fetchWithTimeout(
+      p1Url,
+      { credentials: "same-origin" },
+      timeoutMs
+    );
+    if (!r1.ok) {
+      const t = await r1.text().catch(() => "");
+      throw new Error(
+        `Export: items HTTP ${r1.status} ${t ? "• " + t.slice(0, 180) : ""}`
+      );
+    }
+    const j1 = await r1.json();
+
+    const total = Number(j1?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    let all = Array.isArray(j1?.data) ? j1.data.slice() : [];
+    if (typeof onProgress === "function")
+      onProgress(1, totalPages, { withAds, withVisits, limit });
+
+    // 2) páginas restantes
+    for (let p = 2; p <= totalPages; p++) {
+      const url = `/api/analytics/abc-ml/items?${new URLSearchParams({
+        ...base,
+        page: p,
+      }).toString()}`;
+
+      const r = await fetchWithTimeout(
+        url,
+        { credentials: "same-origin" },
+        timeoutMs
+      );
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        throw new Error(
+          `Export: page ${p} HTTP ${r.status} ${
+            t ? "• " + t.slice(0, 180) : ""
+          }`
+        );
       }
+      const j = await r.json();
+      const arr = Array.isArray(j?.data) ? j.data : [];
+      all.push(...arr);
+
+      if (typeof onProgress === "function")
+        onProgress(p, totalPages, { withAds, withVisits, limit });
     }
 
     return all;
   }
 
   async function exportCSV() {
-    const safeProgress = (cur, tot, opts) =>
-      progressFab && typeof progressFab.progress === "function"
-        ? progressFab.progress(cur, tot, opts)
-        : null;
-
     try {
       setLoading(true);
       progressFab.show("Carregando dados para exportação…");
+      showProgress("Exportando CSV…");
+      logProgress("Iniciando exportação…");
 
       const allRows = await fetchAllPages(
-        ({ page, totalPages, withAds }) =>
-          safeProgress(page, totalPages, { withAds }),
-        { limit: 120, withAds: true, timeoutMs: 120000, strictAds: true }
+        (page, totalPages, opts) => {
+          progressFab.progress(page, totalPages, opts);
+          const pct =
+            totalPages > 0 ? Math.round((page / totalPages) * 100) : 0;
+          updateProgress(pct);
+          logProgress(`Página ${page}/${totalPages} carregada`);
+        },
+        { limit: 120, withAds: true, withVisits: true, timeoutMs: 120000 }
       );
 
       progressFab.message("Gerando CSV…");
+      logProgress("Gerando arquivo CSV…");
 
-      const rowsForCsv = allRows.slice();
+      let rowsForCsv = allRows.slice();
+
+      // ordenação consistente
       if (state.sort === "share" || state.metric === "revenue") {
         rowsForCsv.sort(
           (a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0)
@@ -881,7 +1005,7 @@
         "Vendas 90D",
       ];
 
-      const rows = rowsFiltered.map((r) => {
+      const csvRows = rowsFiltered.map((r) => {
         const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
         const revShare = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
 
@@ -940,12 +1064,14 @@
         ];
       });
 
-      const data = [head, ...rows]
+      // monta CSV com ; e aspas
+      const data = [head, ...csvRows]
         .map((cols) => cols.map((c) => `"${String(c)}"`).join(";"))
         .join("\r\n");
 
       const blob = new Blob([data], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
+
       const a = document.createElement("a");
       a.href = url;
       a.download = "curva_abc.csv";
@@ -956,142 +1082,34 @@
 
       progressFab.message("Concluído!");
       progressFab.done(true);
+      updateProgress(100);
+      logProgress("Exportação concluída ✅");
+      setTimeout(() => hideProgress(), 800);
     } catch (e) {
       console.error(e);
       progressFab.message("Falha: " + (e?.message || e));
       progressFab.done(false);
+      logProgress("Falha: " + (e?.message || e), "error");
       alert("❌ Falha ao exportar CSV: " + (e?.message || e));
     } finally {
       setLoading(false);
     }
   }
 
-  // =========================================================
-  // UI: switches + chips + bind
-  // =========================================================
-  function debounce(fn, ms = 300) {
-    let t;
-    return (...a) => {
-      clearTimeout(t);
-      t = setTimeout(() => fn(...a), ms);
-    };
-  }
-
-  function applySwitchDefaults() {
-    qsa("#switch-groupby .btn-switch").forEach((b) =>
-      b.classList.toggle("active", b.dataset.group === state.groupBy)
-    );
-    qsa("#switch-metric .btn-switch").forEach((b) =>
-      b.classList.toggle("active", b.dataset.metric === state.metric)
-    );
-  }
-
-  function renderAccountChips() {
-    const sel = $("fAccounts");
-    const box = $("accChips");
-    if (!sel || !box) return;
-    const opts = Array.from(sel.selectedOptions);
-    if (!opts.length) {
-      box.innerHTML = "";
+  function bindExportCsvButton() {
+    const btn = $("btnExportCsv");
+    if (!btn) {
+      console.warn("⚠️ btnExportCsv não encontrado no DOM.");
       return;
     }
-    box.innerHTML = opts
-      .map((o) => `<span class="chip">${o.textContent}</span>`)
-      .join("");
-  }
-
-  function bind() {
-    $("btnPesquisar")?.addEventListener("click", () => {
-      state.page = 1;
-      loadSummary();
-      loadItems("ALL", 1);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      exportCSV();
     });
-
-    qsa(".cards .card[data-curve]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const curve = el.getAttribute("data-curve") || "ALL";
-        state.sort = null;
-        state.page = 1;
-        loadItems(curve, 1);
-      });
-    });
-
-    const totalCard = $("cardTotal");
-    if (totalCard) {
-      totalCard.addEventListener("click", () => {
-        const s = $("fSearch");
-        if (s) s.value = "";
-        state.sort = "share";
-        state.page = 1;
-        loadItems("ALL", 1);
-      });
-    }
-
-    qsa("#switch-groupby .btn-switch").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        qsa("#switch-groupby .btn-switch").forEach((b) =>
-          b.classList.remove("active")
-        );
-        btn.classList.add("active");
-        state.groupBy = btn.dataset.group;
-        state.page = 1;
-        loadSummary();
-        loadItems(state.curveTab || "ALL", 1);
-      });
-    });
-
-    qsa("#switch-metric .btn-switch").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        qsa("#switch-metric .btn-switch").forEach((b) =>
-          b.classList.remove("active")
-        );
-        btn.classList.add("active");
-        state.metric = btn.dataset.metric;
-        state.page = 1;
-        loadSummary();
-        loadItems(state.curveTab || "ALL", 1);
-      });
-    });
-
-    $("fSearch")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        state.page = 1;
-        loadItems("ALL", 1);
-      }
-    });
-    $("fSearch")?.addEventListener(
-      "input",
-      debounce(() => {
-        state.page = 1;
-        loadItems(state.curveTab || "ALL", 1);
-      }, 500)
-    );
-
-    $("fFull")?.addEventListener("change", () => {
-      state.page = 1;
-      loadSummary();
-      loadItems(state.curveTab || "ALL", 1);
-    });
-
-    $("fAccounts")?.addEventListener("change", renderAccountChips);
-
-    // ✅ BIND CSV (o que faltava)
-    // ✅ BIND CSV
-    const btnCsv = $("btnExportCsv");
-    if (btnCsv) {
-      btnCsv.setAttribute("type", "button"); // evita submit
-      btnCsv.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        exportCSV();
-      });
-    } else {
-      console.warn("⚠️ Botão CSV não encontrado: id=btnExportCsv");
-    }
   }
 
   // =========================================================
-  // Start
+  // Boot
   // =========================================================
   window.addEventListener("DOMContentLoaded", async () => {
     await initTopBar();
@@ -1100,6 +1118,7 @@
     renderAccountChips();
     applySwitchDefaults();
     bind();
+    bindExportCsvButton();
     await loadSummary();
     await loadItems("ALL", 1);
   });
