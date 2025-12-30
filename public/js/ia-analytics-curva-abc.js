@@ -945,14 +945,11 @@
       progressFab.show("Carregando dados para exportação…");
       showProgress("Exportando CSV…");
       logProgress("Iniciando exportação…");
-
+      hideProgress();
       const allRows = await fetchAllPages(
         (page, totalPages, opts) => {
           progressFab.progress(page, totalPages, opts);
-          const pct =
-            totalPages > 0 ? Math.round((page / totalPages) * 100) : 0;
-          updateProgress(pct);
-          logProgress(`Página ${page}/${totalPages} carregada`);
+          progressFab.message(`Carregando dados… Página ${page}/${totalPages}`);
         },
         { limit: 120, withAds: true, withVisits: true, timeoutMs: 120000 }
       );
@@ -1082,9 +1079,6 @@
 
       progressFab.message("Concluído!");
       progressFab.done(true);
-      updateProgress(100);
-      logProgress("Exportação concluída ✅");
-      setTimeout(() => hideProgress(), 800);
     } catch (e) {
       console.error(e);
       progressFab.message("Falha: " + (e?.message || e));
