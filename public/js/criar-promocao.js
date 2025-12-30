@@ -82,7 +82,7 @@ const usersPaths = () => [
 
 // Rotas alternativas — itens de uma promoção
 const itemsPaths = (promotionId, type, qs) => {
-  const suffix = `?promotion_type=${encodeURIComponent(type)}${
+  const suffix = `?promotion_type=${encodeURIComponent(type)}&app_version=v2${
     qs ? `&${qs}` : ""
   }`;
   const pid = encodeURIComponent(promotionId);
@@ -267,14 +267,14 @@ function normalizeStatus(s) {
 
   // compat/alias que às vezes aparece em integrações antigas
   if (s === "in_progress") return "pending";
-  if (s === "scheduled") return "pending"; // << importante
+  if (s === "scheduled") return "pending"; // normaliza "scheduled" para "pending"
   if (s === "programmed") return "pending"; // opcional (robustez)
 
   return s;
 }
 
 /** Deduplica por MLB escolhendo o "status real" com prioridade.
- *  started > scheduled > pending > candidate > outros
+ *  started > pending > candidate > outros
  */
 function dedupeByMLB(items, statusFilter) {
   const rank = { started: 3, pending: 2, candidate: 1 };
@@ -433,8 +433,7 @@ function computeDescPct(it, benefitsGlobal) {
     });
 
     const mlPct = toNum(it.discount_percentage);
-    const isCandLike =
-      st === "candidate" || st === "scheduled" || st === "pending";
+    const isCandLike = st === "candidate" || st === "pending";
 
     if (isCandLike) return pct; // pode ficar null; melhor vazio que errado
     if (mlPct != null && mlPct > 70 && pct != null && Math.abs(mlPct - pct) > 5)
@@ -482,8 +481,7 @@ function resolveDealFinalAndPctFront(raw) {
     isFinite(v) && v > 0 && v < orig && (orig - v) / orig < GAP;
   const isPlausiblePct = (p) => isFinite(p) && p >= PCT_MIN && p <= PCT_MAX;
 
-  const isCandLike =
-    st === "candidate" || st === "scheduled" || st === "pending";
+  const isCandLike = st === "candidate" || st === "pending";
   const noSuggestions =
     !(isFinite(sugD) && sugD > 0) &&
     !(isFinite(minD) && minD > 0) &&
@@ -1486,92 +1484,6 @@ async function buscarItemNaCampanha(mlb) {
   }
   return null;
 }
-
-// =====================================================
-// ========== Coletar TODOS os ids filtrados ===========
-// ========== para seleção da campanha inteira =========
-// =====================================================
-
-async function coletarTodosIdsFiltrados() {
-  // precisa ter uma campanha selecionada
-  if (!state.selectedCard) {
-    console.warn("[coletarTodosIdsFiltrados] Nenhuma campanha selecionada.");
-    return [];
-  }
-
-  const idsSet = new Set();
-
-  // mesmo mapeamento que a tabela usa
-  const statusParam = filtroToStatusParam(); // 'started' | 'candidate' | 'scheduled' | ''
-  const mlbUp = (state.mlbFilter || "").trim().toUpperCase() || null;
-  const maxDesc =
-    state.maxDesc == null || state.maxDesc === ""
-      ? null
-      : Number(state.maxDesc);
-
-  const PAGE_LIMIT = 50; // seguro pro ML (limit < 100)
-  let searchAfter = null;
-
-  try {
-    // segurança: no máximo 500 páginas
-    for (let page = 0; page < 500; page++) {
-      const qs = qsBuild({
-        limit: PAGE_LIMIT,
-        ...(statusParam ? { status: statusParam } : {}),
-        ...(searchAfter ? { search_after: searchAfter } : {}),
-      });
-
-      const data = await getJSONAny(
-        itemsPaths(state.selectedCard.id, state.selectedCard.type, qs)
-      );
-
-      if (data?.promotion_benefits) {
-        state.promotionBenefits = data.promotion_benefits;
-      }
-
-      let items = Array.isArray(data.results) ? data.results : [];
-
-      // normaliza status e remove duplicados por MLB
-      items = items.map((x) => ({ ...x, status: normalizeStatus(x.status) }));
-      items = dedupeByMLB(items, statusParam || "");
-
-      const benefitsGlobal =
-        state.promotionBenefits || state.selectedCard?.benefits || null;
-
-      for (const it of items) {
-        const id = String(it.id || "").trim();
-        if (!id) continue;
-
-        // filtro por MLB (se a barra de busca está preenchida)
-        if (mlbUp && id.toUpperCase() !== mlbUp) continue;
-
-        // filtro por desconto máximo (%), igual ao da tabela
-        if (maxDesc != null) {
-          const descPct = computeDescPct(it, benefitsGlobal);
-          if (descPct == null || Number(descPct) > maxDesc) continue;
-        }
-
-        idsSet.add(id);
-      }
-
-      // paginação
-      searchAfter = data?.paging?.searchAfter || null;
-      if (!searchAfter) break;
-    }
-  } catch (e) {
-    console.error("[coletarTodosIdsFiltrados] erro ao paginar itens:", e);
-  }
-
-  const arr = Array.from(idsSet);
-  console.log(
-    `[coletarTodosIdsFiltrados] total coletado com filtros atuais: ${arr.length}`
-  );
-  return arr;
-}
-
-// expõe no escopo global para o promo-bulk.js usar como fallback
-window.coletarTodosIdsFiltrados = coletarTodosIdsFiltrados;
-
 /* ======================== Offer/Candidate helpers ======================== */
 
 function isCandidateId(id) {
@@ -2034,7 +1946,6 @@ async function aplicarUnicoRemote(mlb, opts = {}) {
     return false;
   }
 }
-
 /* --- Remoção em massa (abre HUD e atualiza contadores) --- */
 async function removerEmMassaSelecionados() {
   if (!state.selectedCard) {
@@ -2323,7 +2234,7 @@ async function goPage(n) {
   await carregarItensPagina(n, false);
 }
 function toggleTodos(master) {
-  $$('#tbody input[type="checkbox"][data-mlb]').forEach(
+  $$("#tbody input[type='checkbox'][data-mlb]").forEach(
     (ch) => (ch.checked = master.checked)
   );
   if (window.PromoBulk) {
@@ -2332,7 +2243,7 @@ function toggleTodos(master) {
   atualizarFaixaSelecaoCampanha();
 }
 function getSelecionados() {
-  return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(
+  return $$("#tbody input[type='checkbox'][data-mlb]:checked").map(
     (el) => el.dataset.mlb
   );
 }
@@ -2346,7 +2257,6 @@ window.aplicarLoteSelecionados = aplicarLoteSelecionados;
 window.removerUnicoDaCampanha = removerUnicoDaCampanha;
 window.removerEmMassaSelecionados = removerEmMassaSelecionados;
 window.aplicarTodosFiltrados = aplicarTodosFiltrados;
-
 /* ======================== Modo busca unitária (apenas 1 MLB) ======================== */
 
 async function carregarSomenteMLBSelecionado() {
