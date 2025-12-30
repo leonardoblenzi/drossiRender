@@ -241,6 +241,9 @@ function computeDescPctServer(it, promotionType, promotionBenefits) {
 }
 
 /** Lista promoções disponíveis para o vendedor atual */
+/** Lista promoções disponíveis para o vendedor atual
+ * GET /api/promocoes/users?limit=50&offset=0&status=started|scheduled|pending|all
+ */
 core.get("/api/promocoes/users", async (req, res) => {
   try {
     const creds = res.locals.mlCreds || {};
@@ -261,48 +264,222 @@ core.get("/api/promocoes/users", async (req, res) => {
     const me = await meResp.json();
     const userId = me.id;
 
-    // 2) paginação
+    // 2) paginação (do SEU backend)
     const limit = Math.min(50, Math.max(1, Number(req.query.limit || 50)));
     const offset = Math.max(0, Number(req.query.offset || 0));
 
-    const qs = new URLSearchParams();
-    qs.set("app_version", "v2");
-    qs.set("limit", String(limit));
-    qs.set("offset", String(offset));
+    // 3) status vindo do front
+    const statusIn = String(req.query.status || "")
+      .trim()
+      .toLowerCase();
 
-    let url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs.toString()}`;
+    // helper: chama o ML e devolve JSON tolerante + status http
+    async function callML(statusParam, useAppVersion = true) {
+      const qs = new URLSearchParams();
+      if (useAppVersion) qs.set("app_version", "v2");
+      qs.set("limit", "50"); // ML pagina aqui; vamos puxar páginas internas e depois paginar no backend
+      qs.set("offset", "0"); // começamos do zero e buscamos tudo (ou até um teto)
+      if (statusParam) qs.set("status", String(statusParam));
 
-    // 3) fetch
-    let pr = await authFetch(req, url, {}, creds);
-    let txt = await pr.text().catch(() => "");
-    let json;
-    try {
-      json = txt ? JSON.parse(txt) : {};
-    } catch {
-      json = { raw: txt };
-    }
+      const url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs.toString()}`;
 
-    // 4) fallback: se ML reclamar de app_version
-    if (!pr.ok && /invalid[\s_]*app_version/i.test(txt || "")) {
-      const qs2 = new URLSearchParams();
-      qs2.set("limit", String(limit));
-      qs2.set("offset", String(offset));
-      url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs2.toString()}`;
-      pr = await authFetch(req, url, {}, creds);
-      txt = await pr.text().catch(() => "");
+      const pr = await authFetch(req, url, {}, creds);
+      const txt = await pr.text().catch(() => "");
+      let json;
       try {
         json = txt ? JSON.parse(txt) : {};
       } catch {
         json = { raw: txt };
       }
+
+      // fallback: se ML reclamar de app_version
+      if (
+        !pr.ok &&
+        useAppVersion &&
+        /invalid[\s_]*app_version/i.test(txt || "")
+      ) {
+        return callML(statusParam, false);
+      }
+
+      return { ok: pr.ok, status: pr.status, url, json, raw: txt };
     }
 
-    // devolve sempre com ok + paging para o front saber buscar o resto
-    return res.status(pr.status).json({
-      ok: pr.ok,
+    // helper: extrai lista de promoções
+    function extractResults(obj) {
+      if (Array.isArray(obj)) return obj;
+      if (Array.isArray(obj?.results)) return obj.results;
+      if (Array.isArray(obj?.data?.results)) return obj.data.results;
+      return [];
+    }
+
+    // helper: tenta descobrir total do ML
+    function extractTotal(obj) {
+      const p = obj?.paging || obj?.data?.paging || null;
+      const t = Number(p?.total);
+      return Number.isFinite(t) ? t : null;
+    }
+
+    // helper: busca TODAS as páginas do ML para um status (com teto)
+    async function fetchAllForStatus(statusParam) {
+      const merged = [];
+      let pageOffset = 0;
+      const ML_LIMIT = 50;
+      const MAX_PAGES = 200; // trava de segurança
+
+      // primeira chamada (pra pegar também se app_version dá erro)
+      // depois seguimos usando o mesmo esquema
+      for (let i = 0; i < MAX_PAGES; i++) {
+        const qs = new URLSearchParams();
+        qs.set("app_version", "v2");
+        qs.set("limit", String(ML_LIMIT));
+        qs.set("offset", String(pageOffset));
+        if (statusParam) qs.set("status", String(statusParam));
+
+        let url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs.toString()}`;
+
+        let pr = await authFetch(req, url, {}, creds);
+        let txt = await pr.text().catch(() => "");
+        let json;
+        try {
+          json = txt ? JSON.parse(txt) : {};
+        } catch {
+          json = { raw: txt };
+        }
+
+        // fallback app_version
+        if (!pr.ok && /invalid[\s_]*app_version/i.test(txt || "")) {
+          const qs2 = new URLSearchParams();
+          qs2.set("limit", String(ML_LIMIT));
+          qs2.set("offset", String(pageOffset));
+          if (statusParam) qs2.set("status", String(statusParam));
+          url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs2.toString()}`;
+
+          pr = await authFetch(req, url, {}, creds);
+          txt = await pr.text().catch(() => "");
+          try {
+            json = txt ? JSON.parse(txt) : {};
+          } catch {
+            json = { raw: txt };
+          }
+        }
+
+        if (!pr.ok) {
+          // se falhou, retorna o erro do ML
+          return { ok: false, status: pr.status, url, json };
+        }
+
+        const pageItems = extractResults(json);
+        if (!pageItems.length) break;
+
+        merged.push(...pageItems);
+
+        // Se veio menos que ML_LIMIT, acabou
+        if (pageItems.length < ML_LIMIT) break;
+
+        // Se o ML tem paging.total, para quando bater
+        const total = extractTotal(json);
+        pageOffset += ML_LIMIT;
+        if (total != null && pageOffset >= total) break;
+      }
+
+      return { ok: true, status: 200, items: merged };
+    }
+
+    // ==========================================================
+    // CASO 1: status != all → repassa status direto pro ML
+    // ==========================================================
+    if (statusIn && statusIn !== "all") {
+      // Aqui a gente mantém seu comportamento original:
+      // pega só uma página do ML baseada em limit/offset do front
+      const qs = new URLSearchParams();
+      qs.set("app_version", "v2");
+      qs.set("limit", String(limit));
+      qs.set("offset", String(offset));
+      qs.set("status", String(statusIn));
+
+      let url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs.toString()}`;
+
+      let pr = await authFetch(req, url, {}, creds);
+      let txt = await pr.text().catch(() => "");
+      let json;
+      try {
+        json = txt ? JSON.parse(txt) : {};
+      } catch {
+        json = { raw: txt };
+      }
+
+      if (!pr.ok && /invalid[\s_]*app_version/i.test(txt || "")) {
+        const qs2 = new URLSearchParams();
+        qs2.set("limit", String(limit));
+        qs2.set("offset", String(offset));
+        qs2.set("status", String(statusIn));
+        url = `https://api.mercadolibre.com/seller-promotions/users/${userId}?${qs2.toString()}`;
+
+        pr = await authFetch(req, url, {}, creds);
+        txt = await pr.text().catch(() => "");
+        try {
+          json = txt ? JSON.parse(txt) : {};
+        } catch {
+          json = { raw: txt };
+        }
+      }
+
+      return res.status(pr.status).json({
+        ok: pr.ok,
+        user_id: userId,
+        request: { limit, offset, status: statusIn },
+        data: json,
+      });
+    }
+
+    // ==========================================================
+    // CASO 2: status=all (ou vazio) → MERGE started/scheduled/pending
+    // ==========================================================
+    const statusesToMerge = ["started", "scheduled", "pending"];
+
+    const lists = [];
+    for (const st of statusesToMerge) {
+      const got = await fetchAllForStatus(st);
+      if (!got.ok) {
+        return res.status(got.status).json({
+          ok: false,
+          user_id: userId,
+          step: "merge_status",
+          failed_status: st,
+          request: { limit, offset, status: "all" },
+          data: got.json,
+          url: got.url,
+        });
+      }
+      lists.push(...got.items);
+    }
+
+    // dedupe por id
+    const seen = new Set();
+    const merged = [];
+    for (const p of lists) {
+      const id = String(p?.id || "");
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      merged.push(p);
+    }
+
+    // paginação do SEU backend em cima do merged
+    const paged = merged.slice(offset, offset + limit);
+
+    return res.json({
+      ok: true,
       user_id: userId,
-      request: { limit, offset },
-      data: json,
+      request: { limit, offset, status: "all" },
+      data: {
+        results: paged,
+        paging: {
+          total: merged.length,
+          limit,
+          offset,
+        },
+      },
     });
   } catch (e) {
     console.error("[/api/promocoes/users] erro:", e);
@@ -596,23 +773,19 @@ core.post("/api/promocoes/apply", async (req, res) => {
       !Array.isArray(items) ||
       !items.length
     ) {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          error: "Parâmetros inválidos",
-          body: { promotion_id, promotion_type, items_len: items?.length },
-        });
+      return res.status(400).json({
+        ok: false,
+        error: "Parâmetros inválidos",
+        body: { promotion_id, promotion_type, items_len: items?.length },
+      });
     }
 
     if (type === "PRICE_MATCHING_MELI_ALL") {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          error:
-            "PRICE_MATCHING_MELI_ALL é 100% ML. Aplicação manual indisponível.",
-        });
+      return res.status(400).json({
+        ok: false,
+        error:
+          "PRICE_MATCHING_MELI_ALL é 100% ML. Aplicação manual indisponível.",
+      });
     }
 
     const results = [];
@@ -727,12 +900,10 @@ core.post("/api/promocoes/items/:itemId/apply", async (req, res) => {
     } = req.body || {};
 
     if (!promotion_id || !promotion_type) {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          error: "promotion_id e promotion_type são obrigatórios.",
-        });
+      return res.status(400).json({
+        ok: false,
+        error: "promotion_id e promotion_type são obrigatórios.",
+      });
     }
 
     const t = String(promotion_type).toUpperCase();
@@ -740,12 +911,10 @@ core.post("/api/promocoes/items/:itemId/apply", async (req, res) => {
 
     if (t === "SMART" || t.startsWith("PRICE_MATCHING")) {
       if (!offer_id) {
-        return res
-          .status(400)
-          .json({
-            ok: false,
-            error: "offer_id é obrigatório para SMART/PRICE_MATCHING.",
-          });
+        return res.status(400).json({
+          ok: false,
+          error: "offer_id é obrigatório para SMART/PRICE_MATCHING.",
+        });
       }
       payload.offer_id = offer_id;
     } else if (
@@ -755,12 +924,10 @@ core.post("/api/promocoes/items/:itemId/apply", async (req, res) => {
       t === "DOD"
     ) {
       if (deal_price == null) {
-        return res
-          .status(400)
-          .json({
-            ok: false,
-            error: "deal_price é obrigatório para este tipo de campanha.",
-          });
+        return res.status(400).json({
+          ok: false,
+          error: "deal_price é obrigatório para este tipo de campanha.",
+        });
       }
       payload.deal_price = Number(deal_price);
       if (top_deal_price != null)
@@ -835,12 +1002,10 @@ core.post(
       } = req.body || {};
 
       if (!promotion_id || !promotion_type) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: "promotionId e promotion_type são obrigatórios",
-          });
+        return res.status(400).json({
+          success: false,
+          error: "promotionId e promotion_type são obrigatórios",
+        });
       }
 
       const t = String(promotion_type).toUpperCase();
@@ -924,12 +1089,10 @@ core.post("/api/promocoes/bulk/prepare", async (req, res) => {
     } = req.body || {};
 
     if (!promotion_id || !promotion_type) {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          error: "promotion_id e promotion_type são obrigatórios.",
-        });
+      return res.status(400).json({
+        ok: false,
+        error: "promotion_id e promotion_type são obrigatórios.",
+      });
     }
 
     const jobId = await PromoJobsService.enqueueBulkApply({

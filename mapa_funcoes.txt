@@ -477,6 +477,164 @@ routes/
   └─ refresh_obtido_em, ultimo_refresh_em
 
 
+================================================================================
+10) Criar Promoção (Central de Promoções + aplicar/remover + jobs)
+================================================================================
+
+Objetivo:
+- Tela “Criar Promoção / Central de Promoções” com:
+  • grid de campanhas (cards) + busca por MLB (filtra cards)
+  • tabs por tipo (SMART/DEAL/SELLER/PRICE_DISCOUNT/OTHER)
+  • ao clicar no card: tabela de itens (MLB, título, estoque, SKU, preços, desc, rebate, novo preço, status, ações)
+  • filtros: participação (all/started/candidate/pending), max desconto (%), paginação (search_after)
+  • ações:
+    - aplicar 1 item (por linha)
+    - remover 1 item (stub ou real, dependendo do backend)
+    - aplicar em massa (job / fallback local)
+    - remover em massa (job)
+  • painel de processos (JobsPanel) + watcher (poll) de jobs
+
+/ (raiz do projeto)
+├─ index.js
+│  ├─ (HTML) GET /criar-promocao -> via htmlRoutes (ou rota direta) abre a tela
+│  ├─ app.use('/api/criar-promocao', criarPromocaoRoutes)   # (se existir este prefixo)
+│  └─ app.use('/api/promocoes', promocoesRoutes)            # endpoints usados pelo front (padrão atual)
+│
+├─ routes/
+│  ├─ htmlRoutes.js
+│  │  • GET /criar-promocao -> serve views/criar-promocao.html (ou .ejs)
+│  │  • (opcional) gate ensurePermission.requireAdmin() se você quiser restringir a tela
+│  │
+│  ├─ criarPromocaoRoutes.js
+│  │  • (quando separado) rotas específicas da feature “Criar Promoção”
+│  │  • pode delegar para services/promocoesService.js (ou criarPromocaoService.js)
+│  │
+│  └─ promocoesRoutes.js  ✅ (fonte principal dos endpoints usados no front)
+│     • GET  /api/promocoes/users
+│       -> lista campanhas/promotions disponíveis para a conta selecionada
+│       -> pode aceitar query: status=all | started,pending | started,scheduled (compat)
+│       -> pode retornar paging { total, limit, offset } (se existir)
+│
+│     • GET  /api/promocoes/promotions/:promotionId/items
+│       -> lista itens da campanha (paginado via search_after)
+│       -> query:
+│          - promotion_type=SMART|DEAL|SELLER_CAMPAIGN|PRICE_DISCOUNT|...
+│          - limit=50
+│          - search_after=<token>
+│          - status=started|candidate|pending (opcional)
+│          - app_version=v2 (compat do front)
+│       -> resposta esperada pelo front:
+│          { results:[...], paging:{ total, searchAfter }, promotion_benefits? }
+│
+│     • GET  /api/promocoes/items/:mlb
+│       -> lista promoções disponíveis para o item (usado pelo filtro MLB e pelo “montarItemRapido”)
+│
+│     • (opcional) GET /api/promocoes/items/:mlb/promotions
+│       -> alias/rota alternativa para o mesmo objetivo (front tenta ambas)
+│
+│     • POST /api/promocoes/items/:mlb/apply
+│       -> aplica item na campanha selecionada
+│       -> payload base:
+│          { promotion_id, promotion_type }
+│       -> extras por tipo:
+│          - DEAL / SELLER_CAMPAIGN / PRICE_DISCOUNT:
+│              { deal_price }
+│          - SMART / PRICE_MATCHING*:
+│              { offer_id, candidate_id? }
+│          - MARKETPLACE_CAMPAIGN etc:
+│              sem extras
+│
+│     • POST /api/promocoes/promotions/:promotionId/apply-bulk
+│       -> inicia job no backend para aplicar em massa por filtros
+│       -> body:
+│          { promotion_type, filters:{ query_mlb, status, discount_max }, options:{ expected_total?, dryRun? } }
+│       -> resposta:
+│          { success:true, job_id } (ou { job_id } )
+│
+│     • POST /api/promocoes/jobs/remove
+│       -> inicia job de remoção em massa
+│       -> body:
+│          { items:[mlb...], delay_ms }
+│
+│     • GET /api/promocoes/jobs
+│       -> lista jobs ativos/recente para o JobsWatcher/JobsPanel
+│       -> resposta:
+│          { jobs:[...] }
+│
+│     • POST /api/promocoes/selection/prepare
+│       -> calcula total de itens filtrados (pra banner “x selecionados” e progresso)
+│       -> body:
+│          { promotion_id, promotion_type, status?, mlb?, percent_max? }
+│       -> resposta:
+│          { total:<number> }
+│
+├─ controllers/
+│  ├─ PromocoesController.js (ou CriarPromocaoController.js)
+│  │  • users()                 -> lista campanhas
+│  │  • itemsByPromotion()      -> lista itens com search_after
+│  │  • itemPromotions()        -> lista promoções do item (MLB)
+│  │  • applyItem()             -> aplica 1 item na campanha
+│  │  • applyBulk()             -> inicia job (Bull/Queue) de aplicação em massa
+│  │  • removeBulkJob()         -> inicia job de remoção em massa
+│  │  • listJobs()              -> retorna jobs para o painel
+│  │  • selectionPrepare()      -> calcula total filtrado
+│  │
+│  └─ (opcional) JobsController.js se você separou o painel de processos
+│
+├─ services/
+│  ├─ promocoesService.js (ou criarPromocaoService.js)
+│  │  • listarCampanhas()
+│  │  • listarItensCampanha({ promotionId, type, status, limit, search_after })
+│  │  • listarPromocoesDoItem(mlb)
+│  │  • aplicarItem(mlb, payloadPorTipo)
+│  │  • applyBulkQueue(...) / removeBulkQueue(...)
+│  │  • selectionPrepare(...)  # conta total por filtros
+│  │  • usa authFetch + TokenService (access_token válido via middleware)
+│  │
+│  └─ tokenService.js / ml-auth.js / authFetch (reuso)
+│
+├─ views/
+│  ├─ criar-promocao.html (ou criar-promocao.ejs)
+│  │  • contém:
+│  │    - container de cards (#cards)
+│  │    - tabs (#promoTypeTabs) + contadores (data-count="SMART"...)
+│  │    - campo MLB (#mlbFilter) + botões (#btnFiltrarItem, #btnLimparItem)
+│  │    - tabela (tbody#tbody) + paginação (#paginacao)
+│  │    - filtros participação (radio name="filtro")
+│  │    - filtro max desconto (#maxDescTableInput + botões)
+│  │    - banner de seleção ([data-js="selecionados-banner"])
+│  │    - JobsPanel (quando presente)
+│  │
+│  └─ (opcional) partial do JobsPanel se você reutiliza em várias telas
+│
+└─ public/
+   ├─ js/criar-promocao.js   ✅ (front da feature)
+   │  • carrega cards (/api/promocoes/users)
+   │  • filtra cards por MLB (consulta /api/promocoes/items/:mlb ou /promotions)
+   │  • pagina itens por search_after + status + maxDesc
+   │  • heurísticas de DEAL (resolveDealFinalAndPctFront, safeDealPrice)
+   │  • aplica item (aplicarUnico) + aplicar em massa (apply-bulk com fallback local)
+   │  • remove em massa (job remove)
+   │  • JobsWatcher (poll /api/promocoes/jobs) -> JobsPanel.mergeApiJobs()
+   │
+   ├─ js/jobs-panel.js        # UI do painel de processos (se presente nesta tela)
+   ├─ js/exclusao-bulk.js      # (se você reutiliza helpers de bulk)
+   ├─ css/criar-promocao.css   # estilos da Central de Promoções (se existir)
+   └─ css globais (dashboard.css etc)
+
+Notas de permissão (opcional, se você quiser restringir):
+- Se “Criar Promoção” for admin-only:
+  • HTML: GET /criar-promocao -> ensurePermission.requireAdmin()
+  • API: manter /api/promocoes/* sob ensurePermission.requireAdmin() ou aplicar gates só nos endpoints de apply/remove/bulk
+
+Compat / robustez do front (importante):
+- O front tenta rotas alternativas:
+  • /api/promocoes/*, /api/promocao/*, /api/promotions/* (fallback)
+- Detecta redirect silencioso (HTML vindo em vez de JSON) e loga causa para debug.
+
+
+
+
 5) UI: Seleção de Conta (tela)
 views/
 

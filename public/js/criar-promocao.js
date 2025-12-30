@@ -33,7 +33,7 @@ async function getJSONAny(paths) {
       const ct = (r.headers.get("content-type") || "").toLowerCase();
 
       // Se voltou HTML, isso é sintoma clássico de redirect para página
-      const looksHtml = ct.includes("text/html") || ct.includes("text/plain");
+      const looksHtml = ct.includes("text/html");
 
       if (!r.ok || looksHtml) {
         const body = await r.text().catch(() => "");
@@ -123,6 +123,9 @@ function esc(s) {
           }[c])
       );
 }
+
+// Escapa string para uso seguro em inline JS (onclick), sem quebrar aspas
+const jsStr = (v) => JSON.stringify(String(v ?? ""));
 
 const fmtMoeda = (n) =>
   n == null || isNaN(Number(n))
@@ -735,6 +738,7 @@ const ITEM_PROMO_TYPES = new Set([
   "PRICE_MATCHING",
   "PRICE_MATCHING_MELI_ALL",
   "SELLER_CAMPAIGN",
+  "PRICE_DISCOUNT",
 ]);
 
 const itemPromosPaths = (mlb) => [
@@ -750,7 +754,7 @@ async function buscarCardsDoItem(mlb) {
       if (!r.ok) continue;
       const arr = await r.json();
 
-      const cards = (Array.isArray(arr) ? arr : arr?.results ?? [])
+      const cards = extractList(arr)
         .filter(
           (c) =>
             c &&
@@ -777,73 +781,100 @@ async function buscarCardsDoItem(mlb) {
 
 /* ======================== Tabs por tipo (Cards) ======================== */
 
+const TAB_POLICY = {
+  hideZeros: true,
+  removeTypes: new Set([
+    "DOD",
+    "MARKETPLACE_CAMPAIGN",
+    "PRICE_MATCHING_MELI_ALL",
+  ]),
+};
+
 const TYPE_LABELS = {
   ALL: "Todas",
   SMART: "Smart",
   DEAL: "Deal",
-  PRICE_MATCHING: "Price Matching",
-  PRICE_MATCHING_MELI_ALL: "PM (ML)",
   SELLER_CAMPAIGN: "Seller",
-  MARKETPLACE_CAMPAIGN: "Marketplace",
   PRICE_DISCOUNT: "Price Discount",
-  DOD: "DOD",
   OTHER: "Outros",
 };
 
-function normalizeCardType(t) {
-  const up = String(t || "").toUpperCase();
-  const known = new Set([
-    "SMART",
-    "DEAL",
-    "PRICE_MATCHING",
-    "PRICE_MATCHING_MELI_ALL",
-    "SELLER_CAMPAIGN",
-    "MARKETPLACE_CAMPAIGN",
-    "PRICE_DISCOUNT",
-    "DOD",
-  ]);
-  return known.has(up) ? up : "OTHER";
+function normalizeCardTypeForTabs(type) {
+  const up = String(type || "").toUpperCase();
+
+  // Smart tab = SMART + PRICE_MATCHING
+  if (up === "PRICE_MATCHING") return "SMART";
+
+  // você já decidiu que PM(ML) some, e Marketplace/DOD somem também
+  // (se você já filtrou no carregarCards, ótimo; aqui deixo seguro)
+  if (up === "PRICE_MATCHING_MELI_ALL") return "REMOVED";
+  if (up === "MARKETPLACE_CAMPAIGN") return "REMOVED";
+  if (up === "DOD") return "REMOVED";
+
+  // Tabs dedicadas que você quer manter
+  if (up === "SMART") return "SMART";
+  if (up === "DEAL") return "DEAL";
+  if (up === "SELLER_CAMPAIGN") return "SELLER_CAMPAIGN";
+  if (up === "PRICE_DISCOUNT") return "PRICE_DISCOUNT";
+
+  // qualquer outro tipo vira "OTHER" (opcional)
+  return "OTHER";
 }
 
 function getCardsByActiveType(list) {
-  if (state.activeTypeTab === "ALL") return list;
-  const wanted = state.activeTypeTab;
-  return list.filter((c) => normalizeCardType(c.type) === wanted);
+  const arr = Array.isArray(list) ? list : [];
+  const active = String(state.activeTypeTab || "ALL").toUpperCase();
+
+  if (active === "ALL") return arr;
+
+  // Filtra usando a mesma normalização
+  return arr.filter((card) => {
+    const t = normalizeCardTypeForTabs(card?.type);
+
+    // segurança: se cair em "REMOVED", não exibe nunca
+    if (t === "REMOVED") return false;
+
+    // se existir tab OTHER, só entra o que não for tab principal
+    if (active === "OTHER") return t === "OTHER";
+
+    // default: match direto
+    return t === active;
+  });
 }
 
 function updateTabsCounts(listAll) {
+  const list = Array.isArray(listAll) ? listAll : [];
+
   const counts = {
-    ALL: listAll.length,
+    ALL: list.length,
     SMART: 0,
     DEAL: 0,
-    PRICE_MATCHING: 0,
-    PRICE_MATCHING_MELI_ALL: 0,
     SELLER_CAMPAIGN: 0,
-    MARKETPLACE_CAMPAIGN: 0,
     PRICE_DISCOUNT: 0,
-    DOD: 0,
     OTHER: 0,
   };
 
-  for (const c of listAll) {
-    const ty = normalizeCardType(c.type);
+  for (const c of list) {
+    const ty = normalizeCardTypeForTabs(c?.type);
+    if (ty === "REMOVED") continue;
     counts[ty] = (counts[ty] || 0) + 1;
   }
 
   document.querySelectorAll("[data-count]").forEach((el) => {
-    const k = el.getAttribute("data-count");
+    const k = String(el.getAttribute("data-count") || "").toUpperCase();
     if (!k) return;
-    el.textContent = String(counts[k] ?? 0);
+    if (counts[k] == null) return;
+    el.textContent = String(counts[k]);
   });
 
   const label = document.getElementById("promoTabsLabel");
   const meta = document.getElementById("promoTabsMeta");
-  if (label)
+  if (label) {
     label.textContent = TYPE_LABELS[state.activeTypeTab] || state.activeTypeTab;
+  }
   if (meta) {
-    const total = listAll.length;
-    const showing = getCardsByActiveType(listAll).length;
-    meta.textContent = `${showing} de ${total} campanhas`;
+    const showing = getCardsByActiveType(list).length;
+    meta.textContent = `${showing} de ${list.length} campanhas`;
   }
 }
 
@@ -851,86 +882,243 @@ function setupTypeTabs() {
   const row = document.getElementById("promoTypeTabs");
   if (!row) return;
 
+  // evita múltiplos binds se carregarCards chamar mais de uma vez
+  if (row.dataset.bound === "1") return;
+  row.dataset.bound = "1";
+
   row.addEventListener("click", (ev) => {
     const btn = ev.target.closest?.("button[data-type]");
     if (!btn) return;
 
+    // Se estiver oculto/desabilitado, ignora
+    if (btn.classList.contains("is-hidden") || btn.disabled) return;
+
     const type = String(btn.dataset.type || "ALL").toUpperCase();
+
+    // Agora só aceitamos ALL | SMART | DEAL | SELLER_CAMPAIGN | PRICE_DISCOUNT | OTHER
     state.activeTypeTab = type;
 
-    row.querySelectorAll(".promo-tab").forEach((b) => {
+    row.querySelectorAll("button[data-type]").forEach((b) => {
       const isOn = String(b.dataset.type || "").toUpperCase() === type;
       b.classList.toggle("active", isOn);
       b.setAttribute("aria-selected", isOn ? "true" : "false");
     });
 
-    // re-render cards aplicando MLB filter + tipo
     renderCards();
+    atualizarFaixaSelecaoCampanha();
   });
 }
 
 /* ======================== Cards ======================== */
 
+// --- coloque extractList fora do carregarCards (ideal) ou mantenha aqui ---
+function extractList(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+
+  if (payload.data) {
+    const v = payload.data;
+    if (Array.isArray(v)) return v;
+    if (Array.isArray(v.results)) return v.results;
+    if (Array.isArray(v.users)) return v.users;
+    if (Array.isArray(v.campaigns)) return v.campaigns;
+    if (Array.isArray(v.items)) return v.items;
+  }
+
+  if (Array.isArray(payload.results)) return payload.results;
+  if (Array.isArray(payload.users)) return payload.users;
+  if (Array.isArray(payload.campaigns)) return payload.campaigns;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.rows)) return payload.rows;
+
+  for (const k of Object.keys(payload)) {
+    if (Array.isArray(payload[k])) return payload[k];
+  }
+  return [];
+}
+
 async function carregarCards() {
   const $cards = elCards();
+  if (!$cards) return;
+
   $cards.classList.add("cards-grid");
   $cards.innerHTML = `<div class="card"><h3>Carregando promoções…</h3><div class="muted">Aguarde</div></div>`;
+
+  function applyTabsVisibility(listAllFilteredByMLB) {
+    const counts = {
+      ALL: listAllFilteredByMLB.length,
+      SMART: 0,
+      DEAL: 0,
+      SELLER_CAMPAIGN: 0,
+      PRICE_DISCOUNT: 0,
+      OTHER: 0,
+    };
+
+    for (const c of listAllFilteredByMLB) {
+      const ty = normalizeCardTypeForTabs(c.type);
+      if (ty === "REMOVED") continue;
+      counts[ty] = (counts[ty] || 0) + 1;
+    }
+
+    document.querySelectorAll("[data-count]").forEach((el) => {
+      const k = String(el.getAttribute("data-count") || "").toUpperCase();
+      if (!k) return;
+      if (counts[k] == null) return;
+      el.textContent = String(counts[k]);
+    });
+
+    const row = document.getElementById("promoTypeTabs");
+    if (!row) return;
+
+    row.querySelectorAll("button[data-type]").forEach((btn) => {
+      const type = String(btn.dataset.type || "").toUpperCase();
+
+      const isRemoved =
+        TAB_POLICY.removeTypes.has(type) ||
+        type === "DOD" ||
+        type === "MARKETPLACE_CAMPAIGN" ||
+        type === "PRICE_MATCHING_MELI_ALL";
+
+      if (isRemoved) {
+        btn.classList.add("is-hidden");
+        btn.style.display = "none";
+        return;
+      }
+
+      const allowed = new Set([
+        "ALL",
+        "SMART",
+        "DEAL",
+        "SELLER_CAMPAIGN",
+        "PRICE_DISCOUNT",
+        "OTHER",
+      ]);
+
+      if (!allowed.has(type)) {
+        btn.classList.add("is-hidden");
+        btn.style.display = "none";
+        return;
+      }
+
+      if (TAB_POLICY.hideZeros && type !== "ALL") {
+        const n = counts[type] ?? 0;
+        btn.style.display = n > 0 ? "" : "none";
+      } else {
+        btn.style.display = "";
+      }
+
+      btn.classList.remove("is-hidden");
+    });
+
+    const activeBtn = row.querySelector(
+      `button[data-type="${state.activeTypeTab}"]`
+    );
+    const activeHidden =
+      !activeBtn || activeBtn.style.display === "none" || activeBtn.disabled;
+
+    if (activeHidden) {
+      state.activeTypeTab = "ALL";
+      row.querySelectorAll("button[data-type]").forEach((b) => {
+        const isOn = String(b.dataset.type || "").toUpperCase() === "ALL";
+        b.classList.toggle("active", isOn);
+        b.setAttribute("aria-selected", isOn ? "true" : "false");
+      });
+    }
+  }
 
   try {
     setupTypeTabs();
 
-    // ✅ suporta tanto {results: []} quanto paginação {paging:{total,limit,offset}}
-    let all = [];
-    let data = await getJSONAny(usersPaths());
+    const tryVariants = [
+      (p) => `${p}?status=all`,
+      (p) => `${p}?status=started,scheduled`,
+      (p) => `${p}?status=started,pending`,
+      (p) => `${p}?status=active,scheduled`,
+      (p) => p,
+    ];
 
-    const getResults = (d) =>
-      Array.isArray(d?.results) ? d.results : Array.isArray(d) ? d : [];
-    all.push(...getResults(data));
+    let data = null;
+    let buildOk = null;
 
-    // Paginação opcional (se existir)
+    for (const build of tryVariants) {
+      try {
+        data = await getJSONAny(usersPaths().map(build));
+        const first = extractList(data);
+        if (first.length) {
+          buildOk = build;
+          break;
+        }
+      } catch {
+        // tenta a próxima variação
+      }
+    }
+
+    if (!data) throw new Error("Sem resposta do /users");
+
+    let all = extractList(data);
+
     const paging = data?.paging || null;
-    const total = Number(paging?.total || 0);
+    const total = Number(paging?.total || all.length || 0);
     const limit = Number(paging?.limit || 0);
     let offset = Number(paging?.offset || 0);
 
-    // se o backend expõe paging por offset/limit, busca em loop
+    // ✅ Paginação preservando o mesmo “build” que funcionou (status=...)
     if (total > 0 && limit > 0 && all.length < total) {
-      const maxLoops = 200; // proteção
+      const maxLoops = 200;
       for (let i = 0; i < maxLoops; i++) {
         offset += limit;
+        if (offset >= total) break;
 
-        // tenta passar offset/limit como querystring no mesmo endpoint (se backend aceitar)
-        const tryPaged = await getJSONAny(
-          usersPaths().map(
-            (p) =>
-              `${p}?limit=${encodeURIComponent(
-                limit
-              )}&offset=${encodeURIComponent(offset)}`
-          )
+        const pageData = await getJSONAny(
+          usersPaths().map((p) => {
+            const base = buildOk ? buildOk(p) : p;
+            const join = base.includes("?") ? "&" : "?";
+            return `${base}${join}limit=${encodeURIComponent(
+              limit
+            )}&offset=${encodeURIComponent(offset)}`;
+          })
         );
 
-        const pageItems = getResults(tryPaged);
+        const pageItems = extractList(pageData);
         if (!pageItems.length) break;
 
         all.push(...pageItems);
+        if (pageItems.length < limit) break;
         if (all.length >= total) break;
       }
     }
 
-    state.cards = all;
-    console.log(`ℹ️ ${state.cards.length} cards carregados`);
+    const seen = new Set();
+    all = all.filter((c) => {
+      const id = String(c?.id || "");
+      if (!id) return false;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
 
-    // Atualiza contadores das tabs com o universo filtrado por MLB (se houver)
-    if (state.mlbFilter) await filtrarCardsPorMLB(state.mlbFilter);
-    else {
-      updateTabsCounts(state.cards);
-      renderCards();
+    all = all.filter((c) => normalizeCardTypeForTabs(c.type) !== "REMOVED");
+
+    state.cards = all;
+    console.log(`ℹ️ ${state.cards.length} cards carregados (total)`);
+
+    if (state.mlbFilter) {
+      await filtrarCardsPorMLB(state.mlbFilter);
     }
+
+    const baseList = state.cardsFilteredIds
+      ? state.cards.filter((c) => state.cardsFilteredIds.has(c.id))
+      : state.cards;
+
+    applyTabsVisibility(baseList);
+
+    renderCards();
   } catch (e) {
     const authMsg =
       e?.cause?.status === 401 || e?.cause?.status === 403
         ? "Sua sessão com o Mercado Livre expirou ou não é de usuário. Clique em “Trocar Conta” e reconecte."
         : "Não foi possível carregar promoções (ver console).";
+
     console.error("[/users] erro ao carregar cards:", e, e?.cause);
     $cards.innerHTML = `<div class="card"><h3>Falha</h3><pre class="muted">${esc(
       authMsg
@@ -1045,11 +1233,8 @@ async function filtrarCardsPorMLB(mlb) {
       `/api/promotions/items/${encodeURIComponent(mlb)}`,
     ]);
 
-    const promos = Array.isArray(resp)
-      ? resp
-      : Array.isArray(resp.results)
-      ? resp.results
-      : [];
+    const promos = extractList(resp);
+
     const idsDoItem = new Set(promos.filter((p) => p && p.id).map((p) => p.id));
 
     state.cardsFilteredIds = new Set(
@@ -1277,6 +1462,7 @@ function renderTabela(items) {
 
   const benefitsGlobal =
     state.promotionBenefits || state.selectedCard?.benefits || null;
+
   const typeUp = (state.selectedCard?.type || "").toUpperCase();
   const isSmartLike = [
     "SMART",
@@ -1320,20 +1506,28 @@ function renderTabela(items) {
           toNum(it.rebate_meli_percent) ??
           toNum(rb.meli) ??
           toNum(benefitsGlobal?.meli_percent);
+
         const s =
           toNum(it.seller_percentage) ??
           toNum(rb.seller) ??
           toNum(benefitsGlobal?.seller_percent);
+
         const tot = toNum((m || 0) + (s || 0));
         if (descPct == null && (m != null || s != null)) descPct = tot;
-        if (basePrice == null && descPct != null)
+
+        if (basePrice == null && descPct != null) {
           basePrice = original * (1 - descPct / 100);
+        }
+
+        // compat visual
         if (it.rebate_meli_percent == null && m != null)
           it.rebate_meli_percent = m;
       }
 
       if (isDealLike) {
         if (res.pct != null) descPct = res.pct;
+
+        // correção de discrepância absurda
         if (
           descPct != null &&
           descPct > 70 &&
@@ -1353,14 +1547,19 @@ function renderTabela(items) {
       }
 
       const precoAtual = original != null ? fmtMoeda(original) : "—";
+
+      // “Preço final” (campo do payload) — mantém como você tinha
       const precoFinal =
         toNum(it.deal_price) != null ? fmtMoeda(toNum(it.deal_price)) : "—";
+
+      // “Novo preço” (heurístico)
       const novoPreco =
         basePrice != null
           ? res.estimated
             ? `≈ ${fmtMoeda(basePrice)}`
             : fmtMoeda(basePrice)
           : "—";
+
       const rb = pickRebate(it);
       const meliPct =
         it.meli_percentage != null
@@ -1376,6 +1575,7 @@ function renderTabela(items) {
       const hasRebate =
         isSmartLike &&
         (meliPct != null || rb.type === "REBATE" || rb.meli != null);
+
       const rebateCell = hasRebate
         ? `${
             meliPct != null ? fmtPerc(meliPct, 2) + " " : ""
@@ -1384,29 +1584,30 @@ function renderTabela(items) {
 
       const status = statusLabel(it.status);
 
+      // ✅ IMPORTANTE: onclick seguro (não usa esc(), usa jsStr())
       return `<tr>
-      <td style="text-align:center"><input type="checkbox" data-mlb="${esc(
-        mlb
-      )}"></td>
-      <td>${esc(mlb)}</td>
-      <td>${esc(tit)}</td>
-      <td>${esc(est)}</td>
-      <td>${esc(sku)}</td>
-      <td>${precoAtual}</td>
-      <td>${descPct != null ? fmtPerc(descPct, 2) : "—"}</td>
-      <td>${precoFinal}</td>
-      <td>${rebateCell}</td>
-      <td>${novoPreco}</td>
-      <td>${esc(status)}</td>
-      <td style="text-align:right">
-        <button class="btn primary" onclick="aplicarUnico('${esc(
+        <td style="text-align:center"><input type="checkbox" data-mlb="${esc(
           mlb
-        )}')">Aplicar</button>
-        <button class="btn ghost" onclick="removerUnicoDaCampanha('${esc(
-          mlb
-        )}')">Remover</button>
-      </td>
-    </tr>`;
+        )}"></td>
+        <td>${esc(mlb)}</td>
+        <td>${esc(tit)}</td>
+        <td>${esc(est)}</td>
+        <td>${esc(sku)}</td>
+        <td>${precoAtual}</td>
+        <td>${descPct != null ? fmtPerc(descPct, 2) : "—"}</td>
+        <td>${precoFinal}</td>
+        <td>${rebateCell}</td>
+        <td>${novoPreco}</td>
+        <td>${esc(status)}</td>
+        <td style="text-align:right">
+          <button class="btn primary" onclick="aplicarUnico(${jsStr(
+            mlb
+          )})">Aplicar</button>
+          <button class="btn ghost" onclick="removerUnicoDaCampanha(${jsStr(
+            mlb
+          )})">Remover</button>
+        </td>
+      </tr>`;
     })
     .join("");
 
@@ -1486,11 +1687,8 @@ async function montarItemRapido(mlb) {
     `/api/promotions/items/${encodeURIComponent(mlb)}`,
   ]);
 
-  const promos = Array.isArray(resp)
-    ? resp
-    : Array.isArray(resp.results)
-    ? resp.results
-    : [];
+  const promos = extractList(resp);
+
   const sel = state.selectedCard;
   const match = promos.find((p) => p && p.id === sel?.id) || null;
   if (!match) return null;
@@ -2407,13 +2605,70 @@ function getSelecionados() {
     (el) => el.dataset.mlb
   );
 }
+
+async function coletarTodosIdsFiltrados() {
+  if (!state.selectedCard) return [];
+
+  // Se tiver MLB específico, não precisa varrer páginas
+  const only = (state.mlbFilter || "").trim().toUpperCase();
+  if (only) return [only];
+
+  const statusParam = filtroToStatusParam();
+  let token = null;
+
+  const out = [];
+  const seen = new Set();
+
+  for (let i = 0; i < 500; i++) {
+    const qs = qsBuild({
+      limit: PAGE_SIZE,
+      ...(statusParam ? { status: statusParam } : {}),
+      ...(token ? { search_after: token } : {}),
+    });
+
+    const data = await getJSONAny(
+      itemsPaths(state.selectedCard.id, state.selectedCard.type, qs)
+    );
+
+    if (data?.promotion_benefits)
+      state.promotionBenefits = data.promotion_benefits;
+
+    let items = Array.isArray(data?.results) ? data.results : [];
+    items = items.map((x) => ({ ...x, status: normalizeStatus(x.status) }));
+    items = dedupeByMLB(items, statusParam || "");
+
+    // Aplica maxDesc aqui também, pra refletir “filtrados”
+    if (state.maxDesc != null) {
+      const benefitsGlobal =
+        state.promotionBenefits || state.selectedCard?.benefits || null;
+
+      items = items.filter((x) => {
+        const descPct = computeDescPct(x, benefitsGlobal);
+        return descPct != null && Number(descPct) <= Number(state.maxDesc);
+      });
+    }
+
+    for (const it of items) {
+      const id = String(it?.id || "").toUpperCase();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+
+    token = data?.paging?.searchAfter || null;
+    if (!token) break;
+  }
+
+  out.sort(sortByMLBAsc);
+  return out;
+}
+
 function removerUnicoDaCampanha(mlb) {
   alert(`(stub) Remover ${mlb} da campanha ${state.selectedCard?.id || ""}`);
 }
 
 window.goPage = goPage;
 window.toggleTodos = toggleTodos;
-window.aplicarLoteSelecionados = aplicarLoteSelecionados;
 window.removerUnicoDaCampanha = removerUnicoDaCampanha;
 window.removerEmMassaSelecionados = removerEmMassaSelecionados;
 window.aplicarTodosFiltrados = aplicarTodosFiltrados;
