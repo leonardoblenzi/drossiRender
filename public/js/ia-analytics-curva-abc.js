@@ -942,10 +942,13 @@
   async function exportCSV() {
     try {
       setLoading(true);
+
+      // ✅ só o painel inferior (Exportação)
       progressFab.show("Carregando dados para exportação…");
-      showProgress("Exportando CSV…");
-      logProgress("Iniciando exportação…");
+
+      // ✅ garante que o painel antigo não apareça (se existir por algum motivo)
       hideProgress();
+
       const allRows = await fetchAllPages(
         (page, totalPages, opts) => {
           progressFab.progress(page, totalPages, opts);
@@ -955,7 +958,6 @@
       );
 
       progressFab.message("Gerando CSV…");
-      logProgress("Gerando arquivo CSV…");
 
       let rowsForCsv = allRows.slice();
 
@@ -1061,7 +1063,6 @@
         ];
       });
 
-      // monta CSV com ; e aspas
       const data = [head, ...csvRows]
         .map((cols) => cols.map((c) => `"${String(c)}"`).join(";"))
         .join("\r\n");
@@ -1083,7 +1084,6 @@
       console.error(e);
       progressFab.message("Falha: " + (e?.message || e));
       progressFab.done(false);
-      logProgress("Falha: " + (e?.message || e), "error");
       alert("❌ Falha ao exportar CSV: " + (e?.message || e));
     } finally {
       setLoading(false);
