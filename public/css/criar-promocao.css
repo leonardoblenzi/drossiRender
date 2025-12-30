@@ -4,7 +4,6 @@
    - Foco em tabela + seleção
 ================================================================= */
 
-
 .hidden { display: none !important; }
 
 :root{
@@ -34,7 +33,7 @@
 
 /* ✅ body sem padding lateral = tabs ocupam 100% */
 body{
-  padding: 80px 0 24px;     /* era 80px 20px 24px */
+  padding: 80px 0 24px;
   background: var(--ml-bg);
   color: var(--ml-text);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -45,7 +44,7 @@ body{
 .wrap{
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 20px;          /* era 0 4px */
+  padding: 0 20px;
 }
 
 h2{
@@ -112,7 +111,6 @@ h2{
   animation: spin 0.8s linear infinite;
 }
 
-/* Checkbox desabilitado com feedback visual */
 input[type="checkbox"][disabled]{
   cursor: not-allowed;
   opacity: .7;
@@ -149,6 +147,68 @@ input[type="checkbox"][disabled]{
   border-radius:8px;
   background:#fff;
   color:var(--ml-dark);
+}
+
+/* ✅ NOVO: Abas de categorias (estilo ML) */
+.promo-tabs{
+  margin: 10px 0 8px;
+}
+.promo-tabs__row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  overflow:auto;
+  padding: 6px 2px 10px;
+  scrollbar-width: thin;
+}
+.promo-tab{
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ml-dark);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 800;
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: transform .06s ease, box-shadow .2s ease, border-color .15s ease, background .15s ease;
+  box-shadow: 0 6px 14px rgba(0,0,0,.06);
+}
+.promo-tab:hover{ filter: brightness(.99); }
+.promo-tab:active{ transform: translateY(1px); }
+.promo-tab .count{
+  display:inline-flex;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  align-items:center;
+  justify-content:center;
+  background: #eef2f7;
+  border: 1px solid var(--border);
+  font-weight: 900;
+  font-size: .78rem;
+  color: #111827;
+}
+.promo-tab.active{
+  background: #e8f1ff;
+  border-color: rgba(52,131,250,.55);
+  box-shadow: 0 10px 20px rgba(52,131,250,.18);
+}
+.promo-tab.active .count{
+  background: var(--ml-blue);
+  border-color: var(--ml-blue);
+  color: #fff;
+}
+.promo-tabs__hint{
+  margin-top: 2px;
+  font-size: .88rem;
+}
+.promo-tabs__hint .sep{
+  margin: 0 8px;
+  opacity: .6;
 }
 
 /* Cards de campanha */

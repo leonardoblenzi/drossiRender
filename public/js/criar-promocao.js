@@ -155,6 +155,7 @@ const state = {
   items: [],
   selectedCard: null,
   promotionBenefits: null,
+  activeTypeTab: "ALL", // ALL | SMART | DEAL | ...
 
   filtroParticipacao: "all", // all|yes|non|prog
   maxDesc: null, // percent max (número) para filtro
@@ -774,18 +775,157 @@ async function buscarCardsDoItem(mlb) {
   return [];
 }
 
+/* ======================== Tabs por tipo (Cards) ======================== */
+
+const TYPE_LABELS = {
+  ALL: "Todas",
+  SMART: "Smart",
+  DEAL: "Deal",
+  PRICE_MATCHING: "Price Matching",
+  PRICE_MATCHING_MELI_ALL: "PM (ML)",
+  SELLER_CAMPAIGN: "Seller",
+  MARKETPLACE_CAMPAIGN: "Marketplace",
+  PRICE_DISCOUNT: "Price Discount",
+  DOD: "DOD",
+  OTHER: "Outros",
+};
+
+function normalizeCardType(t) {
+  const up = String(t || "").toUpperCase();
+  const known = new Set([
+    "SMART",
+    "DEAL",
+    "PRICE_MATCHING",
+    "PRICE_MATCHING_MELI_ALL",
+    "SELLER_CAMPAIGN",
+    "MARKETPLACE_CAMPAIGN",
+    "PRICE_DISCOUNT",
+    "DOD",
+  ]);
+  return known.has(up) ? up : "OTHER";
+}
+
+function getCardsByActiveType(list) {
+  if (state.activeTypeTab === "ALL") return list;
+  const wanted = state.activeTypeTab;
+  return list.filter((c) => normalizeCardType(c.type) === wanted);
+}
+
+function updateTabsCounts(listAll) {
+  const counts = {
+    ALL: listAll.length,
+    SMART: 0,
+    DEAL: 0,
+    PRICE_MATCHING: 0,
+    PRICE_MATCHING_MELI_ALL: 0,
+    SELLER_CAMPAIGN: 0,
+    MARKETPLACE_CAMPAIGN: 0,
+    PRICE_DISCOUNT: 0,
+    DOD: 0,
+    OTHER: 0,
+  };
+
+  for (const c of listAll) {
+    const ty = normalizeCardType(c.type);
+    counts[ty] = (counts[ty] || 0) + 1;
+  }
+
+  document.querySelectorAll("[data-count]").forEach((el) => {
+    const k = el.getAttribute("data-count");
+    if (!k) return;
+    el.textContent = String(counts[k] ?? 0);
+  });
+
+  const label = document.getElementById("promoTabsLabel");
+  const meta = document.getElementById("promoTabsMeta");
+  if (label)
+    label.textContent = TYPE_LABELS[state.activeTypeTab] || state.activeTypeTab;
+  if (meta) {
+    const total = listAll.length;
+    const showing = getCardsByActiveType(listAll).length;
+    meta.textContent = `${showing} de ${total} campanhas`;
+  }
+}
+
+function setupTypeTabs() {
+  const row = document.getElementById("promoTypeTabs");
+  if (!row) return;
+
+  row.addEventListener("click", (ev) => {
+    const btn = ev.target.closest?.("button[data-type]");
+    if (!btn) return;
+
+    const type = String(btn.dataset.type || "ALL").toUpperCase();
+    state.activeTypeTab = type;
+
+    row.querySelectorAll(".promo-tab").forEach((b) => {
+      const isOn = String(b.dataset.type || "").toUpperCase() === type;
+      b.classList.toggle("active", isOn);
+      b.setAttribute("aria-selected", isOn ? "true" : "false");
+    });
+
+    // re-render cards aplicando MLB filter + tipo
+    renderCards();
+  });
+}
+
 /* ======================== Cards ======================== */
 
 async function carregarCards() {
   const $cards = elCards();
   $cards.classList.add("cards-grid");
   $cards.innerHTML = `<div class="card"><h3>Carregando promoções…</h3><div class="muted">Aguarde</div></div>`;
+
   try {
-    const data = await getJSONAny(usersPaths());
-    state.cards = Array.isArray(data.results) ? data.results : [];
+    setupTypeTabs();
+
+    // ✅ suporta tanto {results: []} quanto paginação {paging:{total,limit,offset}}
+    let all = [];
+    let data = await getJSONAny(usersPaths());
+
+    const getResults = (d) =>
+      Array.isArray(d?.results) ? d.results : Array.isArray(d) ? d : [];
+    all.push(...getResults(data));
+
+    // Paginação opcional (se existir)
+    const paging = data?.paging || null;
+    const total = Number(paging?.total || 0);
+    const limit = Number(paging?.limit || 0);
+    let offset = Number(paging?.offset || 0);
+
+    // se o backend expõe paging por offset/limit, busca em loop
+    if (total > 0 && limit > 0 && all.length < total) {
+      const maxLoops = 200; // proteção
+      for (let i = 0; i < maxLoops; i++) {
+        offset += limit;
+
+        // tenta passar offset/limit como querystring no mesmo endpoint (se backend aceitar)
+        const tryPaged = await getJSONAny(
+          usersPaths().map(
+            (p) =>
+              `${p}?limit=${encodeURIComponent(
+                limit
+              )}&offset=${encodeURIComponent(offset)}`
+          )
+        );
+
+        const pageItems = getResults(tryPaged);
+        if (!pageItems.length) break;
+
+        all.push(...pageItems);
+        if (all.length >= total) break;
+      }
+    }
+
+    state.cards = all;
     console.log(`ℹ️ ${state.cards.length} cards carregados`);
+
+    // Atualiza contadores das tabs com o universo filtrado por MLB (se houver)
     if (state.mlbFilter) await filtrarCardsPorMLB(state.mlbFilter);
-    else renderCards();
+    else {
+      updateTabsCounts(state.cards);
+      renderCards();
+    }
   } catch (e) {
     const authMsg =
       e?.cause?.status === 401 || e?.cause?.status === 403
@@ -803,14 +943,26 @@ async function carregarCards() {
 function renderCards() {
   const $cards = elCards();
   $cards.classList.add("cards-grid");
-  const list = state.cardsFilteredIds
+
+  // 1) base: filtro MLB (se existir)
+  const baseList = state.cardsFilteredIds
     ? state.cards.filter((c) => state.cardsFilteredIds.has(c.id))
     : state.cards;
 
+  // 2) contadores sempre refletem o “universo atual” (já filtrado por MLB)
+  updateTabsCounts(baseList);
+
+  // 3) aplica filtro por aba (tipo)
+  const list = getCardsByActiveType(baseList);
+
   if (!list.length) {
     const msg = state.mlbFilter
-      ? `Nenhuma campanha oferece promoção para o item ${esc(state.mlbFilter)}.`
-      : "Nenhuma promoção disponível";
+      ? `Nenhuma campanha (${
+          TYPE_LABELS[state.activeTypeTab] || state.activeTypeTab
+        }) oferece promoção para o item ${esc(state.mlbFilter)}.`
+      : `Nenhuma promoção em ${
+          TYPE_LABELS[state.activeTypeTab] || state.activeTypeTab
+        }.`;
     $cards.innerHTML = `<div class="card"><h3>${msg}</h3></div>`;
     return;
   }
@@ -869,9 +1021,13 @@ function destacarCardSelecionado() {
   $cards
     .querySelectorAll("div.card")
     .forEach((n) => n.classList.remove("card--active"));
-  const list = state.cardsFilteredIds
+
+  const baseList = state.cardsFilteredIds
     ? state.cards.filter((c) => state.cardsFilteredIds.has(c.id))
     : state.cards;
+
+  const list = getCardsByActiveType(baseList);
+
   const idx = list.findIndex((c) => c.id === state.selectedCard?.id);
   if (idx >= 0 && $cards.children[idx])
     $cards.children[idx].classList.add("card--active");
@@ -900,6 +1056,10 @@ async function filtrarCardsPorMLB(mlb) {
       state.cards.filter((c) => idsDoItem.has(c.id)).map((c) => c.id)
     );
     renderCards();
+
+    updateTabsCounts(
+      state.cards.filter((c) => state.cardsFilteredIds.has(c.id))
+    );
 
     const list = state.cards.filter((c) => state.cardsFilteredIds.has(c.id));
     if (list.length === 1) selecionarCard(list[0]);

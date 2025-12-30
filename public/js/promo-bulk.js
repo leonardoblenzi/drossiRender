@@ -13,7 +13,7 @@
 //   };
 
 (function () {
-  const $  = (s) => document.querySelector(s);
+  const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
 
   const ui = {
@@ -33,7 +33,7 @@
   const ctx = {
     promotion_id: null,
     promotion_type: null,
-    filtros: { status: 'all', maxDesc: null, mlb: null },
+    filtros: { status: "all", maxDesc: null, mlb: null },
     headerChecked: false,
 
     // seleção global (toda campanha filtrada)
@@ -56,16 +56,16 @@
   /* ====================== Mensagem de "seleção preparada" ====================== */
 
   function showPreparedMessage(total) {
-    const selBar = document.getElementById('selectionBar');
-    const selMsg = document.getElementById('selMsg');
+    const selBar = document.getElementById("selectionBar");
+    const selMsg = document.getElementById("selMsg");
     if (!selBar || !selMsg) return;
 
-    selBar.classList.remove('hidden');
+    selBar.classList.remove("hidden");
     const original = selMsg.textContent;
 
     selMsg.textContent =
-      `Seleção preparada: ${total} anúncio${total === 1 ? '' : 's'} ` +
-      `filtrado${total === 1 ? '' : 's'} na campanha.`;
+      `Seleção preparada: ${total} anúncio${total === 1 ? "" : "s"} ` +
+      `filtrado${total === 1 ? "" : "s"} na campanha.`;
 
     // volta ao texto anterior depois de alguns segundos
     setTimeout(() => {
@@ -84,20 +84,26 @@
   }
 
   function getSelectedMLBs() {
-    return $$('#tbody input[type="checkbox"][data-mlb]:checked').map((x) => x.dataset.mlb);
+    return $$('#tbody input[type="checkbox"][data-mlb]:checked').map(
+      (x) => x.dataset.mlb
+    );
   }
 
   function getAllPageMLBs() {
-    return $$('#tbody input[type="checkbox"][data-mlb]').map((x) => x.dataset.mlb);
+    return $$('#tbody input[type="checkbox"][data-mlb]').map(
+      (x) => x.dataset.mlb
+    );
   }
 
   function getCampanhaNome() {
-    return (document.getElementById('campName')?.textContent || 'Campanha').trim();
+    return (
+      document.getElementById("campName")?.textContent || "Campanha"
+    ).trim();
   }
 
   function getDelayMs() {
     if (!ui.delayInput) return 900;
-    const v = Number(String(ui.delayInput.value || '').replace(',', '.'));
+    const v = Number(String(ui.delayInput.value || "").replace(",", "."));
     if (Number.isNaN(v) || v < 0) return 900;
     return v;
   }
@@ -108,28 +114,31 @@
 
   function ensureUI() {
     if (!ui.wrap) {
-      ui.wrap   = document.getElementById('bulkControls');
-      ui.btnSel = document.getElementById('bulkSelectAllBtn');
-      ui.btnApp = document.getElementById('bulkApplyAllBtn');
-      ui.btnRem = document.getElementById('bulkRemoveAllBtn');
+      ui.wrap = document.getElementById("bulkControls");
+      ui.btnSel = document.getElementById("bulkSelectAllBtn");
+      ui.btnApp = document.getElementById("bulkApplyAllBtn");
+      ui.btnRem = document.getElementById("bulkRemoveAllBtn");
 
-      if (ui.btnSel) ui.btnSel.addEventListener('click', onSelectAllPage);
-      if (ui.btnApp) ui.btnApp.addEventListener('click', onApplyPageBtn);
-      if (ui.btnRem) ui.btnRem.addEventListener('click', onRemovePageBtn);
+      if (ui.btnSel) ui.btnSel.addEventListener("click", onSelectAllPage);
+      if (ui.btnApp) ui.btnApp.addEventListener("click", onApplyPageBtn);
+      if (ui.btnRem) ui.btnRem.addEventListener("click", onRemovePageBtn);
     }
 
     if (!ui.selBar) {
-      ui.selBar            = document.getElementById('selectionBar');
-      ui.selMsg            = document.getElementById('selMsg');
-      ui.selAllCampaignBtn = document.getElementById('selAllCampaignBtn');
-      ui.selApplyBtn       = document.getElementById('selApplyBtn');
-      ui.selRemoveBtn      = document.getElementById('selRemoveBtn');
-      ui.delayInput        = document.getElementById('bulkDelayMs');
-      ui.dryRunToggle      = document.getElementById('dryRunToggle');
+      ui.selBar = document.getElementById("selectionBar");
+      ui.selMsg = document.getElementById("selMsg");
+      ui.selAllCampaignBtn = document.getElementById("selAllCampaignBtn");
+      ui.selApplyBtn = document.getElementById("selApplyBtn");
+      ui.selRemoveBtn = document.getElementById("selRemoveBtn");
+      ui.delayInput = document.getElementById("bulkDelayMs");
+      ui.dryRunToggle = document.getElementById("dryRunToggle");
 
-      if (ui.selAllCampaignBtn) ui.selAllCampaignBtn.addEventListener('click', onSelectWholeCampaign);
-      if (ui.selApplyBtn)       ui.selApplyBtn.addEventListener('click', onApplyClick);
-      if (ui.selRemoveBtn)      ui.selRemoveBtn.addEventListener('click', onRemoveClick);
+      if (ui.selAllCampaignBtn)
+        ui.selAllCampaignBtn.addEventListener("click", onSelectWholeCampaign);
+      if (ui.selApplyBtn)
+        ui.selApplyBtn.addEventListener("click", onApplyClick);
+      if (ui.selRemoveBtn)
+        ui.selRemoveBtn.addEventListener("click", onRemoveClick);
     }
   }
 
@@ -143,12 +152,12 @@
     if (ui.selAllCampaignBtn) {
       ui.selAllCampaignBtn.disabled = isOn;
       if (isOn) {
-        ui.selAllCampaignBtn.classList.add('is-loading');
+        ui.selAllCampaignBtn.classList.add("is-loading");
       } else {
-        ui.selAllCampaignBtn.classList.remove('is-loading');
+        ui.selAllCampaignBtn.classList.remove("is-loading");
       }
     }
-    if (ui.selApplyBtn)  ui.selApplyBtn.disabled  = isOn;
+    if (ui.selApplyBtn) ui.selApplyBtn.disabled = isOn;
     if (ui.selRemoveBtn) ui.selRemoveBtn.disabled = isOn;
 
     // desabilita checkboxes da tabela (header + linhas)
@@ -156,20 +165,23 @@
       ch.disabled = isOn;
     });
     const headerChk =
-      document.querySelector('input[type="checkbox"][data-role="select-all"]') ||
-      document.querySelector('#chkSelectAll');
+      document.querySelector("#checkAll") ||
+      document.querySelector(
+        'input[type="checkbox"][data-role="select-all"]'
+      ) ||
+      document.querySelector("#chkSelectAll");
     if (headerChk) headerChk.disabled = isOn;
 
     // mensagem amigável na faixa
     if (ui.selBar && ui.selMsg) {
       if (isOn) {
-        ui.selBar.classList.remove('hidden');
-        ui.selBar.classList.add('is-loading');
+        ui.selBar.classList.remove("hidden");
+        ui.selBar.classList.add("is-loading");
         ui.selMsg.textContent =
-          'Preparando seleção da campanha (coletando itens filtrados)… ' +
-          'Em campanhas grandes isso pode levar alguns segundos.';
+          "Preparando seleção da campanha (coletando itens filtrados)… " +
+          "Em campanhas grandes isso pode levar alguns segundos.";
       } else {
-        ui.selBar.classList.remove('is-loading');
+        ui.selBar.classList.remove("is-loading");
         // o texto normal será recalculado pelo updateSelectionBar()
         updateSelectionBar();
       }
@@ -205,9 +217,9 @@
 
     const total = countVisible();
     if (!ctx.headerChecked || total === 0) {
-      ui.wrap.classList.add('hidden');
+      ui.wrap.classList.add("hidden");
     } else {
-      ui.wrap.classList.remove('hidden');
+      ui.wrap.classList.remove("hidden");
       ui.btnSel.textContent = `Selecionar todos (${total} exibidos)`;
       ui.btnApp.disabled = false;
       ui.btnRem.disabled = false;
@@ -220,44 +232,49 @@
 
     // se está preparando seleção, não mexe no texto/labels aqui
     if (ctx.isPreparingSelection) {
-      ui.selBar.classList.remove('hidden');
+      ui.selBar.classList.remove("hidden");
       return;
     }
 
-    const pageSel   = countSelected();
-    const isGlobal  = !!ctx.global.selectedAll;
+    const pageSel = countSelected();
+    const isGlobal = !!ctx.global.selectedAll;
     const globTotal = Number(ctx.global.total || 0);
 
-    let msg = '';
+    let msg = "";
     if (pageSel > 0) {
       msg =
-        `${pageSel} anúncio${pageSel > 1 ? 's' : ''} ` +
-        `selecionado${pageSel > 1 ? 's' : ''} nesta página`;
+        `${pageSel} anúncio${pageSel > 1 ? "s" : ""} ` +
+        `selecionado${pageSel > 1 ? "s" : ""} nesta página`;
     }
     if (isGlobal) {
-      const tail = '(filtrados na campanha)';
+      const tail = "(filtrados na campanha)";
       msg = msg
-        ? `${msg} • toda a campanha: ${globTotal} selecionado${globTotal === 1 ? '' : 's'} ${tail}`
-        : `Toda a campanha: ${globTotal} selecionado${globTotal === 1 ? '' : 's'} ${tail}`;
+        ? `${msg} • toda a campanha: ${globTotal} selecionado${
+            globTotal === 1 ? "" : "s"
+          } ${tail}`
+        : `Toda a campanha: ${globTotal} selecionado${
+            globTotal === 1 ? "" : "s"
+          } ${tail}`;
     }
 
-    ui.selMsg.textContent = msg || 'Nenhum item selecionado.';
+    ui.selMsg.textContent = msg || "Nenhum item selecionado.";
 
-    if (pageSel > 0 || isGlobal) ui.selBar.classList.remove('hidden');
-    else ui.selBar.classList.add('hidden');
+    if (pageSel > 0 || isGlobal) ui.selBar.classList.remove("hidden");
+    else ui.selBar.classList.add("hidden");
 
     if (ui.selAllCampaignBtn) {
       if (isGlobal) {
         ui.selAllCampaignBtn.textContent = `Selecionando toda a campanha (${globTotal} filtrados)`;
-        ui.selAllCampaignBtn.classList.add('danger');
+        ui.selAllCampaignBtn.classList.add("danger");
       } else {
-        ui.selAllCampaignBtn.textContent = 'Selecionar toda a campanha (filtrados)';
-        ui.selAllCampaignBtn.classList.remove('danger');
+        ui.selAllCampaignBtn.textContent =
+          "Selecionar toda a campanha (filtrados)";
+        ui.selAllCampaignBtn.classList.remove("danger");
       }
     }
 
     const nothing = pageSel === 0 && !isGlobal;
-    if (ui.selApplyBtn)  ui.selApplyBtn.disabled  = nothing;
+    if (ui.selApplyBtn) ui.selApplyBtn.disabled = nothing;
     if (ui.selRemoveBtn) ui.selRemoveBtn.disabled = nothing;
   }
 
@@ -277,10 +294,10 @@
 
   // Helper para mapear status interno -> status da API de seleção
   function mapStatusForPrepare(v) {
-    if (v === 'started' || v === 'candidate' || v === 'scheduled') return v;
-    if (v === 'yes')  return 'started';
-    if (v === 'non')  return 'candidate';
-    if (v === 'prog') return 'scheduled';
+    if (v === "started" || v === "candidate" || v === "scheduled") return v;
+    if (v === "yes") return "started";
+    if (v === "non") return "candidate";
+    if (v === "prog") return "scheduled";
     return null; // all
   }
 
@@ -288,45 +305,50 @@
   // - tenta window.coletarTodosIdsFiltrados()
   // - se não existir, usa MLBs da página atual
   async function fallbackLocalSelection() {
-    const selBar = document.getElementById('selectionBar');
-    const selMsg = document.getElementById('selMsg');
+    const selBar = document.getElementById("selectionBar");
+    const selMsg = document.getElementById("selMsg");
     if (selBar && selMsg) {
-      selBar.classList.remove('hidden');
-      selMsg.textContent = 'Preparando seleção da campanha (coletando itens filtrados)…';
+      selBar.classList.remove("hidden");
+      selMsg.textContent =
+        "Preparando seleção da campanha (coletando itens filtrados)…";
     }
 
     // 1) Se houver helper global, usa ele
-    if (typeof window.coletarTodosIdsFiltrados === 'function') {
+    if (typeof window.coletarTodosIdsFiltrados === "function") {
       try {
         const ids = await window.coletarTodosIdsFiltrados();
         if (Array.isArray(ids) && ids.length) {
           return { token: null, total: ids.length, ids };
         }
       } catch (e) {
-        console.warn('coletarTodosIdsFiltrados falhou:', e);
+        console.warn("coletarTodosIdsFiltrados falhou:", e);
       }
     }
 
     // 2) Último recurso: só o que está na página atual
     const ids = getAllPageMLBs();
     if (ids.length) {
-      alert('Endpoint /selection/prepare indisponível ou sem retorno válido. Usando fallback local com os itens atualmente exibidos.');
+      alert(
+        "Endpoint /selection/prepare indisponível ou sem retorno válido. Usando fallback local com os itens atualmente exibidos."
+      );
       return { token: null, total: ids.length, ids };
     }
 
-    alert('Não foi possível preparar a seleção da campanha (nem endpoint nem fallback local).');
+    alert(
+      "Não foi possível preparar a seleção da campanha (nem endpoint nem fallback local)."
+    );
     return null;
   }
 
-    async function prepareWholeCampaign() {
+  async function prepareWholeCampaign() {
     if (!ctx.promotion_id || !ctx.promotion_type) {
-      alert('Selecione uma campanha antes de usar a seleção da campanha toda.');
+      alert("Selecione uma campanha antes de usar a seleção da campanha toda.");
       return null;
     }
 
     try {
       const maxDesc =
-        ctx.filtros.maxDesc == null || ctx.filtros.maxDesc === ''
+        ctx.filtros.maxDesc == null || ctx.filtros.maxDesc === ""
           ? null
           : Number(ctx.filtros.maxDesc);
 
@@ -341,22 +363,27 @@
         discount_max: maxDesc,
       };
 
-      const r = await fetch('/api/promocoes/selection/prepare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
+      const r = await fetch("/api/promocoes/selection/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(body),
       });
 
       // Se o endpoint não existe (404/405) -> fallback local
       if (r.status === 404 || r.status === 405) {
-        console.warn('selection/prepare não encontrado, usando fallback local.');
+        console.warn(
+          "selection/prepare não encontrado, usando fallback local."
+        );
         return await fallbackLocalSelection();
       }
 
       const js = await r.json().catch(() => ({}));
       if (!r.ok || js.ok === false) {
-        console.warn('selection/prepare respondeu erro, usando fallback local.', js);
+        console.warn(
+          "selection/prepare respondeu erro, usando fallback local.",
+          js
+        );
         return await fallbackLocalSelection();
       }
 
@@ -373,9 +400,13 @@
       }
 
       // se veio total=0, sem ids, mas a tela tem itens → suspeito -> fallback
-      if (total === 0 && (!idsFromApi || !idsFromApi.length) && countVisible() > 0) {
+      if (
+        total === 0 &&
+        (!idsFromApi || !idsFromApi.length) &&
+        countVisible() > 0
+      ) {
         console.warn(
-          'selection/prepare retornou total=0 sem ids, com itens visíveis. Usando fallback local.'
+          "selection/prepare retornou total=0 sem ids, com itens visíveis. Usando fallback local."
         );
         const fb = await fallbackLocalSelection();
         if (fb) return fb;
@@ -400,7 +431,9 @@
       }
 
       // Nenhum dos dois? Último recurso: fallback local
-      console.warn('selection/prepare não retornou token nem ids. Usando fallback local.');
+      console.warn(
+        "selection/prepare não retornou token nem ids. Usando fallback local."
+      );
       const fb = await fallbackLocalSelection();
       if (fb) return fb;
 
@@ -411,11 +444,10 @@
         ids: null,
       };
     } catch (e) {
-      console.error('prepareWholeCampaign falhou, usando fallback local:', e);
+      console.error("prepareWholeCampaign falhou, usando fallback local:", e);
       return await fallbackLocalSelection();
     }
   }
-
 
   async function onSelectWholeCampaign() {
     // se já estava em modo "toda campanha", o clique desliga
@@ -423,7 +455,7 @@
       ctx.global.selectedAll = false;
       ctx.global.token = null;
       ctx.global.total = 0;
-      ctx.global.ids   = null;
+      ctx.global.ids = null;
       render();
       return;
     }
@@ -445,7 +477,7 @@
     ctx.global.selectedAll = true;
     ctx.global.token = prep.token;
     ctx.global.total = prep.total;
-    ctx.global.ids   = prep.ids || null;
+    ctx.global.ids = prep.ids || null;
 
     render();
     showPreparedMessage(ctx.global.total);
@@ -458,22 +490,29 @@
   async function applyQueue(ids) {
     if (!Array.isArray(ids) || !ids.length) return;
 
-    if (String(ctx.promotion_type || '').toUpperCase() === 'PRICE_MATCHING_MELI_ALL') {
-      alert('Esta campanha (PRICE_MATCHING_MELI_ALL) é 100% gerida pelo ML. Aplicação manual indisponível.');
+    if (
+      String(ctx.promotion_type || "").toUpperCase() ===
+      "PRICE_MATCHING_MELI_ALL"
+    ) {
+      alert(
+        "Esta campanha (PRICE_MATCHING_MELI_ALL) é 100% gerida pelo ML. Aplicação manual indisponível."
+      );
       return;
     }
 
     const delayMs = getDelayMs();
     const camp = getCampanhaNome();
-    const jobId = noteLocalJobStart(`Aplicação – ${camp} (${ids.length} itens)`);
+    const jobId = noteLocalJobStart(
+      `Aplicação – ${camp} (${ids.length} itens)`
+    );
 
     let done = 0;
     let ok = 0;
     let err = 0;
 
-    if (typeof window.aplicarUnico !== 'function') {
-      alert('Função aplicarUnico não encontrada (criar-promocao.js).');
-      if (jobId) updateLocalJobProgress(jobId, 0, 'erro ao iniciar');
+    if (typeof window.aplicarUnico !== "function") {
+      alert("Função aplicarUnico não encontrada (criar-promocao.js).");
+      if (jobId) updateLocalJobProgress(jobId, 0, "erro ao iniciar");
       return;
     }
 
@@ -483,13 +522,17 @@
         if (res) ok++;
         else err++;
       } catch (e) {
-        console.warn('Falha ao aplicar item', mlb, e);
+        console.warn("Falha ao aplicar item", mlb, e);
         err++;
       }
       done++;
       const pct = Math.round((done / ids.length) * 100);
       if (jobId) {
-        updateLocalJobProgress(jobId, pct, `processando ${done}/${ids.length}…`);
+        updateLocalJobProgress(
+          jobId,
+          pct,
+          `processando ${done}/${ids.length}…`
+        );
       }
       if (delayMs > 0 && done < ids.length) {
         await sleep(delayMs);
@@ -500,7 +543,7 @@
       updateLocalJobProgress(
         jobId,
         100,
-        `concluído: ${ok} ok, ${err} erro${err === 1 ? '' : 's'}`
+        `concluído: ${ok} ok, ${err} erro${err === 1 ? "" : "s"}`
       );
     }
   }
@@ -512,7 +555,10 @@
     // expôs aplicarTodosFiltrados(), delegamos pra ele.
     // Ele já sabe ler filtros de status, % e MLB e usa /apply-bulk
     // ou fallback navegando todas as páginas.
-    if (ctx.global.selectedAll && typeof window.aplicarTodosFiltrados === 'function') {
+    if (
+      ctx.global.selectedAll &&
+      typeof window.aplicarTodosFiltrados === "function"
+    ) {
       await window.aplicarTodosFiltrados();
       return;
     }
@@ -522,15 +568,15 @@
       try {
         const body = {
           token: ctx.global.token,
-          action: 'apply',
+          action: "apply",
           values: {
             dryRun: getDryRun(),
           },
         };
-        const r = await fetch('/api/promocoes/jobs/apply-mass', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
+        const r = await fetch("/api/promocoes/jobs/apply-mass", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify(body),
         });
         const js = await r.json().catch(() => ({}));
@@ -545,12 +591,19 @@
         window.__JobsWatcher?.start?.();
         return;
       } catch (e) {
-        console.error('apply-mass falhou, usando fallback de IDs locais se disponível:', e);
+        console.error(
+          "apply-mass falhou, usando fallback de IDs locais se disponível:",
+          e
+        );
       }
     }
 
     // Cenário 2: toda campanha via ids em memória (fallback local)
-    if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
+    if (
+      ctx.global.selectedAll &&
+      Array.isArray(ctx.global.ids) &&
+      ctx.global.ids.length
+    ) {
       await applyQueue(ctx.global.ids);
       render();
       return;
@@ -559,7 +612,7 @@
     // Cenário 3: apenas selecionados da página
     const mlbs = getSelectedMLBs();
     if (!mlbs.length) {
-      alert('Selecione ao menos um item na tabela.');
+      alert("Selecione ao menos um item na tabela.");
       return;
     }
     await applyQueue(mlbs);
@@ -569,7 +622,10 @@
   async function onRemoveClick() {
     // 🔹 NOVO opcional: se você criar removerTodosFiltrados() no criar-promocao.js,
     // dá pra delegar a remoção da campanha inteira por lá também.
-    if (ctx.global.selectedAll && typeof window.removerTodosFiltrados === 'function') {
+    if (
+      ctx.global.selectedAll &&
+      typeof window.removerTodosFiltrados === "function"
+    ) {
       await window.removerTodosFiltrados();
       return;
     }
@@ -579,12 +635,12 @@
       try {
         const body = {
           token: ctx.global.token,
-          action: 'remove',
+          action: "remove",
         };
-        const r = await fetch('/api/promocoes/jobs/apply-mass', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
+        const r = await fetch("/api/promocoes/jobs/apply-mass", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify(body),
         });
         const js = await r.json().catch(() => ({}));
@@ -599,17 +655,24 @@
         window.__JobsWatcher?.start?.();
         return;
       } catch (e) {
-        console.error('apply-mass/remove falhou, tentando fallback de IDs locais se houver:', e);
+        console.error(
+          "apply-mass/remove falhou, tentando fallback de IDs locais se houver:",
+          e
+        );
       }
     }
 
     // Cenário 2: ids locais (fallback da campanha inteira)
-    if (ctx.global.selectedAll && Array.isArray(ctx.global.ids) && ctx.global.ids.length) {
+    if (
+      ctx.global.selectedAll &&
+      Array.isArray(ctx.global.ids) &&
+      ctx.global.ids.length
+    ) {
       try {
-        const r = await fetch('/api/promocoes/jobs/remove', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
+        const r = await fetch("/api/promocoes/jobs/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({ items: ctx.global.ids, delay_ms: 250 }),
         });
         const js = await r.json().catch(() => ({}));
@@ -624,8 +687,8 @@
         window.__JobsWatcher?.start?.();
         return;
       } catch (e) {
-        console.error('Erro ao iniciar remoção em massa com IDs locais:', e);
-        alert('Erro ao iniciar remoção em massa da campanha (fallback local).');
+        console.error("Erro ao iniciar remoção em massa com IDs locais:", e);
+        alert("Erro ao iniciar remoção em massa da campanha (fallback local).");
         return;
       }
     }
@@ -633,15 +696,15 @@
     // Cenário 3: apenas selecionados da página
     const mlbs = getSelectedMLBs();
     if (!mlbs.length) {
-      alert('Selecione ao menos um item na tabela.');
+      alert("Selecione ao menos um item na tabela.");
       return;
     }
 
     try {
-      const r = await fetch('/api/promocoes/jobs/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
+      const r = await fetch("/api/promocoes/jobs/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ items: mlbs, delay_ms: 250 }),
       });
       const js = await r.json().catch(() => ({}));
@@ -655,8 +718,8 @@
       window.JobsPanel?.show?.();
       window.__JobsWatcher?.start?.();
     } catch (e) {
-      console.error('Erro ao iniciar remoção em massa (selecionados):', e);
-      alert('Erro ao iniciar remoção em massa dos selecionados.');
+      console.error("Erro ao iniciar remoção em massa (selecionados):", e);
+      alert("Erro ao iniciar remoção em massa dos selecionados.");
     }
   }
 
@@ -664,7 +727,7 @@
   async function onApplyPageBtn() {
     const mlbs = getAllPageMLBs();
     if (!mlbs.length) {
-      alert('Nenhum item na página atual.');
+      alert("Nenhum item na página atual.");
       return;
     }
     await applyQueue(mlbs);
@@ -674,15 +737,15 @@
   async function onRemovePageBtn() {
     const mlbs = getAllPageMLBs();
     if (!mlbs.length) {
-      alert('Nenhum item na página atual.');
+      alert("Nenhum item na página atual.");
       return;
     }
 
     try {
-      const r = await fetch('/api/promocoes/jobs/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
+      const r = await fetch("/api/promocoes/jobs/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ items: mlbs, delay_ms: 250 }),
       });
       const js = await r.json().catch(() => ({}));
@@ -696,37 +759,43 @@
       window.JobsPanel?.show?.();
       window.__JobsWatcher?.start?.();
     } catch (e) {
-      console.error('Erro ao iniciar remoção em massa da página:', e);
-      alert('Erro ao iniciar remoção em massa da página.');
+      console.error("Erro ao iniciar remoção em massa da página:", e);
+      alert("Erro ao iniciar remoção em massa da página.");
     }
   }
 
   /* ====================== API Pública ====================== */
 
   window.PromoBulk = {
-    setContext({ promotion_id, promotion_type, filtroParticipacao, maxDesc, mlbFilter }) {
+    setContext({
+      promotion_id,
+      promotion_type,
+      filtroParticipacao,
+      maxDesc,
+      mlbFilter,
+    }) {
       ctx.promotion_id = promotion_id;
       ctx.promotion_type = promotion_type;
 
       // mapeia filtro da tela -> estado interno amigável para mapStatusForPrepare
       ctx.filtros.status =
-        filtroParticipacao === 'yes'
-          ? 'yes'
-          : filtroParticipacao === 'non'
-          ? 'non'
-          : filtroParticipacao === 'prog'
-          ? 'prog'
-          : 'all';
+        filtroParticipacao === "yes"
+          ? "yes"
+          : filtroParticipacao === "non"
+          ? "non"
+          : filtroParticipacao === "prog"
+          ? "prog"
+          : "all";
 
       ctx.filtros.maxDesc =
-        maxDesc == null || maxDesc === '' ? null : Number(maxDesc);
-      ctx.filtros.mlb = (mlbFilter || '').trim() || null;
+        maxDesc == null || maxDesc === "" ? null : Number(maxDesc);
+      ctx.filtros.mlb = (mlbFilter || "").trim() || null;
 
       // se os filtros mudam, cancelamos seleção global
       ctx.global.selectedAll = false;
       ctx.global.token = null;
       ctx.global.total = 0;
-      ctx.global.ids   = null;
+      ctx.global.ids = null;
 
       render();
     },
@@ -743,18 +812,18 @@
   };
 
   // Atualiza seleção quando os checkboxes da tabela mudarem
-  document.addEventListener('change', (ev) => {
+  document.addEventListener("change", (ev) => {
     if (ev.target?.matches?.('#tbody input[type="checkbox"][data-mlb]')) {
       render();
     }
   });
 
   // Re-render ao trocar linhas da tabela
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener("DOMContentLoaded", () => {
     ensureUI();
     render();
-    const tbody = document.getElementById('tbody');
-    if (tbody && 'MutationObserver' in window) {
+    const tbody = document.getElementById("tbody");
+    if (tbody && "MutationObserver" in window) {
       const obs = new MutationObserver(() => render());
       obs.observe(tbody, { childList: true, subtree: false });
     }

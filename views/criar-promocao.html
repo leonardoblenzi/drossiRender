@@ -7,7 +7,7 @@
 
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
   <link rel="stylesheet" href="/css/promo-jobs.css">
-  <link rel="stylesheet" href="/css/criar-promocao.css?v=3">
+  <link rel="stylesheet" href="/css/criar-promocao.css?v=4">
 
   <style>
     .jobs-panel .pill{display:inline-block;padding:.18rem .55rem;border-radius:999px;font-weight:700;font-size:.78rem}
@@ -72,6 +72,57 @@
       <small class="muted">
         Ao buscar, mostro apenas as campanhas que oferecem promoção para esse item.
       </small>
+    </section>
+
+    <!-- ✅ NOVO: Abas por tipo (estilo ML) -->
+    <section class="promo-tabs">
+      <div class="promo-tabs__row" id="promoTypeTabs" role="tablist" aria-label="Tipos de promoção">
+        <button class="promo-tab active" type="button" data-type="ALL" role="tab" aria-selected="true">
+          Todas <span class="count" data-count="ALL">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="SMART" role="tab" aria-selected="false">
+          Smart <span class="count" data-count="SMART">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="DEAL" role="tab" aria-selected="false">
+          Deal <span class="count" data-count="DEAL">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="PRICE_MATCHING" role="tab" aria-selected="false">
+          Price Matching <span class="count" data-count="PRICE_MATCHING">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="SELLER_CAMPAIGN" role="tab" aria-selected="false">
+          Seller <span class="count" data-count="SELLER_CAMPAIGN">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="MARKETPLACE_CAMPAIGN" role="tab" aria-selected="false">
+          Marketplace <span class="count" data-count="MARKETPLACE_CAMPAIGN">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="PRICE_DISCOUNT" role="tab" aria-selected="false">
+          Price Discount <span class="count" data-count="PRICE_DISCOUNT">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="DOD" role="tab" aria-selected="false">
+          DOD <span class="count" data-count="DOD">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="PRICE_MATCHING_MELI_ALL" role="tab" aria-selected="false" title="Gerida pelo ML">
+          PM (ML) <span class="count" data-count="PRICE_MATCHING_MELI_ALL">0</span>
+        </button>
+
+        <button class="promo-tab" type="button" data-type="OTHER" role="tab" aria-selected="false">
+          Outros <span class="count" data-count="OTHER">0</span>
+        </button>
+      </div>
+
+      <div class="promo-tabs__hint muted" id="promoTabsHint">
+        Mostrando: <strong id="promoTabsLabel">Todas</strong>
+        <span class="sep">•</span>
+        <span id="promoTabsMeta">—</span>
+      </div>
     </section>
 
     <!-- Cards de campanhas -->
