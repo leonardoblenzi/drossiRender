@@ -264,37 +264,42 @@ function toNum(x) {
 /** Normaliza nomenclaturas da API para comparações consistentes */
 function normalizeStatus(s) {
   s = String(s || "").toLowerCase();
-  if (s === "in_progress") return "pending"; // só esse caso
-  // NÃO converte 'scheduled' para não bagunçar filtros
+
+  // compat/alias que às vezes aparece em integrações antigas
+  if (s === "in_progress") return "pending";
+  if (s === "scheduled") return "pending"; // << importante
+  if (s === "programmed") return "pending"; // opcional (robustez)
+
   return s;
 }
 
 /** Deduplica por MLB escolhendo o "status real" com prioridade.
  *  started > scheduled > pending > candidate > outros
  */
-function dedupeByMLB(
-  items,
-  statusFilter /* 'started' | 'scheduled' | 'pending' | 'candidate' | '' */
-) {
-  const rank = { started: 3, scheduled: 2.5, pending: 2, candidate: 1 };
+function dedupeByMLB(items, statusFilter) {
+  const rank = { started: 3, pending: 2, candidate: 1 };
   const pickRank = (st) => rank[normalizeStatus(st)] ?? 0;
 
   const map = new Map();
   for (const it of items) {
     const id = String(it?.id || "");
     if (!id) continue;
+
     const st = normalizeStatus(it.status);
     const cur = map.get(id);
+
     if (!cur || pickRank(st) > pickRank(cur.status)) {
       map.set(id, { ...it, status: st });
     }
   }
 
   let arr = [...map.values()];
+
   if (statusFilter) {
     const want = normalizeStatus(statusFilter);
     arr = arr.filter((x) => normalizeStatus(x.status) === want);
   }
+
   return arr;
 }
 
@@ -354,6 +359,14 @@ async function hydrateDealCandidateSuggestions(items) {
       // ignora
     }
   }
+}
+
+function statusLabel(st) {
+  st = normalizeStatus(st);
+  if (st === "started") return "started";
+  if (st === "candidate") return "candidate";
+  if (st === "pending") return "programado";
+  return st || "—";
 }
 
 // =====================================================
@@ -948,16 +961,35 @@ function qsBuild(params) {
     .join("&");
 }
 function filtroToStatusParam() {
-  switch (state.filtroParticipacao) {
-    case "yes":
-      return "started"; // Participantes
-    case "non":
-      return "candidate"; // Não participantes
-    case "prog":
-      return "scheduled"; // Programados
-    default:
-      return "";
+  const v = String(state.filtroParticipacao || "all").toLowerCase();
+
+  // Participantes
+  if (["yes", "participantes", "participante", "started"].includes(v)) {
+    return "started";
   }
+
+  // Não participantes
+  if (
+    [
+      "non",
+      "nao",
+      "não",
+      "nao_participantes",
+      "nao-participantes",
+      "candidate",
+    ].includes(v)
+  ) {
+    return "candidate";
+  }
+
+  // Programados / Agendados
+  if (
+    ["prog", "programados", "agendados", "pending", "scheduled"].includes(v)
+  ) {
+    return "pending";
+  }
+
+  return "";
 }
 
 async function carregarItensPagina(pageNumber, reset = false) {
@@ -1192,7 +1224,7 @@ function renderTabela(items) {
           }<span class="pill green">REBATE</span>`
         : "—";
 
-      const status = normalizeStatus(it.status) || "—";
+      const status = statusLabel(it.status);
 
       return `<tr>
       <td style="text-align:center"><input type="checkbox" data-mlb="${esc(
