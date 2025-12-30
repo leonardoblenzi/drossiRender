@@ -723,6 +723,152 @@
     $("fAccounts")?.addEventListener("change", renderAccountChips);
   }
 
+  async function exportCSV() {
+    const safeProgress = (cur, tot, opts) =>
+      progressFab && typeof progressFab.progress === "function"
+        ? progressFab.progress(cur, tot, opts)
+        : null;
+
+    try {
+      setLoading(true);
+      progressFab.show("Carregando dados para exportação…");
+
+      const allRows = await fetchAllPages(
+        ({ page, totalPages, withAds }) =>
+          safeProgress(page, totalPages, { withAds }),
+        { limit: 120, withAds: true, timeoutMs: 120000, strictAds: true }
+      );
+
+      progressFab.message("Gerando CSV…");
+
+      const rowsForCsv = allRows.slice();
+      if (state.sort === "share" || state.metric === "revenue") {
+        rowsForCsv.sort(
+          (a, b) => (b.revenue_cents || 0) - (a.revenue_cents || 0)
+        );
+      } else {
+        rowsForCsv.sort((a, b) => (b.units || 0) - (a.units || 0));
+      }
+
+      const rowsFiltered = rowsForCsv.filter((r) => Number(r.units || 0) > 0);
+
+      const uTotal = rowsFiltered.reduce((s, r) => s + (r.units || 0), 0);
+      const rTotal = rowsFiltered.reduce(
+        (s, r) => s + (r.revenue_cents || 0),
+        0
+      );
+
+      const head = [
+        "Índice",
+        "MLB",
+        "Título",
+        "Unidades",
+        "Unid. (%)",
+        "Valor",
+        "FATURAMENTO %",
+        "PROMO",
+        "% APLICADA",
+        "ADS",
+        "Cliq.",
+        "Impr.",
+        "Visit.",
+        "Conv.",
+        "Invest.",
+        "ACOS",
+        "Receita Ads",
+        "Vendas 7D",
+        "Vendas 15D",
+        "Vendas 30D",
+        "Vendas 40D",
+        "Vendas 60D",
+        "Vendas 90D",
+      ];
+
+      const rows = rowsFiltered.map((r) => {
+        const unitShare = uTotal > 0 ? (r.units || 0) / uTotal : 0;
+        const revShare = rTotal > 0 ? (r.revenue_cents || 0) / rTotal : 0;
+
+        const promoActive = !!(r.promo && r.promo.active);
+        const promoTxt = promoActive ? "Sim" : "Não";
+        const promoPct =
+          r.promo && r.promo.percent != null ? Number(r.promo.percent) : null;
+        const promoPctCsv =
+          promoActive && promoPct != null
+            ? (promoPct * 100).toFixed(2).replace(".", ",") + "%"
+            : "—";
+
+        const ads = r.ads || {};
+        const clicks = Number(ads.clicks || 0);
+        const imps = Number(ads.impressions || 0);
+        const spendC = Number(ads.spend_cents || 0);
+        const aRevC = Number(ads.revenue_cents || 0);
+        const acosVal = aRevC > 0 ? spendC / aRevC : null;
+        const statusText =
+          ads.status_text || (ads.in_campaign ? "Ativo" : "Não");
+
+        const visits = Number(r.visits || r.visits_total || 0);
+        const conv = visits > 0 ? Number(r.units || 0) / visits : null;
+
+        return [
+          r.curve || "-",
+          r.mlb || "",
+          (r.title || "").replace(/"/g, '""'),
+
+          r.units || 0,
+          (unitShare * 100).toFixed(2).replace(".", ",") + "%",
+          (Number(r.revenue_cents || 0) / 100).toFixed(2).replace(".", ","),
+          (revShare * 100).toFixed(2).replace(".", ",") + "%",
+
+          promoTxt,
+          promoPctCsv,
+
+          statusText,
+          clicks,
+          imps,
+          visits,
+          conv != null ? (conv * 100).toFixed(2).replace(".", ",") + "%" : "—",
+
+          (spendC / 100).toFixed(2).replace(".", ","),
+          acosVal !== null
+            ? (acosVal * 100).toFixed(2).replace(".", ",") + "%"
+            : "—",
+          (aRevC / 100).toFixed(2).replace(".", ","),
+
+          Number(r.units_7d || 0),
+          Number(r.units_15d || 0),
+          Number(r.units_30d || 0),
+          Number(r.units_40d || 0),
+          Number(r.units_60d || 0),
+          Number(r.units_90d || 0),
+        ];
+      });
+
+      const data = [head, ...rows]
+        .map((cols) => cols.map((c) => `"${String(c)}"`).join(";"))
+        .join("\r\n");
+
+      const blob = new Blob([data], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "curva_abc.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+
+      progressFab.message("Concluído!");
+      progressFab.done(true);
+    } catch (e) {
+      console.error(e);
+      progressFab.message("Falha: " + (e?.message || e));
+      progressFab.done(false);
+      alert("❌ Falha ao exportar CSV: " + (e?.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   window.addEventListener("DOMContentLoaded", async () => {
     await initTopBar();
     setDefaultDates();
@@ -730,6 +876,7 @@
     renderAccountChips();
     applySwitchDefaults();
     bind();
+    bindExportCsvButton();
     await loadSummary();
     await loadItems("ALL", 1);
   });
