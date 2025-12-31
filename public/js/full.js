@@ -18,11 +18,13 @@
   const selectAllCheckbox = qs("#selectAllCheckbox");
   const selectPageBtn = qs("#selectPageBtn");
   const clearSelectionBtn = qs("#clearSelectionBtn");
-  const syncSelectedBtn = qs("#syncSelectedBtn");
-  const removeSelectedBtn = qs("#removeSelectedBtn");
+
+  // ✅ NOVO (com fallback para não quebrar se ainda não alterou o HTML)
+  const syncBtn = qs("#syncBtn") || qs("#reloadBtn");
+  const deleteSelectedBtn =
+    qs("#deleteSelectedBtn") || qs("#removeSelectedBtn");
 
   const addProductBtn = qs("#addProductBtn");
-  const reloadBtn = qs("#reloadBtn");
   const exportBtn = qs("#exportBtn");
 
   const currentAccountEls = [
@@ -80,6 +82,14 @@
     return [s || "-", "badge-muted"];
   }
 
+  async function safeReadBody(resp) {
+    try {
+      return (await resp.text()) || "";
+    } catch {
+      return "";
+    }
+  }
+
   async function getJSON(url, opts = {}) {
     const r = await fetch(url, {
       credentials: "same-origin",
@@ -90,10 +100,38 @@
       },
       ...opts,
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok)
-      throw new Error(data?.message || data?.error || `Erro HTTP ${r.status}`);
-    return data;
+
+    const ct = (r.headers.get("content-type") || "").toLowerCase();
+    const body = await safeReadBody(r);
+
+    // Se vier HTML (redirect silencioso pra /login ou /select-conta), estoura erro claro
+    const looksHtml =
+      body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
+    if (!r.ok) {
+      if (looksHtml)
+        throw new Error(
+          `HTTP ${r.status} (HTML/redirect). Verifique login/conta/permissão.`
+        );
+      try {
+        const data = ct.includes("application/json") ? JSON.parse(body) : {};
+        throw new Error(
+          data?.message || data?.error || `Erro HTTP ${r.status}`
+        );
+      } catch {
+        throw new Error(`Erro HTTP ${r.status}: ${body.slice(0, 200)}`.trim());
+      }
+    }
+
+    if (!ct.includes("application/json")) {
+      // ok mas não é JSON
+      return {};
+    }
+
+    try {
+      return JSON.parse(body || "{}");
+    } catch {
+      return {};
+    }
   }
 
   async function loadWhoAmI() {
@@ -127,7 +165,7 @@
       const data = await getJSON(buildQuery());
       state.rows = data.results || [];
       state.paging = data.paging || state.paging;
-      itemsInfo.textContent = `${state.paging.total || 0} itens`;
+      if (itemsInfo) itemsInfo.textContent = `${state.paging.total || 0} itens`;
       renderTable();
       renderPagination();
       updateChips();
@@ -148,7 +186,7 @@
           </td>
         </tr>
       `;
-      selectAllCheckbox.checked = false;
+      if (selectAllCheckbox) selectAllCheckbox.checked = false;
       return;
     }
 
@@ -185,10 +223,10 @@
           </td>
           <td class="col-actions">
             <div class="d-flex gap-2">
-              <button class="btn btn-outline-primary btn-sm btn-pill btn-sync-one" data-mlb="${mlb}">
+              <button class="btn btn-outline-primary btn-sm btn-pill btn-sync-one" data-mlb="${mlb}" title="Sincronizar item">
                 <i class="bi bi-arrow-repeat"></i>
               </button>
-              <button class="btn btn-outline-danger btn-sm btn-pill btn-del-one" data-mlb="${mlb}">
+              <button class="btn btn-outline-danger btn-sm btn-pill btn-del-one" data-mlb="${mlb}" title="Excluir item">
                 <i class="bi bi-trash"></i>
               </button>
             </div>
@@ -199,8 +237,10 @@
       .join("");
 
     // header checkbox (selecionar todos da página)
-    const allOnPage = state.rows.every((r) => state.selected.has(r.mlb));
-    selectAllCheckbox.checked = allOnPage;
+    if (selectAllCheckbox) {
+      const allOnPage = state.rows.every((r) => state.selected.has(r.mlb));
+      selectAllCheckbox.checked = allOnPage;
+    }
 
     // binds
     qsa(".row-check", tbody).forEach((el) => {
@@ -209,9 +249,11 @@
         if (el.checked) state.selected.add(mlb);
         else state.selected.delete(mlb);
         updateChips();
-        selectAllCheckbox.checked = state.rows.every((r) =>
-          state.selected.has(r.mlb)
-        );
+        if (selectAllCheckbox) {
+          selectAllCheckbox.checked = state.rows.every((r) =>
+            state.selected.has(r.mlb)
+          );
+        }
       });
     });
 
@@ -284,6 +326,7 @@
     renderTable();
   }
 
+  // ✅ 1) Sync de mlbs (modo normal)
   async function syncMlbs(mlbs) {
     setLoading(true);
     try {
@@ -293,16 +336,56 @@
       });
       await fetchList();
     } catch (e) {
-      alert(`Falha ao atualizar: ${e.message}`);
+      alert(`Falha ao sincronizar: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ✅ 2) Importar tudo do ML (quando banco está vazio)
+  async function importAllFromML() {
+    setLoading(true);
+    try {
+      await getJSON("/api/full/anuncios/sync", {
+        method: "POST",
+        body: JSON.stringify({ mode: "IMPORT_ALL" }),
+      });
+      // após importar, volta pra primeira página
+      state.page = 1;
+      await fetchList();
+    } catch (e) {
+      alert(`Falha ao importar do ML: ${e.message}`);
     } finally {
       setLoading(false);
     }
   }
 
   function openRemoveModal(mlbs) {
-    removeProductError.classList.add("d-none");
-    removeProductError.textContent = "";
-    removeCountEl.textContent = String(mlbs.length);
+    if (!confirmRemoveModal) {
+      // fallback sem modal
+      if (!confirm(`Excluir ${mlbs.length} item(ns)?`)) return;
+      (async () => {
+        setLoading(true);
+        try {
+          await getJSON("/api/full/anuncios/bulk-delete", {
+            method: "POST",
+            body: JSON.stringify({ mlbs }),
+          });
+          mlbs.forEach((m) => state.selected.delete(m));
+          await fetchList();
+        } catch (e) {
+          alert(`Erro ao excluir: ${e.message}`);
+        } finally {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
+
+    removeProductError?.classList.add("d-none");
+    if (removeProductError) removeProductError.textContent = "";
+    if (removeCountEl) removeCountEl.textContent = String(mlbs.length);
+
     confirmRemoveBtn.onclick = async () => {
       setLoading(true);
       try {
@@ -311,13 +394,16 @@
           body: JSON.stringify({ mlbs }),
         });
 
-        // remove da seleção
         mlbs.forEach((m) => state.selected.delete(m));
         confirmRemoveModal.hide();
         await fetchList();
       } catch (e) {
-        removeProductError.textContent = e.message;
-        removeProductError.classList.remove("d-none");
+        if (removeProductError) {
+          removeProductError.textContent = e.message;
+          removeProductError.classList.remove("d-none");
+        } else {
+          alert(e.message);
+        }
       } finally {
         setLoading(false);
       }
@@ -327,7 +413,6 @@
   }
 
   function exportCSV() {
-    // exporta a página atual (simples e rápido)
     const headers = [
       "MLB",
       "SKU",
@@ -389,63 +474,91 @@
     fetchList();
   });
 
-  reloadBtn?.addEventListener("click", async () => {
-    // “premium” = recarregar sincroniza a página atual (para não explodir rate limit)
+  // ✅ BOTÃO PRINCIPAL: SINCRONIZAR
+  syncBtn?.addEventListener("click", async () => {
+    const total = Number(state.paging?.total || 0);
+
+    // 1) Se ainda não tem nada no banco -> IMPORTA DO ML
+    if (total === 0) {
+      const ok = confirm(
+        "Ainda não existe nenhum item FULL no banco.\n\nDeseja mapear o inventário FULL e importar tudo agora?"
+      );
+      if (!ok) return;
+      await importAllFromML();
+      return;
+    }
+
+    // 2) Se houver seleção -> sincroniza seleção
+    if (state.selected.size) {
+      await syncMlbs(Array.from(state.selected));
+      return;
+    }
+
+    // 3) Sem seleção -> sincroniza só a página atual (evita rate limit)
     const mlbs = currentPageMlbs();
-    if (!mlbs.length) return fetchList();
+    if (!mlbs.length) {
+      await fetchList();
+      return;
+    }
     await syncMlbs(mlbs);
   });
 
   exportBtn?.addEventListener("click", exportCSV);
 
   addProductBtn?.addEventListener("click", () => {
-    addProductError.classList.add("d-none");
-    addProductSuccess.classList.add("d-none");
-    addProductForm.reset();
-    addProductModal.show();
+    addProductError?.classList.add("d-none");
+    addProductSuccess?.classList.add("d-none");
+    addProductForm?.reset();
+    addProductModal?.show();
   });
 
   addProductForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    addProductError.classList.add("d-none");
-    addProductSuccess.classList.add("d-none");
+    addProductError?.classList.add("d-none");
+    addProductSuccess?.classList.add("d-none");
 
-    const mlb = String(mlbInput.value || "")
+    const mlb = String(mlbInput?.value || "")
       .trim()
       .toUpperCase();
     if (!mlb.startsWith("MLB")) {
-      addProductError.textContent = "MLB inválido.";
-      addProductError.classList.remove("d-none");
+      if (addProductError) {
+        addProductError.textContent = "MLB inválido.";
+        addProductError.classList.remove("d-none");
+      }
       return;
     }
 
-    addProductSubmitBtn.disabled = true;
+    if (addProductSubmitBtn) addProductSubmitBtn.disabled = true;
     try {
       await getJSON("/api/full/anuncios", {
         method: "POST",
         body: JSON.stringify({ mlb }),
       });
 
-      addProductSuccess.textContent =
-        "Produto adicionado/sincronizado com sucesso.";
-      addProductSuccess.classList.remove("d-none");
+      if (addProductSuccess) {
+        addProductSuccess.textContent =
+          "Produto adicionado/sincronizado com sucesso.";
+        addProductSuccess.classList.remove("d-none");
+      }
 
-      // refresh
       state.page = 1;
       await fetchList();
-      setTimeout(() => addProductModal.hide(), 500);
+      setTimeout(() => addProductModal?.hide(), 500);
     } catch (err) {
-      addProductError.textContent = err.message;
-      addProductError.classList.remove("d-none");
+      if (addProductError) {
+        addProductError.textContent = err.message;
+        addProductError.classList.remove("d-none");
+      } else {
+        alert(err.message);
+      }
     } finally {
-      addProductSubmitBtn.disabled = false;
+      if (addProductSubmitBtn) addProductSubmitBtn.disabled = false;
     }
   });
 
   selectAllCheckbox?.addEventListener("change", () => {
     if (selectAllCheckbox.checked) selectAllOnPage();
     else {
-      // remove só os da página
       currentPageMlbs().forEach((mlb) => state.selected.delete(mlb));
       updateChips();
       renderTable();
@@ -455,13 +568,12 @@
   selectPageBtn?.addEventListener("click", selectAllOnPage);
   clearSelectionBtn?.addEventListener("click", clearSelection);
 
-  syncSelectedBtn?.addEventListener("click", async () => {
-    if (!state.selected.size) return;
-    await syncMlbs(Array.from(state.selected));
-  });
-
-  removeSelectedBtn?.addEventListener("click", () => {
-    if (!state.selected.size) return;
+  // ✅ BOTÃO EXCLUIR (selecionados)
+  deleteSelectedBtn?.addEventListener("click", () => {
+    if (!state.selected.size) {
+      alert("Selecione ao menos um item para excluir.");
+      return;
+    }
     openRemoveModal(Array.from(state.selected));
   });
 

@@ -7,6 +7,50 @@ const db = require("../db/db");
 
 const ML_BASE = "https://api.mercadolibre.com";
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function getMe(token) {
+  return mlGET(`/users/me`, token);
+}
+
+async function listUserItems(
+  userId,
+  token,
+  { status = "active", limit = 50, max = 5000 } = {}
+) {
+  const out = [];
+  let offset = 0;
+
+  // /users/{user_id}/items/search -> retorna ids
+  while (true) {
+    const qs = new URLSearchParams();
+    qs.set("limit", String(limit));
+    qs.set("offset", String(offset));
+    if (status && status !== "all") qs.set("status", status);
+
+    const data = await mlGET(
+      `/users/${encodeURIComponent(
+        String(userId)
+      )}/items/search?${qs.toString()}`,
+      token
+    );
+
+    const ids = Array.isArray(data?.results) ? data.results : [];
+    out.push(...ids);
+
+    const total = Number(data?.paging?.total || 0);
+    offset += limit;
+
+    if (!ids.length) break;
+    if (offset >= total) break;
+    if (out.length >= max) break; // proteção
+  }
+
+  return out;
+}
+
 function getAccessToken(req, res) {
   // ✅ ajuste se seu projeto guarda token em outro local
   // (Ex.: res.locals.meli.access_token, req.meli.access_token etc.)
@@ -195,16 +239,17 @@ module.exports = {
     };
   },
 
-  async addOrUpdateFromML({ req, res, meli_conta_id, mlb }) {
+  async addOrUpdateFromML({ req, res, meli_conta_id, mlb, opts = {} }) {
     const token = getAccessToken(req, res);
 
-    // 1) /items/{MLB} => inventory_id, title, price, sold, pictures, sku...
     const item = await mlGET(`/items/${encodeURIComponent(mlb)}`, token);
-
     const inventory_id = item?.inventory_id || null;
 
-    // Se não tem inventory_id, não está “rodando no FULL” nesse formato
-    // mas ainda salvamos como ineligible pra UI mostrar claramente.
+    // ✅ se for import de FULL, não queremos poluir a tabela com anúncios não-FULL
+    if (!inventory_id && opts.onlyIfFull) {
+      return null; // "skipped"
+    }
+
     let stock = null;
     if (inventory_id) {
       stock = await mlGET(
@@ -223,7 +268,7 @@ module.exports = {
       price: item?.price ?? item?.base_price ?? null,
       stock_full: Number(stock?.available_quantity || 0),
       sold_total: Number(item?.sold_quantity || 0),
-      sold_40d: 0, // por enquanto (se quiser, depois a gente calcula com orders)
+      sold_40d: 0,
       listing_status: item?.status || null,
       status: deriveUiStatus(item, stock),
       sales_series_40d: null,
@@ -232,7 +277,75 @@ module.exports = {
     return row;
   },
 
-  async sync({ req, res, meli_conta_id, mlbs }) {
+  async sync({ req, res, meli_conta_id, mlbs, mode }) {
+    const token = getAccessToken(req, res);
+
+    // ✅ IMPORTAR tudo do ML e popular DB (apenas FULL)
+    if (String(mode || "").toUpperCase() === "IMPORT_ALL") {
+      const me = await getMe(token);
+      const userId = me?.id;
+      if (!userId) {
+        const err = new Error(
+          "Não foi possível obter /users/me para importar."
+        );
+        err.statusCode = 500;
+        throw err;
+      }
+
+      // busca itens do vendedor (você pode usar status=all se quiser pegar paused também)
+      const itemIds = await listUserItems(userId, token, {
+        status: "active",
+        limit: 50,
+        max: 8000,
+      });
+
+      let importedFull = 0;
+      let skippedNotFull = 0;
+      const fail = [];
+
+      // loop com pequeno delay pra não estourar rate limit
+      for (const id of itemIds) {
+        const mlb = String(id || "")
+          .trim()
+          .toUpperCase();
+        if (!mlb) continue;
+
+        try {
+          const row = await this.addOrUpdateFromML({
+            req,
+            res,
+            meli_conta_id,
+            mlb,
+            opts: { onlyIfFull: true },
+          });
+
+          if (!row) {
+            skippedNotFull += 1;
+          } else {
+            importedFull += 1;
+          }
+
+          await sleep(80);
+        } catch (e) {
+          fail.push({
+            mlb,
+            message: e.message,
+            statusCode: e.statusCode || 500,
+          });
+        }
+      }
+
+      return {
+        mode: "IMPORT_ALL",
+        scanned: itemIds.length,
+        imported_full: importedFull,
+        skipped_not_full: skippedNotFull,
+        failed: fail.length,
+        fail,
+      };
+    }
+
+    // ===== MODO ATUAL =====
     let targets = mlbs;
 
     if (!targets) {
@@ -254,17 +367,20 @@ module.exports = {
           meli_conta_id,
           mlb: String(mlb).trim().toUpperCase(),
         });
-        ok.push({
-          mlb: row.mlb,
-          status: row.status,
-          stock_full: row.stock_full,
-        });
+
+        if (row) {
+          ok.push({
+            mlb: row.mlb,
+            status: row.status,
+            stock_full: row.stock_full,
+          });
+        }
       } catch (e) {
         fail.push({ mlb, message: e.message, statusCode: e.statusCode || 500 });
       }
     }
 
-    return { updated: ok.length, failed: fail.length, ok, fail };
+    return { mode: "SYNC", updated: ok.length, failed: fail.length, ok, fail };
   },
 
   async bulkDelete({ meli_conta_id, mlbs }) {
