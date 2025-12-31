@@ -2,18 +2,22 @@
 
 const db = require("../db/db");
 
+// Node 18+ já tem fetch global. Se estiver em Node 16, descomente:
+// const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...args));
+
 const ML_BASE = "https://api.mercadolibre.com";
 
-function getAccessTokenFromRequest(req, res) {
-  // authMiddleware costuma colocar credenciais aqui (ajuste se seu projeto usa outro campo)
+function getAccessToken(req, res) {
+  // ✅ ajuste se seu projeto guarda token em outro local
+  // (Ex.: res.locals.meli.access_token, req.meli.access_token etc.)
   const token =
     res?.locals?.mlCreds?.access_token ||
     res?.locals?.access_token ||
-    req?.headers?.["x-ml-token"]; // fallback (não obrigatório)
+    res?.locals?.meli?.access_token;
 
   if (!token) {
     const err = new Error(
-      "Token ML não disponível (authMiddleware não injetou)."
+      "Token ML não disponível (middleware não injetou access_token)."
     );
     err.statusCode = 401;
     throw err;
@@ -32,7 +36,7 @@ async function mlGET(path, token) {
   });
 
   const text = await r.text();
-  let json;
+  let json = null;
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
@@ -45,14 +49,14 @@ async function mlGET(path, token) {
     err.details = json;
     throw err;
   }
+
   return json;
 }
 
 function pickSkuFromItem(item) {
-  // SKU no ML pode aparecer em seller_custom_field ou em attributes (varia por categoria)
   if (item?.seller_custom_field) return String(item.seller_custom_field);
 
-  const attrs = item?.attributes || [];
+  const attrs = Array.isArray(item?.attributes) ? item.attributes : [];
   const skuAttr =
     attrs.find((a) => a?.id === "SELLER_SKU") ||
     attrs.find((a) => (a?.name || "").toLowerCase() === "sku") ||
@@ -72,14 +76,13 @@ function pickImageUrl(item) {
 }
 
 function deriveUiStatus(item, stock) {
-  // status "UI" pro filtro
+  // status para o filtro da UI
   if (!item?.inventory_id) return "ineligible";
-  if (!stock) return "active";
 
-  const available = Number(stock.available_quantity || 0);
-  const total = Number(stock.total || 0);
+  const available = Number(stock?.available_quantity || 0);
+  const total = Number(stock?.total || 0);
 
-  const notAvail = Array.isArray(stock.not_available_detail)
+  const notAvail = Array.isArray(stock?.not_available_detail)
     ? stock.not_available_detail
     : [];
   const hasTransfer = notAvail.some(
@@ -92,25 +95,12 @@ function deriveUiStatus(item, stock) {
   return "no_stock";
 }
 
-async function upsertFullRow({
-  meli_conta_id,
-  mlb,
-  sku,
-  title,
-  image_url,
-  inventory_id,
-  price,
-  stock_full,
-  sold_total,
-  listing_status,
-  status,
-  sales_series_40d,
-}) {
+async function upsertRow(data) {
   const q = `
     INSERT INTO anuncios_full
       (meli_conta_id, mlb, sku, title, image_url, inventory_id, price, stock_full, sold_total, sold_40d, listing_status, status, sales_series_40d, last_synced_at, created_at, updated_at)
     VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10,0),$11,$12,$13,NOW(),NOW(),NOW())
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW(),NOW())
     ON CONFLICT (meli_conta_id, mlb)
     DO UPDATE SET
       sku = EXCLUDED.sku,
@@ -120,6 +110,7 @@ async function upsertFullRow({
       price = EXCLUDED.price,
       stock_full = EXCLUDED.stock_full,
       sold_total = EXCLUDED.sold_total,
+      sold_40d = EXCLUDED.sold_40d,
       listing_status = EXCLUDED.listing_status,
       status = EXCLUDED.status,
       sales_series_40d = EXCLUDED.sales_series_40d,
@@ -129,19 +120,19 @@ async function upsertFullRow({
   `;
 
   const params = [
-    meli_conta_id,
-    mlb,
-    sku,
-    title,
-    image_url,
-    inventory_id,
-    price,
-    stock_full,
-    sold_total,
-    sales_series_40d ? 0 : 0, // sold_40d (mantemos 0 por enquanto)
-    listing_status,
-    status,
-    sales_series_40d || null,
+    data.meli_conta_id,
+    data.mlb,
+    data.sku,
+    data.title,
+    data.image_url,
+    data.inventory_id,
+    data.price,
+    data.stock_full,
+    data.sold_total,
+    data.sold_40d || 0,
+    data.listing_status,
+    data.status,
+    data.sales_series_40d || null,
   ];
 
   const r = await db.query(q, params);
@@ -153,7 +144,9 @@ module.exports = {
     const offset = (page - 1) * pageSize;
 
     const where = [];
-    const params = [meli_conta_id];
+    const params = [];
+
+    params.push(meli_conta_id);
     where.push(`meli_conta_id = $${params.length}`);
 
     if (q) {
@@ -170,10 +163,12 @@ module.exports = {
       where.push(`status = $${params.length}`);
     }
 
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const whereSql = `WHERE ${where.join(" AND ")}`;
 
-    const countQ = `SELECT COUNT(*)::int AS total FROM anuncios_full ${whereSql};`;
-    const countR = await db.query(countQ, params);
+    const countR = await db.query(
+      `SELECT COUNT(*)::int AS total FROM anuncios_full ${whereSql};`,
+      params
+    );
     const total = countR.rows[0]?.total || 0;
 
     params.push(pageSize);
@@ -200,17 +195,16 @@ module.exports = {
     };
   },
 
-  async addOrUpdateFromML({ req, meli_conta_id, mlb }) {
-    // usamos res.locals via "req.res"
-    const res = req.res;
-    const token = getAccessTokenFromRequest(req, res);
+  async addOrUpdateFromML({ req, res, meli_conta_id, mlb }) {
+    const token = getAccessToken(req, res);
 
-    // 1) Item (traz inventory_id quando for FULL)
+    // 1) /items/{MLB} => inventory_id, title, price, sold, pictures, sku...
     const item = await mlGET(`/items/${encodeURIComponent(mlb)}`, token);
 
     const inventory_id = item?.inventory_id || null;
 
-    // 2) Stock fulfillment (se tiver inventory_id)
+    // Se não tem inventory_id, não está “rodando no FULL” nesse formato
+    // mas ainda salvamos como ineligible pra UI mostrar claramente.
     let stock = null;
     if (inventory_id) {
       stock = await mlGET(
@@ -219,7 +213,7 @@ module.exports = {
       );
     }
 
-    const row = await upsertFullRow({
+    const row = await upsertRow({
       meli_conta_id,
       mlb,
       sku: pickSkuFromItem(item),
@@ -229,15 +223,16 @@ module.exports = {
       price: item?.price ?? item?.base_price ?? null,
       stock_full: Number(stock?.available_quantity || 0),
       sold_total: Number(item?.sold_quantity || 0),
+      sold_40d: 0, // por enquanto (se quiser, depois a gente calcula com orders)
       listing_status: item?.status || null,
       status: deriveUiStatus(item, stock),
-      sales_series_40d: null, // opcional (futuro)
+      sales_series_40d: null,
     });
 
     return row;
   },
 
-  async sync({ req, meli_conta_id, mlbs }) {
+  async sync({ req, res, meli_conta_id, mlbs }) {
     let targets = mlbs;
 
     if (!targets) {
@@ -255,12 +250,12 @@ module.exports = {
       try {
         const row = await this.addOrUpdateFromML({
           req,
+          res,
           meli_conta_id,
-          mlb: String(mlb).toUpperCase(),
+          mlb: String(mlb).trim().toUpperCase(),
         });
         ok.push({
-          mlb,
-          id: row.id,
+          mlb: row.mlb,
           status: row.status,
           stock_full: row.stock_full,
         });

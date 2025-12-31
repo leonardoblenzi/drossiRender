@@ -27,7 +27,6 @@ module.exports = {
         200,
         Math.max(10, Number(req.query.pageSize || 25))
       );
-
       const q = String(req.query.q || "").trim();
       const status = String(req.query.status || "all");
 
@@ -40,13 +39,11 @@ module.exports = {
       });
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: "Erro ao listar FULL",
-          message: error.message,
-        });
+      return res.status(500).json({
+        success: false,
+        error: "Erro ao listar FULL",
+        message: error.message,
+      });
     }
   },
 
@@ -71,6 +68,7 @@ module.exports = {
 
       const row = await FullService.addOrUpdateFromML({
         req,
+        res,
         meli_conta_id,
         mlb,
       });
@@ -98,17 +96,17 @@ module.exports = {
           });
       }
 
-      const mlbs = Array.isArray(req.body?.mlbs) ? req.body.mlbs : null; // null = sync tudo
-      const out = await FullService.sync({ req, meli_conta_id, mlbs });
+      // null => sincroniza tudo do DB
+      const mlbs = Array.isArray(req.body?.mlbs) ? req.body.mlbs : null;
+
+      const out = await FullService.sync({ req, res, meli_conta_id, mlbs });
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: "Erro ao sincronizar FULL",
-          message: error.message,
-        });
+      return res.status(500).json({
+        success: false,
+        error: "Erro ao sincronizar FULL",
+        message: error.message,
+      });
     }
   },
 
@@ -134,13 +132,11 @@ module.exports = {
       const out = await FullService.bulkDelete({ meli_conta_id, mlbs });
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: "Erro ao remover em lote",
-          message: error.message,
-        });
+      return res.status(500).json({
+        success: false,
+        error: "Erro ao remover em lote",
+        message: error.message,
+      });
     }
   },
 
@@ -162,13 +158,11 @@ module.exports = {
       const out = await FullService.bulkDelete({ meli_conta_id, mlbs: [mlb] });
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: "Erro ao remover",
-          message: error.message,
-        });
+      return res.status(500).json({
+        success: false,
+        error: "Erro ao remover",
+        message: error.message,
+      });
     }
   },
 };
