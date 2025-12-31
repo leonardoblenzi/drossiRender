@@ -632,6 +632,7 @@ class EstrategicosController {
   }
 
   // POST /api/estrategicos/:mlb/sync  (compat com front/versões antigas)
+  // Faz sync usando MLB (e cria registro se não existir)
   static async syncByMlb(req, res) {
     try {
       const meli_conta_id = ensureContaId(res);
