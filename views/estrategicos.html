@@ -8,7 +8,7 @@
 
   <!-- Estilos globais + específicos -->
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
-  <link rel="stylesheet" href="/css/estrategicos.css?v=2">
+  <link rel="stylesheet" href="/css/estrategicos.css?v=3">
 </head>
 <body>
   <!-- TOPO FIXO (mesmo padrão das outras telas) -->
@@ -72,8 +72,8 @@
       <div>
         <h2>Produtos Estratégicos</h2>
         <p class="subtitle">
-          Gerencie a lista por conta e defina <strong>Preço Promo</strong>. O sistema calcula a <strong>%</strong>
-          automaticamente a partir do <strong>Preço Original</strong> do anúncio.
+          Gerencie a lista por conta e defina <strong>Preço Promo</strong> por item.
+          O sistema calcula a <strong>%</strong> automaticamente a partir do <strong>Preço Original</strong>.
         </p>
       </div>
 
@@ -177,71 +177,75 @@
         <div>
           <h3>Configuração do ciclo atual</h3>
           <p class="muted">
-            Defina um <strong>Preço Promo</strong> global e preencha nos itens. A % é calculada automaticamente (não editável).
+            Selecione o <strong>tipo de campanha</strong> e aplique promoções para os itens selecionados.
+            A <strong>% calculada</strong> aparece automaticamente na tabela com base no <strong>Preço Promo</strong> digitado por item.
           </p>
         </div>
       </header>
 
       <div class="estrategicos-controls__body">
-        <div class="estrategicos-controls__group">
-          <label for="promoGlobal">Preço Promo global (R$)</label>
-          <div class="estrategicos-controls__inline">
-            <input id="promoGlobal" type="number" min="0" step="0.01" placeholder="ex.: 199.90" />
-            <button id="btnFillPromoFromGlobal" type="button" class="btn secondary">
-              Preencher coluna “Preço Promo”
-            </button>
+        <div class="estrategicos-controls__left">
+          <div class="estrategicos-controls__group">
+            <label for="promotionType">Tipo de campanha</label>
+            <select id="promotionType">
+              <option value="DEAL">DEAL / Seller Campaign</option>
+              <option value="SMART">SMART</option>
+              <option value="PRICE_MATCHING">Price Matching</option>
+              <option value="MARKETPLACE_CAMPAIGN">Marketplace Campaign</option>
+            </select>
+            <small class="muted">
+              Esse tipo será utilizado quando o sistema criar as promoções.
+            </small>
           </div>
-          <small class="muted">
-            Essa ação só preenche a coluna. A promoção só é criada ao clicar em <strong>Aplicar promoção</strong>.
-          </small>
         </div>
 
-        <div class="estrategicos-controls__group">
-          <label for="promotionType">Tipo de campanha</label>
-          <select id="promotionType">
-            <option value="DEAL">DEAL / Seller Campaign</option>
-            <option value="SMART">SMART</option>
-            <option value="PRICE_MATCHING">Price Matching</option>
-            <option value="MARKETPLACE_CAMPAIGN">Marketplace Campaign</option>
-          </select>
-          <small class="muted">
-            Esse tipo será utilizado quando o sistema criar as promoções.
-          </small>
-        </div>
+        <div class="estrategicos-controls__right">
+          <div class="apply-toolbar">
+            <div class="apply-toolbar__group">
+              <span class="apply-toolbar__label">Seleção</span>
+              <div class="apply-toolbar__buttons">
+                <!-- ID alinhado com o mapeamento padrão do seu JS -->
+                <button id="btnSelectAllGlobal" class="btn secondary" type="button" title="Seleciona todos os itens da lista (todas as páginas)">
+                  ✅ Selecionar todos
+                </button>
 
-        <!-- Ações em lote -->
-        <div class="estrategicos-controls__group apply-actions">
-          <button id="btnSelectAllPages" class="btn secondary" type="button" title="Seleciona todos os itens da lista (todas as páginas)">
-            ✅ Selecionar todos
-          </button>
+                <button id="btnClearSelection" class="btn ghost" type="button" title="Limpa a seleção">
+                  Limpar seleção
+                </button>
+              </div>
 
-          <button id="btnClearSelection" class="btn ghost" type="button" title="Limpa a seleção">
-            Limpar seleção
-          </button>
-
-          <button id="btnSyncSelected" class="btn secondary" type="button" title="Atualiza do ML os itens selecionados">
-            🔄 Atualizar selecionados
-          </button>
-
-          <button id="btnApplySelected" class="btn primary" type="button">
-            🚀 Aplicar promoção nos selecionados
-          </button>
-
-          <button id="btnDeleteSelected" class="btn danger" type="button">
-            🗑 Excluir selecionados
-          </button>
-
-          <span id="applyHint" class="muted">
-            Selecione itens na tabela (página atual) ou clique em <strong>Selecionar todos</strong>.
-          </span>
-
-          <!-- Barra de progresso (lote / bulk) -->
-          <div id="bulkAddProgress" class="estrategicos-progress" hidden>
-            <div class="estrategicos-progress__bar">
-              <div id="bulkAddProgressFill" class="estrategicos-progress__fill"></div>
+              <span id="applyHint" class="muted apply-hint">
+                Selecione itens na tabela (página atual) ou clique em <strong>Selecionar todos</strong>.
+              </span>
             </div>
-            <div id="bulkAddProgressLabel" class="estrategicos-progress__label">
-              0 / 0
+
+            <div class="apply-toolbar__divider"></div>
+
+            <div class="apply-toolbar__group">
+              <span class="apply-toolbar__label">Ações</span>
+              <div class="apply-toolbar__buttons apply-toolbar__buttons--ops">
+                <button id="btnSyncSelected" class="btn secondary" type="button" title="Atualiza do ML os itens selecionados">
+                  🔄 Atualizar selecionados
+                </button>
+
+                <button id="btnApplySelected" class="btn primary" type="button">
+                  🚀 Aplicar promoção
+                </button>
+
+                <button id="btnDeleteSelected" class="btn danger" type="button">
+                  🗑 Excluir selecionados
+                </button>
+              </div>
+
+              <!-- Barra de progresso (lote / bulk) -->
+              <div id="bulkAddProgress" class="estrategicos-progress" hidden>
+                <div class="estrategicos-progress__bar">
+                  <div id="bulkAddProgressFill" class="estrategicos-progress__fill"></div>
+                </div>
+                <div id="bulkAddProgressLabel" class="estrategicos-progress__label">
+                  0 / 0
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -259,10 +263,25 @@
           </p>
         </div>
 
-        <div class="estrategicos-table__summary">
-          <span id="summaryTotal">0 itens</span>
-          <span id="summarySelected">0 selecionados</span>
-        </div>
+        <div class="estrategicos-table__tools">
+  <div class="estrategicos-search" title="Buscar por MLB">
+    <span class="hint">🔎</span>
+    <input
+      id="mlbSearch"
+      type="text"
+      placeholder="Buscar MLB (ex: MLB123...)"
+      autocomplete="off"
+      inputmode="text"
+    />
+    <span id="mlbSearchCount" class="hint"></span>
+  </div>
+
+  <div class="estrategicos-table__summary">
+    <span id="summaryTotal">0 itens</span>
+    <span id="summarySelected">0 selecionados</span>
+  </div>
+</div>
+
       </header>
 
       <div class="table-wrapper table-wrapper--wide">

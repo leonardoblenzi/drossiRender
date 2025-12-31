@@ -82,7 +82,6 @@ code {
 }
 .btn.ghost:hover { background: #f8fafc; }
 
-/* ✅ faltava: danger (pra Excluir selecionados) */
 .btn.danger {
   background: #dc2626;
   border-color: #dc2626;
@@ -256,12 +255,13 @@ code {
 }
 
 /* ===========================================================
-   CONTROLES DO CICLO (melhor grid e alinhamento)
+   CONTROLES DO CICLO (NOVO LAYOUT)
    =========================================================== */
 .estrategicos-controls__body {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 1fr 1.4fr;
   gap: 18px 24px;
+  align-items: start;
 }
 
 .estrategicos-controls__group {
@@ -270,35 +270,57 @@ code {
   gap: 8px;
 }
 
-.estrategicos-controls__inline {
+/* Toolbar de ações (mais limpo e espaçado) */
+.apply-toolbar {
+  border: 1px solid #eef0f3;
+  background: #fafbfc;
+  border-radius: 12px;
+  padding: 12px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.apply-toolbar__group {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+}
+
+.apply-toolbar__label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.apply-toolbar__buttons {
+  display: flex;
   flex-wrap: wrap;
-}
-
-.estrategicos-controls__inline input[type="number"] {
-  width: 180px;
-}
-
-/* Bloco de aplicação ocupa a linha toda e fica organizado */
-.apply-actions {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
   gap: 10px 12px;
+  align-items: center;
 }
 
-#applyHint {
-  grid-column: 1 / -1;
-  margin-top: 2px;
+.apply-toolbar__buttons--ops .btn.primary{
+  padding-left: 18px;
+  padding-right: 18px;
 }
 
-/* Barra de progresso alinhada com o bloco */
+.apply-toolbar__divider {
+  height: 1px;
+  background: #eef0f3;
+}
+
+/* Hint (fica mais legível) */
+.apply-hint {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+/* Barra de progresso */
 .estrategicos-progress {
-  grid-column: 1 / -1;
-  margin-top: 10px;
+  margin-top: 6px;
   max-width: 520px;
 }
 
@@ -397,7 +419,7 @@ code {
 }
 
 /* ===========================================================
-   STATUS PILL (faltava no seu CSS)
+   STATUS PILL
    =========================================================== */
 .status-pill {
   display: inline-flex;
@@ -478,6 +500,40 @@ code {
 }
 .btn-danger:hover { background: #fee2e2; }
 
+/* ===== Nome read-only ===== */
+.name-readonly{
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color:#111;
+  font-weight: 500;
+}
+
+/* ===== Inputs de dinheiro ===== */
+.input-money{
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  background: #fff;
+}
+.input-money:focus{
+  outline: none;
+  border-color: #7aa7ff;
+  box-shadow: 0 0 0 3px rgba(0,123,255,0.12);
+}
+
+.money-readonly{
+  font-weight: 600;
+  color:#222;
+}
+
+/* ===== Colunas ===== */
+.estrategicos-table td.col-money{ min-width: 160px; }
+.estrategicos-table td.col-percent{ min-width: 130px; }
+
 /* ===========================================================
    MODAL (mantido, com leves ajustes)
    =========================================================== */
@@ -529,10 +585,6 @@ code {
   .estrategicos-controls__body {
     grid-template-columns: 1fr;
   }
-  .apply-actions {
-    grid-template-columns: 1fr;
-    justify-items: start;
-  }
 }
 
 @media (max-width: 768px) {
@@ -541,87 +593,108 @@ code {
     align-items: stretch;
   }
 
-  .estrategicos-controls__inline {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .estrategicos-controls__inline input[type="number"] {
-    width: 100%;
-  }
-
   .col-actions {
     flex-direction: row;
     flex-wrap: wrap;
   }
 }
-/* ===== Nome read-only ===== */
+/* ===========================================================
+   AJUSTES DE LARGURA / TABELA (mais colunas visíveis)
+   =========================================================== */
+
+/* deixa a página mais larga (sem estourar em telas menores) */
+.estrategicos-wrap{
+  max-width: 1480px;     /* antes 1200px */
+}
+
+/* dá mais área útil pro card da tabela */
+.estrategicos-table-card{
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* a tabela pode “respirar” melhor */
+.table-wrapper--wide{
+  overflow-x: auto;
+}
+
+/* ===========================================================
+   COLUNA NOME: cortar mais cedo (metade) e liberar espaço
+   =========================================================== */
+
+/* reduz largura máxima do nome e permite truncar mais rápido */
 .name-readonly{
-  max-width: 520px;
-  white-space: nowrap;
+  max-width: 260px;  /* antes ~520px */
+}
+
+/* garante que a coluna não “puxe” a tabela inteira */
+.estrategicos-table td.col-name{
+  max-width: 280px;
+  width: 280px;
+}
+
+/* opcional: um pouco menor pra caber mais colunas */
+.estrategicos-table td.col-mlb{ min-width: 140px; }
+.estrategicos-table td.col-money{ min-width: 150px; }
+.estrategicos-table td.col-percent{ min-width: 120px; }
+
+/* ===========================================================
+   TOOLBAR DE BUSCA (MLB)
+   =========================================================== */
+.estrategicos-table__tools{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.estrategicos-search{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#f9fafb;
+  border:1px solid #e5e7eb;
+  padding:6px 10px;
+  border-radius: 999px;
+}
+
+.estrategicos-search input{
+  border:none !important;
+  background:transparent !important;
+  outline:none !important;
+  height: 28px !important;
+  padding: 0 2px !important;
+  min-width: 220px;
+  font-size: 0.88rem;
+}
+
+.estrategicos-search .hint{
+  font-size:0.82rem;
+  color:#6b7280;
+}
+/* ===========================================================
+   NOME DO PRODUTO EM 2 LINHAS (com reticências no final)
+   =========================================================== */
+
+/* largura da coluna do nome (ajuste fino) */
+.estrategicos-table td.col-name{
+  width: 320px;      /* pode testar 300~380 */
+  max-width: 320px;
+}
+
+/* 2 linhas + "..." no final */
+.name-readonly{
+  max-width: 320px;
+  white-space: normal;          /* libera quebra de linha */
   overflow: hidden;
   text-overflow: ellipsis;
-  color:#111;
-  font-weight: 500;
-}
 
-/* ===== Inputs de dinheiro ===== */
-.input-money{
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid #cfd6df;
-  border-radius: 8px;
-  font-size: 0.88rem;
-  background: #fff;
-}
-.input-money:focus{
-  outline: none;
-  border-color: #7aa7ff;
-  box-shadow: 0 0 0 3px rgba(0,123,255,0.12);
-}
+  display: -webkit-box;         /* clamp multi-linha */
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;        /* 2 linhas */
+  line-clamp: 2;
 
-.money-readonly{
-  font-weight: 600;
-  color:#222;
+  line-height: 1.25;
+  max-height: calc(1.25em * 2); /* garante 2 linhas */
 }
-
-/* ===== Pills ===== */
-.status-pill{
-  display:inline-flex;
-  align-items:center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  border:1px solid #e5e7eb;
-  background:#f9fafb;
-  color:#374151;
-}
-.status-pill--ok{ background:#ecfdf5; border-color:#a7f3d0; color:#065f46; }
-.status-pill--pending{ background:#fffbeb; border-color:#fde68a; color:#92400e; }
-.status-pill--error{ background:#fef2f2; border-color:#fecaca; color:#991b1b; }
-.status-pill--default{ background:#f3f4f6; border-color:#e5e7eb; color:#374151; }
-
-/* ===== Colunas ===== */
-.estrategicos-table td.col-money{ min-width: 160px; }
-.estrategicos-table td.col-percent{ min-width: 130px; }
-
-/* ===== Botões pequenos da tabela ===== */
-.btn-xs{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 0.80rem;
-  cursor:pointer;
-  border: 1px solid #cfd6df;
-  background:#fff;
-}
-.btn-outline:hover{ background:#f7f7f7; }
-.btn-danger{
-  border-color:#fecaca;
-  background:#fff5f5;
-}
-.btn-danger:hover{ background:#ffe4e6; }

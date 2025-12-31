@@ -117,9 +117,13 @@
   // =========================
   // Estado
   // =========================
-  let rows = [];
+  let rows = []; // lista completa
+  let filteredRows = []; // lista filtrada (busca MLB)
+
   const PAGE_SIZE = 20;
   let currentPage = 1;
+
+  let mlbQuery = ""; // texto de busca atual
 
   // Seleção global
   // - selectedAll=true significa "todos estão selecionados", exceto os explicitamente removidos (excluded)
@@ -252,6 +256,26 @@
     return Math.round(pct * 100) / 100;
   }
 
+  function updatePctCalcCell(tr, row) {
+    if (!tr || !row) return;
+
+    const original = row.original_price;
+    const promo = row.promo_price;
+
+    const pctCalc = computePct(original, promo);
+
+    const pctEl = tr.querySelector(".pct-calc");
+    if (pctEl) {
+      if (pctCalc == null) {
+        pctEl.textContent = "—";
+        pctEl.classList.add("muted");
+      } else {
+        pctEl.textContent = fmtPct(pctCalc);
+        pctEl.classList.remove("muted");
+      }
+    }
+  }
+
   function computeStatusPill(row) {
     const ls = String(row.listing_status || "")
       .toLowerCase()
@@ -274,6 +298,31 @@
     return { label: "—", cls: "status-pill--default" };
   }
 
+  function applyMlbFilter() {
+    const q = String(mlbQuery || "")
+      .trim()
+      .toUpperCase();
+
+    if (!q) {
+      filteredRows = rows.slice();
+    } else {
+      filteredRows = rows.filter((r) =>
+        String(r.mlb || "")
+          .toUpperCase()
+          .includes(q)
+      );
+    }
+
+    // volta pra primeira página sempre que muda o filtro
+    currentPage = 1;
+
+    // contador pequeno no input
+    const cnt = $("mlbSearchCount");
+    if (cnt) {
+      cnt.textContent = q ? `${filteredRows.length}/${rows.length}` : "";
+    }
+  }
+
   // =========================
   // Carregar lista
   // =========================
@@ -288,7 +337,6 @@
     try {
       const data = await fetchJSONAny(["/api/estrategicos"], { method: "GET" });
       rows = Array.isArray(data?.items || data) ? data.items || data : [];
-      currentPage = 1;
 
       // mantém seleção consistente: remove MLBs que não existem mais
       if (!selectedAll) {
@@ -305,8 +353,12 @@
         }
       }
 
+      // aplica filtro atual
+      applyMlbFilter();
+
       renderTable();
-      if (summaryTotal) summaryTotal.textContent = `${rows.length} itens`;
+      if (summaryTotal)
+        summaryTotal.textContent = `${filteredRows.length} itens`;
       updateSummarySelected();
     } catch (err) {
       console.error("loadRows:", err);
@@ -315,6 +367,7 @@
           err.message
         )}</td></tr>`;
       }
+      filteredRows = [];
       renderPagination();
       updateSummarySelected();
     }
@@ -327,7 +380,9 @@
     const container = $("strategicPagination");
     if (!container) return;
 
-    const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    const base = filteredRows || [];
+    const totalPages = Math.max(1, Math.ceil(base.length / PAGE_SIZE));
+
     if (totalPages <= 1) {
       container.innerHTML = "";
       return;
@@ -340,10 +395,10 @@
     start = Math.max(1, end - maxButtons + 1);
 
     let html = `
-      <button type="button" class="pg-btn pg-prev" data-page="prev" ${
-        currentPage === 1 ? "disabled" : ""
-      }>&laquo;</button>
-    `;
+    <button type="button" class="pg-btn pg-prev" data-page="prev" ${
+      currentPage === 1 ? "disabled" : ""
+    }>&laquo;</button>
+  `;
 
     if (start > 1) {
       html += `<button type="button" class="pg-btn pg-num" data-page="1">1</button>`;
@@ -362,10 +417,10 @@
     }
 
     html += `
-      <button type="button" class="pg-btn pg-next" data-page="next" ${
-        currentPage === totalPages ? "disabled" : ""
-      }>&raquo;</button>
-    `;
+    <button type="button" class="pg-btn pg-next" data-page="next" ${
+      currentPage === totalPages ? "disabled" : ""
+    }>&raquo;</button>
+  `;
 
     container.innerHTML = html;
   }
@@ -376,30 +431,37 @@
   function renderTable() {
     const tbody = $("tbodyStrategicos");
     const summaryTotal = $("summaryTotal");
-
     if (!tbody) return;
 
-    if (!rows.length) {
+    const base = filteredRows || [];
+
+    if (!base.length) {
       tbody.innerHTML = `
-        <tr>
-          <td colspan="9" class="muted">
-            Nenhum produto estratégico cadastrado. Use <strong>“Adicionar item”</strong> ou
-            <strong>“Atualizar por arquivo”</strong>.
-          </td>
-        </tr>
-      `;
-      if (summaryTotal) summaryTotal.textContent = "0 itens";
+      <tr>
+        <td colspan="9" class="muted">
+          ${
+            (mlbQuery || "").trim()
+              ? `Nenhum item encontrado para a busca <strong>${escapeHtml(
+                  mlbQuery
+                )}</strong>.`
+              : `Nenhum produto estratégico cadastrado. Use <strong>“Adicionar item”</strong> ou
+                 <strong>“Atualizar por arquivo”</strong>.`
+          }
+        </td>
+      </tr>
+    `;
+      if (summaryTotal) summaryTotal.textContent = `${base.length} itens`;
       renderPagination();
       updateSummarySelected();
       syncSelectionUIOnPage();
       return;
     }
 
-    const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(base.length / PAGE_SIZE));
     if (currentPage > totalPages) currentPage = totalPages;
 
     const startIdx = (currentPage - 1) * PAGE_SIZE;
-    const pageRows = rows.slice(startIdx, startIdx + PAGE_SIZE);
+    const pageRows = base.slice(startIdx, startIdx + PAGE_SIZE);
 
     tbody.innerHTML = pageRows
       .map((row) => {
@@ -413,83 +475,79 @@
         const pill = computeStatusPill(row);
 
         return `
-          <tr data-mlb="${escapeHtml(mlb)}" data-id="${escapeHtml(id)}">
-            <td class="col-check">
-              <input type="checkbox" class="row-select" data-mlb="${escapeHtml(
-                mlb
-              )}">
-            </td>
+        <tr data-mlb="${escapeHtml(mlb)}" data-id="${escapeHtml(id)}">
+          <td class="col-check">
+            <input type="checkbox" class="row-select" data-mlb="${escapeHtml(
+              mlb
+            )}">
+          </td>
 
-            <td class="col-mlb">
-              <span class="mlb-label">${escapeHtml(mlb)}</span>
-            </td>
+          <td class="col-mlb">
+            <span class="mlb-label">${escapeHtml(mlb)}</span>
+          </td>
 
-            <td class="col-name">
-              <div class="name-readonly" title="${escapeHtml(
-                name
-              )}">${escapeHtml(name || "—")}</div>
-            </td>
+          <td class="col-name">
+            <div class="name-readonly" title="${escapeHtml(name)}">${escapeHtml(
+          name || "—"
+        )}</div>
+          </td>
 
-            <td class="col-money">
-              <span class="money-readonly">${fmtMoney(original)}</span>
-            </td>
+          <td class="col-money">
+            <span class="money-readonly">${fmtMoney(original)}</span>
+          </td>
 
-            <td class="col-money">
-              <input
-                type="number"
-                class="input-money"
-                data-field="promo_price"
-                min="0"
-                step="0.01"
-                value="${promo != null ? promo : ""}"
-                placeholder="ex.: 199.90"
-              >
-              <div class="cell-hint muted">Preço final desejado</div>
-            </td>
+          <td class="col-money">
+            <input
+              type="number"
+              class="input-money"
+              data-field="promo_price"
+              min="0"
+              step="0.01"
+              value="${promo != null ? promo : ""}"
+              placeholder="ex.: 199.90"
+            >
+            <div class="cell-hint muted">Preço final desejado</div>
+          </td>
 
-            <td class="col-percent">
-              <span class="pct-calc ${pctCalc == null ? "muted" : ""}">
-                ${pctCalc == null ? "—" : fmtPct(pctCalc)}
-              </span>
-              <div class="cell-hint muted">% calculada</div>
-            </td>
+          <td class="col-percent">
+            <span class="pct-calc ${pctCalc == null ? "muted" : ""}">
+              ${pctCalc == null ? "—" : fmtPct(pctCalc)}
+            </span>
+            <div class="cell-hint muted">% calculada</div>
+          </td>
 
-            <td class="col-percent">
-              <span class="pct-applied ${
-                row.percent_applied == null ? "muted" : ""
-              }">
-                ${
-                  row.percent_applied == null
-                    ? "—"
-                    : fmtPct(row.percent_applied)
-                }
-              </span>
-              <div class="cell-hint muted">% atual no ML</div>
-            </td>
+          <td class="col-percent">
+            <span class="pct-applied ${
+              row.percent_applied == null ? "muted" : ""
+            }">
+              ${row.percent_applied == null ? "—" : fmtPct(row.percent_applied)}
+            </span>
+            <div class="cell-hint muted">% atual no ML</div>
+          </td>
 
-            <td class="col-status">
-              <span class="status-pill ${pill.cls}">${escapeHtml(
+          <td class="col-status">
+            <span class="status-pill ${pill.cls}">${escapeHtml(
           pill.label
         )}</span>
-            </td>
+          </td>
 
-            <td class="col-actions">
-              <button type="button" class="btn-xs btn-outline" data-action="save-row" title="Salvar preço promo">
-                💾 Salvar
-              </button>
-              <button type="button" class="btn-xs btn-outline" data-action="sync-row" title="Atualizar do ML (nome/status/preço original/promo atual)">
-                🔄 Atualizar
-              </button>
-              <button type="button" class="btn-xs btn-danger" data-action="delete-row" title="Remover">
-                🗑️
-              </button>
-            </td>
-          </tr>
-        `;
+          <td class="col-actions">
+            <button type="button" class="btn-xs btn-outline" data-action="save-row" title="Salvar preço promo">
+              💾 Salvar
+            </button>
+            <button type="button" class="btn-xs btn-outline" data-action="sync-row" title="Atualizar do ML (nome/status/preço original/promo atual)">
+              🔄 Atualizar
+            </button>
+            <button type="button" class="btn-xs btn-danger" data-action="delete-row" title="Remover">
+              🗑️
+            </button>
+          </td>
+        </tr>
+      `;
       })
       .join("");
 
-    if (summaryTotal) summaryTotal.textContent = `${rows.length} itens`;
+    if (summaryTotal) summaryTotal.textContent = `${base.length} itens`;
 
     renderPagination();
     updateSummarySelected();
@@ -635,11 +693,20 @@
     const type = promotionTypeSel ? promotionTypeSel.value : "DEAL";
 
     const items = [];
+    const skipped = {
+      noRow: 0,
+      noPromo: 0,
+      invalidPct: 0,
+    };
+
     for (const mlb of selected) {
       const row = rows.find(
         (r) => String(r.mlb).toUpperCase() === String(mlb).toUpperCase()
       );
-      if (!row) continue;
+      if (!row) {
+        skipped.noRow += 1;
+        continue;
+      }
 
       const promo = row.promo_price;
       if (
@@ -647,20 +714,50 @@
         promo === "" ||
         !Number.isFinite(Number(promo)) ||
         Number(promo) <= 0
-      )
+      ) {
+        skipped.noPromo += 1;
         continue;
+      }
 
-      items.push({ mlb, promo_price: Number(promo) });
+      const pctCalc = computePct(row.original_price, promo);
+
+      // Regras mínimas para evitar aplicar lixo
+      // - pctCalc precisa existir
+      // - precisa ser > 0 (promo menor que original)
+      // - precisa ser < 100
+      if (!Number.isFinite(Number(pctCalc)) || pctCalc <= 0 || pctCalc >= 100) {
+        skipped.invalidPct += 1;
+        continue;
+      }
+
+      items.push({
+        mlb: String(mlb).toUpperCase(),
+        promo_price: Number(promo), // mantém compatibilidade
+        percent_calc: Number(pctCalc), // NOVO: aplicar usando % calculada
+      });
     }
 
     if (!items.length) {
-      toast("Nenhum item selecionado possui Preço Promo preenchido.");
+      let msg = "Nenhum item válido para aplicar.\n";
+      if (skipped.noPromo) msg += `• ${skipped.noPromo} sem Preço Promo\n`;
+      if (skipped.invalidPct)
+        msg += `• ${skipped.invalidPct} com % inválida (promo >= original ou valores ruins)\n`;
+      toast(msg.trim());
       return;
     }
 
+    const extra =
+      skipped.noPromo || skipped.invalidPct || skipped.noRow
+        ? `\n\nIgnorados:\n${
+            skipped.noPromo ? `• ${skipped.noPromo} sem Preço Promo\n` : ""
+          }${
+            skipped.invalidPct ? `• ${skipped.invalidPct} com % inválida\n` : ""
+          }${skipped.noRow ? `• ${skipped.noRow} não encontrados\n` : ""}`
+        : "";
+
     if (
       !confirm(
-        `Confirmar aplicação de promoções para ${items.length} itens com tipo ${type}?`
+        `Confirmar aplicação para ${items.length} itens (tipo ${type}) usando a % calculada?${extra}`
       )
     )
       return;
@@ -668,7 +765,12 @@
     try {
       await fetchJSON("/api/estrategicos/apply", {
         method: "POST",
-        body: JSON.stringify({ items, promotion_type: type }),
+        body: JSON.stringify({
+          items,
+          promotion_type: type,
+          // dica pro backend (opcional; se você não usar, pode ignorar)
+          apply_mode: "PERCENT_CALC",
+        }),
       });
 
       toast("✅ Promoções enviadas para processamento.");
@@ -677,25 +779,6 @@
       console.error("handleApplySelected:", err);
       toast(`❌ Erro ao aplicar promoções: ${err.message}`);
     }
-  }
-
-  // Preencher promo global
-  function handleFillPromoFromGlobal() {
-    const inputGlobal = $("promoGlobal");
-    if (!inputGlobal) return;
-
-    const val = inputGlobal.value;
-    const n = val === "" ? null : Number(val);
-    if (!Number.isFinite(n) || n <= 0) {
-      toast("Informe um Preço Promo válido.");
-      return;
-    }
-
-    rows.forEach((r) => {
-      r.promo_price = n;
-    });
-
-    renderTable(); // recalcula % e reflete inputs
   }
 
   // =========================
@@ -1190,9 +1273,9 @@
     if (btnProcessFile)
       btnProcessFile.addEventListener("click", handleUploadProcess);
 
-    const btnFillPromo = $("btnFillPromoFromGlobal");
-    if (btnFillPromo)
-      btnFillPromo.addEventListener("click", handleFillPromoFromGlobal);
+    // ✅ REMOVIDO: preço global não existe mais no HTML
+    // const btnFillPromo = $("btnFillPromoFromGlobal");
+    // if (btnFillPromo) btnFillPromo.addEventListener("click", handleFillPromoFromGlobal);
 
     const btnApplySelected = $("btnApplySelected");
     if (btnApplySelected)
@@ -1202,17 +1285,15 @@
     if (btnDeleteSelected)
       btnDeleteSelected.addEventListener("click", handleDeleteSelected);
 
-    // NOVO: bulk sync
     const btnSyncSelected = $("btnSyncSelected");
     if (btnSyncSelected)
       btnSyncSelected.addEventListener("click", handleSyncSelected);
 
-    // NOVO: selecionar todos global
+    // ✅ Selecionar todos GLOBAL (id correto)
     const btnSelectAllGlobal = $("btnSelectAllGlobal");
     if (btnSelectAllGlobal)
       btnSelectAllGlobal.addEventListener("click", handleSelectAllGlobal);
 
-    // NOVO: limpar seleção
     const btnClearSelection = $("btnClearSelection");
     if (btnClearSelection)
       btnClearSelection.addEventListener("click", handleClearSelection);
@@ -1243,6 +1324,7 @@
         const target = ev.target;
         if (!target) return;
 
+        // Checkbox da linha
         if (target.classList.contains("row-select")) {
           const mlb = getRowMlbFromCheckbox(target);
           setMlbSelected(mlb, !!target.checked);
@@ -1251,9 +1333,11 @@
           return;
         }
 
+        // Input Preço Promo
         if (target.classList.contains("input-money")) {
           const tr = target.closest("tr[data-mlb]");
           if (!tr) return;
+
           const mlb = tr.getAttribute("data-mlb");
           const row = rows.find(
             (r) => String(r.mlb).toUpperCase() === String(mlb).toUpperCase()
@@ -1263,9 +1347,20 @@
           const n = target.value === "" ? null : Number(target.value);
           row.promo_price = Number.isFinite(n) ? n : null;
 
-          renderTable(); // recalcula % (calc)
+          // ✅ Atualiza só a célula da % calculada (sem re-render geral)
+          updatePctCalcCell(tr, row);
         }
       });
+
+      // Busca por MLB
+      const mlbSearch = $("mlbSearch");
+      if (mlbSearch) {
+        mlbSearch.addEventListener("input", () => {
+          mlbQuery = mlbSearch.value || "";
+          applyMlbFilter();
+          renderTable();
+        });
+      }
 
       // Delegação: botões por linha
       tbody.addEventListener("click", (ev) => {
@@ -1293,7 +1388,10 @@
         if (!btn) return;
 
         const action = btn.getAttribute("data-page");
-        const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+        const totalPages = Math.max(
+          1,
+          Math.ceil((filteredRows || []).length / PAGE_SIZE)
+        );
 
         if (action === "prev" && currentPage > 1) currentPage -= 1;
         else if (action === "next" && currentPage < totalPages)

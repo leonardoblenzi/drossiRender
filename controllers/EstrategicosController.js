@@ -839,6 +839,10 @@ class EstrategicosController {
 
   // POST /api/estrategicos/apply
   // body: { promotion_type, items: [{ mlb, promo_price }] }
+  // POST /api/estrategicos/apply
+  // body: { promotion_type, items: [{ mlb, promo_price, percent_calc? }] }
+  // - percent_calc vem do FRONT (ex: 27.35) e tem prioridade
+  // - fallback: calcula % por (original_price vs promo_price)
   static async apply(req, res) {
     try {
       const meli_conta_id = ensureContaId(res);
@@ -853,20 +857,27 @@ class EstrategicosController {
       if (!Array.isArray(items) || !items.length) {
         return res.status(400).json({
           ok: false,
-          error: 'Informe "items": [{ mlb, promo_price }]',
+          error: 'Informe "items": [{ mlb, promo_price, percent_calc? }]',
         });
       }
 
       const t = String(promotion_type || "DEAL").toUpperCase();
 
+      // normaliza itens (aceita percent_calc do front)
       const list = items
         .map((r) => ({
           mlb: (r.mlb || "").toString().trim().toUpperCase(),
           promo_price: toNumOrNull(r.promo_price),
+          percent_calc: toNumOrNull(r.percent_calc), // ✅ novo
         }))
-        .filter((r) => r.mlb && r.promo_price != null && r.promo_price > 0);
+        .filter((r) => r.mlb);
 
-      if (!list.length) {
+      // valida mínimo: precisa ter promo_price > 0 (como antes)
+      const listValidPromo = list.filter(
+        (r) => r.promo_price != null && r.promo_price > 0
+      );
+
+      if (!listValidPromo.length) {
         return res.status(400).json({
           ok: false,
           error: "Nenhum item válido (mlb + promo_price > 0).",
@@ -882,7 +893,7 @@ class EstrategicosController {
       const results = [];
       let okCount = 0;
 
-      for (const it of list) {
+      for (const it of listValidPromo) {
         try {
           const r0 = await db.query(
             `SELECT * FROM ${TABLE} WHERE meli_conta_id=$1 AND mlb=$2 LIMIT 1`,
@@ -924,17 +935,49 @@ class EstrategicosController {
             continue;
           }
 
-          const percentToApply = calcPercentFromPrices(
-            original_price,
-            it.promo_price
-          );
+          // =====================================================
+          // ✅ PRIORIDADE: percent_calc vindo do FRONT (em %)
+          // =====================================================
+          let percentToApply = null;
 
-          if (percentToApply == null) {
+          const frontPct = it.percent_calc;
+          if (
+            frontPct != null &&
+            Number.isFinite(Number(frontPct)) &&
+            Number(frontPct) > 0 &&
+            Number(frontPct) < 100
+          ) {
+            // Usa o que veio do front
+            percentToApply = round2(frontPct);
+          } else {
+            // fallback (comportamento antigo): calcula por preços
+            percentToApply = calcPercentFromPrices(
+              original_price,
+              it.promo_price
+            );
+          }
+
+          if (
+            percentToApply == null ||
+            !Number.isFinite(Number(percentToApply))
+          ) {
             results.push({
               mlb: it.mlb,
               promo_price: it.promo_price,
               success: false,
-              error: "Não foi possível calcular % a partir dos preços.",
+              error:
+                "Não foi possível determinar a % para aplicar (percent_calc inválida e fallback falhou).",
+            });
+            continue;
+          }
+
+          // sanity check final: não deixa 0 ou >=100
+          if (Number(percentToApply) <= 0 || Number(percentToApply) >= 100) {
+            results.push({
+              mlb: it.mlb,
+              promo_price: it.promo_price,
+              success: false,
+              error: `Percentual inválido para aplicar: ${percentToApply}.`,
             });
             continue;
           }
@@ -948,7 +991,6 @@ class EstrategicosController {
           const success = !!out?.success;
           if (success) okCount++;
 
-          // ❌ REMOVIDO: percent_calc no DB
           await db.query(
             `
           UPDATE ${TABLE}
@@ -972,8 +1014,11 @@ class EstrategicosController {
           results.push({
             mlb: it.mlb,
             promo_price: it.promo_price,
-            // não salva percent_calc, mas pode retornar no response se quiser exibir
             percent_to_apply: percentToApply,
+            // só pra debug/visibilidade:
+            used_front_percent:
+              it.percent_calc != null &&
+              percentToApply === round2(it.percent_calc),
             success,
             response: out,
           });
@@ -995,10 +1040,10 @@ class EstrategicosController {
       return res.json({
         ok: true,
         promotion_type: t,
-        total: list.length,
+        total: listValidPromo.length,
         applied_ok: okCount,
         results,
-        message: `Aplicação finalizada. Sucesso em ${okCount}/${list.length}.`,
+        message: `Aplicação finalizada. Sucesso em ${okCount}/${listValidPromo.length}.`,
       });
     } catch (err) {
       console.error("[EstrategicosController.apply] Erro geral:", err);
