@@ -201,6 +201,29 @@ const HUD = {
   render() {},
 };
 
+// ====== Job title cache (front-only) ======
+const JobTitleCache = (() => {
+  const KEY = "davanti_job_titles_v1";
+  let map = {};
+  try {
+    map = JSON.parse(localStorage.getItem(KEY) || "{}");
+  } catch {}
+
+  function set(id, title) {
+    if (!id || !title) return;
+    map[String(id)] = String(title);
+    try {
+      localStorage.setItem(KEY, JSON.stringify(map));
+    } catch {}
+  }
+
+  function get(id) {
+    return map[String(id)] || null;
+  }
+
+  return { set, get };
+})();
+
 // =====================================================
 // ================ Jobs Watcher (poll) ================
 // =====================================================
@@ -229,10 +252,11 @@ const JobsWatcher = (function () {
     const byCounts = total > 0 && processed >= total && progress >= 100;
 
     const failed =
+      hasErrors ||
+      hasErrorsFromText ||
       sRaw.includes("fail") ||
-      sRaw.includes("erro") ||
-      sRaw.includes("error") ||
-      sRaw.includes("falhou");
+      sRaw.includes("falhou") ||
+      sRaw.includes("error"); // <-- removi o "erro" solto daqui
 
     const canceled =
       sRaw.includes("cancel") ||
@@ -314,6 +338,14 @@ const JobsWatcher = (function () {
       const raw = Array.isArray(data?.jobs) ? data.jobs : [];
 
       const list = raw.map(normalizeJob);
+
+      for (const j of list) {
+        const t = JobTitleCache.get(j.id);
+        if (t) {
+          j.title = j.title || t;
+          j.label = j.label || t;
+        }
+      }
 
       // Entrega para o painel já normalizado (resolve “concluído” virar “completed”)
       if (window.JobsPanel?.mergeApiJobs && Array.isArray(list)) {
@@ -2581,6 +2613,10 @@ async function aplicarTodosFiltrados() {
       // vincula placeholder ao job real e reforça o título
       if (localJobId && data?.job_id) {
         const realId = String(data.job_id);
+        JobTitleCache.set(
+          realId,
+          `Aplicando ${state.selectedCard?.type || ""} • ${campaignName}`
+        );
         window.JobsPanel?.replaceId?.(localJobId, realId);
         window.JobsPanel?.updateLocalJob?.(realId, {
           label: `Aplicando ${

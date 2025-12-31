@@ -10,22 +10,20 @@
 
 (function () {
   const PANEL_ID = "bulkJobsPanel";
-
   const $ = (s) => document.querySelector(s);
 
-  let jobs = []; // { id, title, progress, state, completed, accountKey, accountLabel, dismissed, updated }
+  // { id, title, progress, state, completed, locked, accountKey, accountLabel, dismissed, updated }
+  let jobs = [];
   let panelEl = null;
-  let collapsed = false; // modo minimizado (só cabeçalho visível)
+  let collapsed = false;
 
   function ensurePanel() {
-    if (!panelEl) {
-      panelEl = document.getElementById(PANEL_ID);
-    }
+    if (!panelEl) panelEl = document.getElementById(PANEL_ID);
     return panelEl;
   }
 
   function clamp(n) {
-    const v = Number(n || 0);
+    const v = Number(n ?? 0);
     if (!Number.isFinite(v)) return 0;
     return Math.max(0, Math.min(100, Math.round(v)));
   }
@@ -44,6 +42,22 @@
               "'": "&#39;",
             }[c])
         );
+  }
+
+  function normalizeStateText(s) {
+    const t = String(s || "").trim();
+    if (!t) return "";
+    return t;
+  }
+
+  function isTerminalCompleted(stateText) {
+    const t = String(stateText || "");
+    return /conclu|finaliz|completed|done|success|sucesso/i.test(t);
+  }
+
+  function isTerminalFailed(stateText) {
+    const t = String(stateText || "");
+    return /failed|falh|erro|error/i.test(t);
   }
 
   function renderBadge(job) {
@@ -97,7 +111,6 @@
   ${rows || '<div class="muted">Sem processos.</div>'}
 </div>`;
 
-    // Ações do cabeçalho
     root.querySelector("#jpToggle")?.addEventListener("click", () => {
       collapsed = !collapsed;
       render();
@@ -107,7 +120,6 @@
       render();
     });
 
-    // Botão de fechar por linha
     root.querySelectorAll(".job-dismiss").forEach((btn) => {
       btn.addEventListener("click", (ev) => {
         const id = ev.currentTarget.dataset.id;
@@ -121,6 +133,7 @@
   function ensureJob(id) {
     const jobId = String(id || "").trim();
     if (!jobId) return null;
+
     let j = jobs.find((x) => x.id === jobId);
     if (!j) {
       j = {
@@ -129,6 +142,7 @@
         progress: 0,
         state: "iniciando…",
         completed: false,
+        locked: false, // 🔒 trava depois que concluir pra não virar "failed" por poller
         dismissed: false,
         updated: Date.now(),
       };
@@ -145,6 +159,7 @@
       progress: 0,
       state: "iniciando…",
       completed: false,
+      locked: false,
       dismissed: false,
       accountKey: accountKey || null,
       accountLabel: accountLabel || null,
@@ -155,29 +170,57 @@
     return id;
   }
 
+  // ✅ update "seguro": se já concluiu, não deixa rebaixar pra failed
   function updateLocalJob(
     id,
     { progress, state, completed, accountKey, accountLabel }
   ) {
     const j = ensureJob(id);
     if (!j) return;
-    if (typeof progress === "number") j.progress = clamp(progress);
-    if (state != null) j.state = String(state);
-    if (typeof completed === "boolean") j.completed = completed;
+
+    const nextProgress = typeof progress === "number" ? clamp(progress) : null;
+    const nextState = state != null ? normalizeStateText(state) : null;
+    const nextCompleted = typeof completed === "boolean" ? completed : null;
+
+    // Se já está travado/concluído e veio update "failed", ignora
+    if ((j.locked || j.completed) && nextState && isTerminalFailed(nextState)) {
+      j.updated = Date.now();
+      render();
+      return;
+    }
+
+    if (nextProgress != null) j.progress = nextProgress;
+
+    if (nextState != null) j.state = nextState;
+
+    if (nextCompleted != null) j.completed = nextCompleted;
+
     if (accountKey != null) j.accountKey = accountKey;
     if (accountLabel != null) j.accountLabel = accountLabel;
-    if (completed == null) {
-      j.completed =
+
+    // Auto-complete por heurística
+    if (nextCompleted == null) {
+      const autoDone =
         j.completed ||
         j.progress >= 100 ||
+        isTerminalCompleted(j.state) ||
         /conclu/i.test(j.state || "") ||
         /finaliz/i.test(j.state || "");
+
+      if (autoDone) j.completed = true;
     }
+
+    // Se concluiu, padroniza e trava
+    if (j.completed) {
+      if (j.progress < 100) j.progress = 100;
+      if (!j.state || isTerminalFailed(j.state)) j.state = "concluído";
+      j.locked = true;
+    }
+
     j.updated = Date.now();
     render();
   }
 
-  // 🔁 Troca o id de um job existente (ex: local-123 → 987654321 do backend)
   function replaceId(oldId, newId) {
     const oldStr = String(oldId || "").trim();
     const newStr = String(newId || "").trim();
@@ -186,9 +229,23 @@
 
     let job = jobs.find((j) => j.id === oldStr);
     if (!job) {
-      // Se não achou o antigo mas já existir um com o novo, só usa o novo
       const existing = jobs.find((j) => j.id === newStr);
       if (existing) return newStr;
+      return newStr;
+    }
+
+    // Se já existe um com newStr, mescla no mais recente e remove duplicado
+    const dup = jobs.find((j) => j.id === newStr);
+    if (dup && dup !== job) {
+      // mantém o que estiver mais "completo"
+      dup.title = dup.title || job.title;
+      dup.progress = Math.max(dup.progress || 0, job.progress || 0);
+      dup.completed = dup.completed || job.completed;
+      dup.locked = dup.locked || job.locked;
+      dup.state = dup.state || job.state;
+      dup.updated = Date.now();
+      jobs = jobs.filter((j) => j !== job);
+      render();
       return newStr;
     }
 
@@ -203,15 +260,21 @@
     if (!Array.isArray(list)) return;
 
     list.forEach((raw) => {
-      const id = String(raw.id || raw.job_id || "").trim();
+      const id = String(raw.id || raw.job_id || raw.process_id || "").trim();
       if (!id) return;
 
-      const title = raw.title || raw.label || "Processo";
+      // ✅ agora aceita title OU label (seu backend parece mandar "label")
+      const title =
+        raw.title || raw.label || raw.name || raw.job_name || "Processo";
 
-      const processed = Number(raw.processed ?? raw.done ?? raw.ok ?? NaN);
-      const total = Number(raw.total ?? raw.expected_total ?? NaN);
+      // números podem vir stringados
+      const processed = Number(
+        raw.processed ?? raw.done ?? raw.ok ?? raw.count_ok ?? NaN
+      );
+      const total = Number(
+        raw.total ?? raw.expected_total ?? raw.count_total ?? NaN
+      );
 
-      // progress
       let pct = Number(raw.progress ?? raw.pct ?? NaN);
       if (
         !Number.isFinite(pct) &&
@@ -223,56 +286,71 @@
       }
       const progress = clamp(Number.isFinite(pct) ? pct : 0);
 
-      // estado (normaliza)
-      const rawState = String(raw.state || raw.status || "").toLowerCase();
+      const stateBase = normalizeStateText(
+        raw.state || raw.status || raw.result || ""
+      );
+      const errors = Number(
+        raw.errors ?? raw.error_count ?? raw.failed ?? raw.failures ?? 0
+      );
+      const hasErrors = Number.isFinite(errors) && errors > 0;
 
-      const byCounts =
-        Number.isFinite(processed) && Number.isFinite(total) && total > 0
-          ? processed >= total
-          : false;
-
-      const completed =
+      const completedFromRaw =
         raw.completed != null
           ? !!raw.completed
-          : progress >= 100 ||
-            byCounts ||
-            /conclu/i.test(rawState) ||
-            /finaliz/i.test(rawState) ||
-            /done|completed/i.test(rawState);
+          : raw.done === true || raw.success === true || raw.finished === true;
 
-      const failed = /fail|erro|error|falhou/i.test(rawState);
+      const completedFromState = isTerminalCompleted(stateBase);
+      const failedFromState = isTerminalFailed(stateBase);
 
-      const canceled = /cancel|canceled|aborted/i.test(rawState);
+      const isCompleted =
+        completedFromRaw || completedFromState || progress >= 100;
+      const isFailed =
+        (!isCompleted && failedFromState) || (isCompleted && hasErrors);
 
-      // texto do state (não sobrescreve "concluído"!)
-      let stateText = raw.state || raw.status || "";
-
-      if (failed) {
-        stateText = stateText || "erro";
-      } else if (canceled) {
-        stateText = stateText || "cancelado";
-      } else if (completed) {
-        stateText = "concluído";
-      } else if (
-        Number.isFinite(processed) &&
-        Number.isFinite(total) &&
-        total > 0
-      ) {
-        stateText = `processando ${processed}/${total} — ${progress}%`;
-      } else if (!stateText) {
-        stateText = `${progress}%`;
+      // estado amigável
+      let state = stateBase;
+      if (Number.isFinite(processed) && Number.isFinite(total)) {
+        state = `processando ${processed}/${total} — ${progress}%`;
+      } else if (!state) {
+        state = `${progress}%`;
       }
 
       const accountKey = raw.account?.key || raw.accountKey || null;
       const accountLabel = raw.account?.label || raw.accountLabel || null;
 
       const job = ensureJob(id);
+
+      // 🔒 se já travou como concluído, não deixa regredir por polling
+      if ((job.locked || job.completed) && !hasErrors && failedFromState) {
+        job.updated = Date.now();
+        return;
+      }
+
       job.title = title;
-      job.progress = completed ? 100 : progress;
-      job.state = stateText;
+      job.progress = progress;
       job.accountKey = accountKey;
       job.accountLabel = accountLabel;
-      job.completed = completed;
+
+      if (isCompleted) {
+        job.completed = true;
+        job.progress = 100;
+
+        if (hasErrors) {
+          job.state = `concluído com ${errors} erro(s)`;
+          job.locked = true; // também é terminal
+        } else {
+          // se estado veio "failed" mas terminou sem erro, padroniza
+          job.state = !stateBase || failedFromState ? "concluído" : stateBase;
+          job.locked = true;
+        }
+      } else if (isFailed) {
+        job.completed = true; // terminal
+        job.state = stateBase || "falhou";
+        job.locked = true;
+      } else {
+        job.state = state;
+      }
+
       job.updated = Date.now();
     });
 
