@@ -561,24 +561,30 @@
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td><span class="idx-pill ${pillClass}">${curve}</span></td>
-          <td>${r.mlb || ""}</td>
-          <td>${r.title || ""}</td>
-          <td>${(r.units || 0).toLocaleString("pt-BR")}</td>
-          <td class="percent">${fmtPct(unitShare)}</td>
-          <td class="num">${fmtMoneyCents(r.revenue_cents || 0)}</td>
-          <td class="percent">${fmtPct(revShare)}</td>
-          <td>${promoTxt}</td>
-          <td class="percent">${promoPctTxt}</td>
-          <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
-          <td class="num">${clicks.toLocaleString("pt-BR")}</td>
-          <td class="num">${imps.toLocaleString("pt-BR")}</td>
-          <td class="num">${visits.toLocaleString("pt-BR")}</td>
-          <td class="percent">${conv != null ? fmtPct(conv) : "—"}</td>
-          <td class="num">${fmtMoneyCents(spendC)}</td>
-          <td class="percent">${
-            hasActivity && acosVal !== null ? fmtPct(acosVal) : "—"
-          }</td>
-          <td class="num">${fmtMoneyCents(aRevC)}</td>
+  <td>${r.mlb || ""}</td>
+  <td>${r.title || ""}</td>
+
+  <td>${(r.units || 0).toLocaleString("pt-BR")}</td>
+  <td class="percent">${fmtPct(unitShare)}</td>
+
+  <td class="num">${fmtMoneyCents(r.revenue_cents || 0)}</td>
+  <td class="percent">${fmtPct(revShare)}</td>
+
+  <td class="promo">${promoTxt}</td>
+  <td class="percent">${promoPctTxt}</td>
+
+  <td>${adsBadgeHTML(statusCode, statusText, hasActivity)}</td>
+  <td class="num">${clicks.toLocaleString("pt-BR")}</td>
+  <td class="num">${imps.toLocaleString("pt-BR")}</td>
+
+  <td class="num">${visits.toLocaleString("pt-BR")}</td>
+  <td class="percent">${conv != null ? fmtPct(conv) : "—"}</td>
+
+  <td class="num">${fmtMoneyCents(spendC)}</td>
+  <td class="percent">${
+    hasActivity && acosVal !== null ? fmtPct(acosVal) : "—"
+  }</td>
+  <td class="num">${fmtMoneyCents(aRevC)}</td>
         `;
         tb.appendChild(tr);
       } catch (rowErr) {
