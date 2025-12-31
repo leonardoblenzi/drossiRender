@@ -1,7 +1,8 @@
 /* ===========================================================
-   BASE • Mantém identidade visual do dashboard
+   ESTRATÉGICOS • Visual harmonizado (inputs/selects/ações/pills)
    =========================================================== */
 
+/* ---------- Layout base ---------- */
 .estrategicos-wrap {
   max-width: 1200px;
   margin: 80px auto 40px;
@@ -21,134 +22,188 @@
   margin: 0 0 4px;
 }
 
-/* Subtítulo cinza */
 .subtitle {
   color: #555;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  max-width: 78ch;
 }
 
+/* ---------- Tipografia utilitária ---------- */
+.muted {
+  color: #6b7280;
+}
+
+code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.85em;
+}
 
 /* ===========================================================
-   BOTÕES (mesmo padrão das outras páginas)
+   BOTÕES
    =========================================================== */
-
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: 6px;
+  padding: 9px 14px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.88rem;
-  transition: 0.2s ease;
-  border: none;
+  line-height: 1;
+  transition: 0.18s ease;
+  border: 1px solid transparent;
   text-decoration: none;
+  user-select: none;
+  white-space: nowrap;
 }
 
 .btn.primary {
-  background: #007bff;
+  background: #0b5ed7;
+  border-color: #0b5ed7;
   color: #fff;
 }
-
-.btn.primary:hover {
-  background: #0069d9;
-}
+.btn.primary:hover { filter: brightness(0.95); }
 
 .btn.secondary {
-  background: #f3f3f3;
-  border: 1px solid #ccc;
-  color: #333;
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  color: #111827;
 }
-
-.btn.secondary:hover {
-  background: #e7e7e7;
-}
+.btn.secondary:hover { background: #eaecef; }
 
 .btn.ghost {
   background: transparent;
-  border: 1px solid #bbb;
-  color: #444;
+  border-color: #d1d5db;
+  color: #111827;
 }
+.btn.ghost:hover { background: #f8fafc; }
 
-.btn.ghost:hover {
-  background: #f7f7f7;
+/* ✅ faltava: danger (pra Excluir selecionados) */
+.btn.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
 }
+.btn.danger:hover { filter: brightness(0.95); }
 
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 /* ===========================================================
-   CARDS (copiado e adaptado da Publicidade)
+   CONTROLES (inputs/select/textarea) — padrão do dashboard
    =========================================================== */
+.estrategicos-wrap input[type="text"],
+.estrategicos-wrap input[type="number"],
+.estrategicos-wrap select,
+.estrategicos-wrap textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
 
+.estrategicos-wrap input[type="text"],
+.estrategicos-wrap input[type="number"],
+.estrategicos-wrap select {
+  height: 36px;
+  padding: 0 10px;
+}
+
+.estrategicos-wrap textarea {
+  padding: 10px;
+  resize: vertical;
+}
+
+.estrategicos-wrap input:focus,
+.estrategicos-wrap select:focus,
+.estrategicos-wrap textarea:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+}
+
+/* Select com “cara” mais moderna */
+.estrategicos-wrap select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #6b7280 50%),
+    linear-gradient(135deg, #6b7280 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 14px,
+    calc(100% - 12px) 14px;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+/* File input mais bonito */
+.estrategicos-upload__body input[type="file"]{
+  height: auto;
+  padding: 8px;
+}
+.estrategicos-upload__body input[type="file"]::file-selector-button {
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
+  color: #111827;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-right: 10px;
+  cursor: pointer;
+}
+.estrategicos-upload__body input[type="file"]::file-selector-button:hover {
+  background: #eaecef;
+}
+
+/* Checkbox alinhado e mais “claro” */
+.estrategicos-wrap input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+  accent-color: #0b5ed7;
+}
+
+/* ===========================================================
+   CARDS
+   =========================================================== */
 .card {
   background: #ffffff;
-  border-radius: 10px;
-  padding: 20px;
-  margin: 20px 0;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin: 18px 0;
+  border: 1px solid #eef0f3;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04);
 }
 
 .card-header {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .card-header h3 {
   margin: 0 0 4px;
+  font-size: 1.05rem;
 }
 
 .card-header .muted {
-  font-size: 0.85rem;
-  color: #555;
+  font-size: 0.87rem;
+  color: #6b7280;
 }
-
 
 /* ===========================================================
-   TABELA • Copiado do Product Ads + ajustes
+   HEADER DE AÇÕES (select + botões)
    =========================================================== */
-
-.table-wrapper {
-  overflow-x: auto;
-  margin-top: 10px;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.88rem;
-}
-
-.table thead th {
-  text-align: left;
-  background: #fafafa;
-  padding: 10px;
-  font-weight: 600;
-  border-bottom: 1px solid #ddd;
-  white-space: nowrap;
-}
-
-.table tbody td {
-  padding: 10px;
-  border-bottom: 1px solid #eee;
-  vertical-align: middle;
-}
-
-.table tbody tr:hover {
-  background: #f8f9fa;
-}
-
-.table input[type="text"],
-.table input[type="number"] {
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 0.85rem;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-}
-
-
-/* ===========================================================
-   HEADER DE AÇÕES (combobox, botões)
-   =========================================================== */
-
 .estrategicos-header__actions {
   display: flex;
   flex-wrap: wrap;
@@ -159,28 +214,27 @@
 .estrategicos-header__group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  min-width: 220px;
 }
 
 .estrategicos-header__group label {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #555;
+  color: #6b7280;
 }
 
-
 /* ===========================================================
-   UPLOAD PANEL (CSV / XLSX)
+   UPLOAD PANEL
    =========================================================== */
-
 .estrategicos-upload {
-  border-left: 4px solid #007bff;
+  border-left: 4px solid #0b5ed7;
 }
 
 .estrategicos-upload__body {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 14px;
 }
 
 .estrategicos-upload__field {
@@ -197,106 +251,236 @@
 
 .estrategicos-upload__actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-
 /* ===========================================================
-   CONTROLES DO CICLO (percentual global)
+   CONTROLES DO CICLO (melhor grid e alinhamento)
    =========================================================== */
-
 .estrategicos-controls__body {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 18px 24px;
 }
 
 .estrategicos-controls__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .estrategicos-controls__inline {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
+.estrategicos-controls__inline input[type="number"] {
+  width: 180px;
+}
+
+/* Bloco de aplicação ocupa a linha toda e fica organizado */
 .apply-actions {
-  display: flex;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
 }
 
+#applyHint {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+}
+
+/* Barra de progresso alinhada com o bloco */
+.estrategicos-progress {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  max-width: 520px;
+}
+
+.estrategicos-progress__bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.estrategicos-progress__fill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22c55e, #06b6d4);
+  transition: width 0.18s ease-out;
+}
+
+.estrategicos-progress__label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
 
 /* ===========================================================
-   RESUMO SUPERIOR DA TABELA
+   TABELA
    =========================================================== */
+.table-wrapper {
+  overflow-x: auto;
+  margin-top: 10px;
+  border-radius: 10px;
+}
 
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table thead th {
+  text-align: left;
+  background: #f9fafb;
+  padding: 12px 10px;
+  font-weight: 700;
+  color: #111827;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 10px;
+  border-bottom: 1px solid #eef2f7;
+  vertical-align: middle;
+}
+
+.table tbody tr:hover {
+  background: #fafcff;
+}
+
+/* Inputs dentro da tabela mais “compactos” */
+.table input[type="text"],
+.table input[type="number"] {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 0.88rem;
+  border-radius: 8px;
+}
+
+.col-mlb .mlb-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.86rem;
+  color: #111827;
+}
+
+.col-percent input {
+  text-align: right;
+}
+
+/* Resumo da tabela mais “badge” */
 .estrategicos-table__summary {
   display: flex;
-  gap: 16px;
+  gap: 10px;
+  flex-wrap: wrap;
   font-size: 0.85rem;
-  color: #444;
 }
 
+.estrategicos-table__summary span {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  color: #111827;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
 
 /* ===========================================================
-   AÇÕES NA TABELA (botões pequenos)
+   STATUS PILL (faltava no seu CSS)
    =========================================================== */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
 
-.row-actions {
+.status-pill--ok {
+  background: #ecfdf3;
+  color: #067647;
+  border-color: #a7f3d0;
+}
+
+.status-pill--pending {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.status-pill--error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.status-pill--default {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #e5e7eb;
+}
+
+/* ===========================================================
+   AÇÕES NA TABELA — o JS usa btn-xs / btn-outline / btn-danger
+   =========================================================== */
+.col-actions {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* Base pequeno */
+.btn-xs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: 0.18s ease;
+  background: #fff;
 }
 
-.row-actions .btn {
-  padding: 4px 8px;
-  font-size: 0.75rem;
+/* Outline neutro (Salvar/Atualizar) */
+.btn-outline {
+  border-color: #d1d5db;
+  color: #111827;
+  background: #ffffff;
 }
+.btn-outline:hover { background: #f9fafb; }
 
+/* Danger pequeno (lixeira) */
+.btn-danger {
+  border-color: #fecaca;
+  background: #fff5f5;
+  color: #b91c1c;
+}
+.btn-danger:hover { background: #fee2e2; }
 
 /* ===========================================================
-   ESTADOS / CORES
+   MODAL (mantido, com leves ajustes)
    =========================================================== */
-
-.status-ok {
-  color: #0a7b34;
-  font-weight: 600;
-}
-
-.status-warn {
-  color: #b58900;
-  font-weight: 600;
-}
-
-.status-error {
-  color: #c0392b;
-  font-weight: 600;
-}
-
-
-/* ===========================================================
-   RESPONSIVO
-   =========================================================== */
-
-@media (max-width: 768px) {
-  .estrategicos-header__actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .estrategicos-controls__inline {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .row-actions {
-    flex-direction: column;
-  }
-}
-/* Modal padrão */
 .modal {
   position: fixed;
   inset: 0;
@@ -313,64 +497,61 @@
 
 .modal-content.small {
   width: 420px;
+  max-width: calc(100vw - 24px);
   background: #fff;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 0;
-  box-shadow: 0 3px 15px rgba(0,0,0,0.2);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  border: 1px solid #eef0f3;
 }
 
 .modal-header {
-  padding: 15px 20px;
-  border-bottom: 1px solid #eee;
+  padding: 14px 18px;
+  border-bottom: 1px solid #eef0f3;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.modal-body {
-  padding: 20px;
-}
+.modal-body { padding: 18px; }
 
 .modal-footer {
-  padding: 15px 20px;
+  padding: 14px 18px;
   display: flex;
   gap: 10px;
   justify-content: flex-end;
 }
 
-#txtAddMlbs {
-  width: 100%;
-  resize: vertical;
-  padding: 10px;
-  font-size: 14px;
-}
-/* =========================
-   Barra de progresso (lote de MLBs)
-   ========================= */
-.estrategicos-progress {
-  margin-top: 12px;
-  max-width: 420px;
-}
-
-.estrategicos-progress__bar {
-  position: relative;
-  height: 6px;
-  border-radius: 999px;
-  background: #e5e7eb; /* cinzinha claro */
-  overflow: hidden;
+/* ===========================================================
+   RESPONSIVO
+   =========================================================== */
+@media (max-width: 900px) {
+  .estrategicos-controls__body {
+    grid-template-columns: 1fr;
+  }
+  .apply-actions {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
 }
 
-.estrategicos-progress__fill {
-  position: absolute;
-  inset: 0;
-  width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #22c55e, #06b6d4); /* verde -> ciano */
-  transition: width 0.18s ease-out;
-}
+@media (max-width: 768px) {
+  .estrategicos-header__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
-.estrategicos-progress__label {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #6b7280;
+  .estrategicos-controls__inline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .estrategicos-controls__inline input[type="number"] {
+    width: 100%;
+  }
+
+  .col-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
 }

@@ -1,272 +1,316 @@
 // services/estrategicosStore.js
 //
-// Store simples em arquivos JSON por conta:
-//   data/estrategicos/estrategicos_drossi.json
-//   data/estrategicos/estrategicos_diplany.json
-//   data/estrategicos/estrategicos_rossidecor.json
+// Store em PostgreSQL por conta ML (meli_conta_id) usando a tabela:
+//   anuncios_estrategicos
 //
-// Cada item segue o formato:
-// {
-//   "mlb": "MLB123",
-//   "name": "Nome opcional",
-//   "default_percent": 19.0,
-//   "last_applied_at": "2025-12-08T12:34:56.000Z" | null,
-//   "last_applied_percent": 19.0 | null
-// }
+// Mantém a mesma API pública do store antigo (JSON) para evitar quebrar o app.
+//
+// Campos esperados (mínimo):
+// - id (bigserial)
+// - meli_conta_id (bigint) FK meli_contas(id)
+// - mlb (text) UNIQUE (meli_conta_id, mlb)
+// - name (text)
+// - percent_default (numeric)
+// - percent_cycle (numeric)
+// - percent_applied (numeric)
+// - status (text)
+// - listing_status (text)
+// - last_applied_at (timestamptz)
+// - last_applied_percent (numeric)
+// - last_synced_at (timestamptz)
+// - created_at / updated_at (timestamptz)
 
-const fs = require('fs');
-const path = require('path');
+"use strict";
 
-const BASE_DIR = path.join(__dirname, '..', 'data', 'estrategicos');
-
-// garante que a pasta existe
-function ensureDir() {
-  try {
-    if (!fs.existsSync(BASE_DIR)) {
-      fs.mkdirSync(BASE_DIR, { recursive: true });
-    }
-  } catch (e) {
-    console.error('[EstrategicosStore] erro ao criar diretório base:', e);
-  }
+let db;
+try {
+  db = require("../db/db");
+} catch (e) {
+  db = require("../db");
 }
 
-// mapeia accountKey -> nome de arquivo
-function fileForAccount(accountKey) {
-  const k = (accountKey || 'default')
-    .toString()
+const TABLE = "anuncios_estrategicos";
+
+function normMlb(mlb) {
+  return String(mlb || "")
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '_');
-
-  // casos explícitos que você pediu
-  if (k.includes('drossi')) return path.join(BASE_DIR, 'estrategicos_drossi.json');
-  if (k.includes('diplany')) return path.join(BASE_DIR, 'estrategicos_diplany.json');
-  if (k.includes('rossidecor')) return path.join(BASE_DIR, 'estrategicos_rossidecor.json');
-
-  // fallback genérico
-  return path.join(BASE_DIR, `estrategicos_${k}.json`);
+    .toUpperCase();
 }
 
-function safeReadJSON(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return [];
-    const txt = fs.readFileSync(filePath, 'utf8');
-    if (!txt.trim()) return [];
-    const data = JSON.parse(txt);
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    console.error('[EstrategicosStore] erro ao ler JSON:', filePath, e);
-    return [];
-  }
+function toNumOrNull(v) {
+  if (v === "" || v == null) return null;
+  const n = Number(String(v).replace(",", "."));
+  return Number.isNaN(n) ? null : n;
 }
 
-function safeWriteJSON(filePath, data) {
-  try {
-    const tmp = `${filePath}.tmp`;
-    const json = JSON.stringify(data, null, 2);
-    fs.writeFileSync(tmp, json, 'utf8');
-    fs.renameSync(tmp, filePath);
-  } catch (e) {
-    console.error('[EstrategicosStore] erro ao gravar JSON:', filePath, e);
+function toContaId(meliContaId) {
+  const n = Number(meliContaId);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error("meli_conta_id inválido para EstratégicosStore.");
   }
+  return n;
+}
+
+function normalizeRow(r = {}) {
+  return {
+    id: r.id,
+    mlb: r.mlb,
+    name: r.name || "",
+    default_percent:
+      r.percent_default != null ? Number(r.percent_default) : null, // compat antigo
+    percent_default:
+      r.percent_default != null ? Number(r.percent_default) : null,
+    percent_cycle: r.percent_cycle != null ? Number(r.percent_cycle) : null,
+    percent_applied:
+      r.percent_applied != null ? Number(r.percent_applied) : null,
+    status: r.status || "",
+    listing_status: r.listing_status || null,
+    last_applied_at: r.last_applied_at || null,
+    last_applied_percent:
+      r.last_applied_percent != null ? Number(r.last_applied_percent) : null,
+    last_synced_at: r.last_synced_at || null,
+    created_at: r.created_at || null,
+    updated_at: r.updated_at || null,
+  };
 }
 
 class EstrategicosStore {
   /**
    * Lista todos os estratégicos da conta.
-   * @param {string} accountKey
-   * @returns {Array<{mlb:string,name?:string,default_percent?:number,last_applied_at?:string,last_applied_percent?:number}>}
+   * @param {number|string} meliContaId
+   * @returns {Promise<Array>}
    */
-  static list(accountKey) {
-    ensureDir();
-    const file = fileForAccount(accountKey);
-    return safeReadJSON(file);
+  static async list(meliContaId) {
+    const meli_conta_id = toContaId(meliContaId);
+
+    const r = await db.query(
+      `SELECT *
+         FROM ${TABLE}
+        WHERE meli_conta_id = $1
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC`,
+      [meli_conta_id]
+    );
+
+    return (r.rows || []).map(normalizeRow);
   }
 
   /**
    * Salva a lista inteira (substitui).
-   * @param {string} accountKey
+   * No DB, isso vira um "replace" em transação.
+   * @param {number|string} meliContaId
    * @param {Array} items
    */
-  static saveAll(accountKey, items) {
-    ensureDir();
-    const file = fileForAccount(accountKey);
+  static async saveAll(meliContaId, items) {
+    const meli_conta_id = toContaId(meliContaId);
     const arr = Array.isArray(items) ? items : [];
-    safeWriteJSON(file, arr);
+
+    const now = new Date().toISOString();
+
+    // Normaliza e remove vazios
+    const norm = arr
+      .map((it) => ({
+        mlb: normMlb(it?.mlb),
+        name: it?.name != null ? String(it.name) : null,
+        percent_default:
+          it?.percent_default != null
+            ? toNumOrNull(it.percent_default)
+            : it?.default_percent != null
+            ? toNumOrNull(it.default_percent)
+            : it?.default_percent === 0
+            ? 0
+            : null,
+      }))
+      .filter((x) => x.mlb);
+
+    await db.query("BEGIN");
+    try {
+      // apaga tudo e insere o novo conjunto
+      await db.query(`DELETE FROM ${TABLE} WHERE meli_conta_id = $1`, [
+        meli_conta_id,
+      ]);
+
+      for (const it of norm) {
+        await db.query(
+          `
+          INSERT INTO ${TABLE} (meli_conta_id, mlb, name, percent_default, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $5)
+          `,
+          [meli_conta_id, it.mlb, it.name, it.percent_default, now]
+        );
+      }
+
+      await db.query("COMMIT");
+      return true;
+    } catch (e) {
+      try {
+        await db.query("ROLLBACK");
+      } catch {}
+      throw e;
+    }
   }
 
   /**
    * Adiciona ou atualiza um item (upsert por MLB).
-   * @param {string} accountKey
-   * @param {{mlb:string,name?:string,default_percent?:number}} payload
-   * @returns {object} item salvo
+   * @param {number|string} meliContaId
+   * @param {{mlb:string,name?:string,default_percent?:number,percent_default?:number}} payload
+   * @returns {Promise<object>} item salvo
    */
-  static upsert(accountKey, payload) {
-    ensureDir();
-    const file = fileForAccount(accountKey);
-    const list = safeReadJSON(file);
+  static async upsert(meliContaId, payload) {
+    const meli_conta_id = toContaId(meliContaId);
 
-    const mlb = String(payload.mlb || '').trim().toUpperCase();
-    if (!mlb) {
-      throw new Error('MLB obrigatório para salvar estratégico.');
-    }
+    const mlb = normMlb(payload?.mlb);
+    if (!mlb) throw new Error("MLB obrigatório para salvar estratégico.");
 
-    const name = payload.name != null ? String(payload.name).trim() : null;
-    const defPct = payload.default_percent != null
-      ? Number(payload.default_percent)
-      : null;
+    const name = payload?.name != null ? String(payload.name).trim() : null;
 
-    const now = new Date().toISOString();
+    // compat: default_percent antigo ou percent_default novo
+    const defPct =
+      payload?.percent_default != null
+        ? toNumOrNull(payload.percent_default)
+        : payload?.default_percent != null
+        ? toNumOrNull(payload.default_percent)
+        : null;
 
-    const idx = list.findIndex(it => String(it.mlb || '').toUpperCase() === mlb);
-    if (idx >= 0) {
-      // update
-      const cur = list[idx];
-      const updated = {
-        ...cur,
-        mlb,
-        ...(name !== null ? { name } : {}),
-        ...(defPct !== null && !Number.isNaN(defPct) ? { default_percent: defPct } : {}),
-        updated_at: now,
-      };
-      list[idx] = updated;
-    } else {
-      // insert
-      const item = {
-        mlb,
-        ...(name ? { name } : {}),
-        ...(defPct !== null && !Number.isNaN(defPct) ? { default_percent: defPct } : {}),
-        created_at: now,
-        updated_at: now,
-        last_applied_at: null,
-        last_applied_percent: null,
-      };
-      list.push(item);
-    }
+    const r = await db.query(
+      `
+      INSERT INTO ${TABLE} (meli_conta_id, mlb, name, percent_default, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
+      ON CONFLICT (meli_conta_id, mlb)
+      DO UPDATE SET
+        name = COALESCE(EXCLUDED.name, ${TABLE}.name),
+        percent_default = COALESCE(EXCLUDED.percent_default, ${TABLE}.percent_default),
+        updated_at = NOW()
+      RETURNING *;
+      `,
+      [meli_conta_id, mlb, name || null, defPct]
+    );
 
-    safeWriteJSON(file, list);
-    return list.find(it => String(it.mlb || '').toUpperCase() === mlb);
+    return normalizeRow(r.rows?.[0] || {});
   }
 
   /**
    * Remove um item da lista pela MLB.
-   * @param {string} accountKey
+   * @param {number|string} meliContaId
    * @param {string} mlb
-   * @returns {boolean} true se removeu algo
+   * @returns {Promise<boolean>} true se removeu algo
    */
-  static remove(accountKey, mlb) {
-    ensureDir();
-    const file = fileForAccount(accountKey);
-    const list = safeReadJSON(file);
+  static async remove(meliContaId, mlb) {
+    const meli_conta_id = toContaId(meliContaId);
+    const target = normMlb(mlb);
+    if (!target) return false;
 
-    const target = String(mlb || '').trim().toUpperCase();
-    const next = list.filter(it => String(it.mlb || '').toUpperCase() !== target);
+    const r = await db.query(
+      `DELETE FROM ${TABLE} WHERE meli_conta_id = $1 AND mlb = $2`,
+      [meli_conta_id, target]
+    );
 
-    const changed = next.length !== list.length;
-    if (changed) safeWriteJSON(file, next);
-    return changed;
+    return (r.rowCount || 0) > 0;
   }
 
   /**
    * Atualiza informações de aplicação (quando rodar o job).
-   * @param {string} accountKey
+   * @param {number|string} meliContaId
    * @param {string} mlb
    * @param {number} appliedPercent
    */
-  static markApplied(accountKey, mlb, appliedPercent) {
-    ensureDir();
-    const file = fileForAccount(accountKey);
-    const list = safeReadJSON(file);
+  static async markApplied(meliContaId, mlb, appliedPercent) {
+    const meli_conta_id = toContaId(meliContaId);
+    const target = normMlb(mlb);
+    if (!target) return;
 
-    const target = String(mlb || '').trim().toUpperCase();
-    const idx = list.findIndex(it => String(it.mlb || '').toUpperCase() === target);
-    if (idx < 0) return;
+    const pct = appliedPercent != null ? toNumOrNull(appliedPercent) : null;
 
-    const now = new Date().toISOString();
-    const pct = appliedPercent != null ? Number(appliedPercent) : null;
-
-    list[idx] = {
-      ...list[idx],
-      last_applied_at: now,
-      ...(pct != null && !Number.isNaN(pct) ? { last_applied_percent: pct } : {}),
-      updated_at: now,
-    };
-
-    safeWriteJSON(file, list);
+    await db.query(
+      `
+      UPDATE ${TABLE}
+         SET
+           last_applied_at = NOW(),
+           last_applied_percent = COALESCE($1, last_applied_percent),
+           percent_applied = COALESCE($1, percent_applied),
+           updated_at = NOW()
+       WHERE meli_conta_id = $2 AND mlb = $3
+      `,
+      [pct, meli_conta_id, target]
+    );
   }
 
   /**
-   * Substitui a lista inteira a partir de um mapa (ex: upload CSV).
-   * @param {string} accountKey
-   * @param {Array<{mlb:string,name?:string,default_percent?:number}>} items
-   * @param {boolean} preserveExisting Se true, apenas faz upsert; se false, remove os não listados
+   * Substitui a lista inteira a partir de uma lista (ex: upload CSV).
+   * @param {number|string} meliContaId
+   * @param {Array<{mlb:string,name?:string,default_percent?:number,percent_default?:number}>} items
+   * @param {boolean} preserveExisting
+   *  - true: apenas upsert nos MLBs enviados (mantém os demais)
+   *  - false: remove os que não estão no arquivo (substitui)
+   * @returns {Promise<Array>} lista final
    */
-  static replaceFromList(accountKey, items, preserveExisting = false) {
-    ensureDir();
-    const file = fileForAccount(accountKey);
-    const current = safeReadJSON(file);
+  static async replaceFromList(meliContaId, items, preserveExisting = false) {
+    const meli_conta_id = toContaId(meliContaId);
+
+    const list = Array.isArray(items) ? items : [];
     const mapNew = new Map();
 
-    const norm = (mlb) => String(mlb || '').trim().toUpperCase();
-
-    for (const raw of items || []) {
-      const mlb = norm(raw.mlb);
+    for (const raw of list) {
+      const mlb = normMlb(raw?.mlb);
       if (!mlb) continue;
-      const name = raw.name != null ? String(raw.name).trim() : null;
-      const defPct = raw.default_percent != null ? Number(raw.default_percent) : null;
-      mapNew.set(mlb, { mlb, name, default_percent: defPct });
+
+      const name = raw?.name != null ? String(raw.name).trim() : null;
+      const defPct =
+        raw?.percent_default != null
+          ? toNumOrNull(raw.percent_default)
+          : raw?.default_percent != null
+          ? toNumOrNull(raw.default_percent)
+          : null;
+
+      mapNew.set(mlb, { mlb, name, percent_default: defPct });
     }
 
-    const now = new Date().toISOString();
-    const result = [];
-
-    if (preserveExisting) {
-      // apenas upsert nos existentes, mantém demais
-      const merged = [...current];
-      for (const [mlb, payload] of mapNew.entries()) {
-        const idx = merged.findIndex(it => norm(it.mlb) === mlb);
-        if (idx >= 0) {
-          merged[idx] = {
-            ...merged[idx],
-            ...payload,
-            updated_at: now,
-          };
+    await db.query("BEGIN");
+    try {
+      if (!preserveExisting) {
+        // remove quem não estiver no arquivo
+        const mlbs = Array.from(mapNew.keys());
+        if (mlbs.length) {
+          await db.query(
+            `
+            DELETE FROM ${TABLE}
+             WHERE meli_conta_id = $1
+               AND NOT (mlb = ANY($2::text[]))
+            `,
+            [meli_conta_id, mlbs]
+          );
         } else {
-          merged.push({
-            ...payload,
-            created_at: now,
-            updated_at: now,
-            last_applied_at: null,
-            last_applied_percent: null,
-          });
+          await db.query(`DELETE FROM ${TABLE} WHERE meli_conta_id = $1`, [
+            meli_conta_id,
+          ]);
         }
       }
-      safeWriteJSON(file, merged);
-      return merged;
-    }
 
-    // modo "substituir": remove quem não estiver no arquivo
-    for (const [mlb, payload] of mapNew.entries()) {
-      const existing = current.find(it => norm(it.mlb) === mlb);
-      if (existing) {
-        result.push({
-          ...existing,
-          ...payload,
-          updated_at: now,
-        });
-      } else {
-        result.push({
-          ...payload,
-          created_at: now,
-          updated_at: now,
-          last_applied_at: null,
-          last_applied_percent: null,
-        });
+      // upsert do arquivo
+      for (const it of mapNew.values()) {
+        await db.query(
+          `
+          INSERT INTO ${TABLE} (meli_conta_id, mlb, name, percent_default, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, NOW(), NOW())
+          ON CONFLICT (meli_conta_id, mlb)
+          DO UPDATE SET
+            name = COALESCE(EXCLUDED.name, ${TABLE}.name),
+            percent_default = COALESCE(EXCLUDED.percent_default, ${TABLE}.percent_default),
+            updated_at = NOW()
+          `,
+          [meli_conta_id, it.mlb, it.name, it.percent_default]
+        );
       }
+
+      await db.query("COMMIT");
+    } catch (e) {
+      try {
+        await db.query("ROLLBACK");
+      } catch {}
+      throw e;
     }
 
-    safeWriteJSON(file, result);
-    return result;
+    // retorna lista final
+    return await EstrategicosStore.list(meli_conta_id);
   }
 }
 

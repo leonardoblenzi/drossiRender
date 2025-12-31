@@ -1,23 +1,30 @@
 // public/js/estrategicos.js
-// Tela de Produtos Estratégicos
+// Tela de Produtos Estratégicos — versão DB (meli_conta_id) com fallback p/ endpoints legados
 
 (() => {
-  'use strict';
+  "use strict";
 
   // =========================
   // Helpers básicos
   // =========================
-  const $  = (id) => document.getElementById(id);
-  const qs = (sel, el = document) => el.querySelector(sel);
+  const $ = (id) => document.getElementById(id);
+
+  const escapeHtml = (s) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
 
   const formatPercent = (v) => {
     const n = Number(v);
-    if (Number.isNaN(n)) return '';
+    if (!Number.isFinite(n)) return "";
     return (
-      n.toLocaleString('pt-BR', {
+      n.toLocaleString("pt-BR", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      }) + '%'
+      }) + "%"
     );
   };
 
@@ -25,23 +32,59 @@
     try {
       alert(msg);
     } catch {
-      console.log('ALERT:', msg);
+      console.log("ALERT:", msg);
     }
   };
 
+  // Detecta quando backend devolve HTML (redirect silencioso /login ou /select-conta etc)
+  async function safeReadBody(resp) {
+    let text = "";
+    try {
+      text = await resp.text();
+    } catch {}
+    return text || "";
+  }
+
   async function fetchJSON(url, options = {}) {
     const resp = await fetch(url, {
-      headers: { 'Content-Type': 'application/json' },
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       ...options,
     });
+
     if (!resp.ok) {
-      let extra = '';
-      try {
-        const txt = await resp.text();
-        extra = txt;
-      } catch (_) {}
-      throw new Error(`HTTP ${resp.status} em ${url} ${extra || ''}`.trim());
+      const body = await safeReadBody(resp);
+
+      // se veio HTML, geralmente é redirect/login/403 page
+      const looksHtml =
+        body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
+      const msg = looksHtml
+        ? `HTTP ${resp.status} em ${url} (parece HTML/redirect — verifique login/conta/permissão)`
+        : `HTTP ${resp.status} em ${url} ${body.slice(0, 240)}`.trim();
+
+      const err = new Error(msg);
+      err.status = resp.status;
+      err.body = body;
+      throw err;
     }
+
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+    if (!ct.includes("application/json")) {
+      const body = await safeReadBody(resp);
+      const looksHtml =
+        body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
+      if (looksHtml) {
+        throw new Error(
+          `Resposta não-JSON em ${url} (HTML/redirect). Verifique login/conta/permissão.`
+        );
+      }
+      // Se não é JSON e não é HTML, devolve null
+      return null;
+    }
+
     try {
       return await resp.json();
     } catch {
@@ -49,32 +92,88 @@
     }
   }
 
+  // Helper: tenta várias rotas (compat)
+  async function fetchJSONAny(paths, options = {}) {
+    let lastErr;
+    for (const p of paths) {
+      try {
+        return await fetchJSON(p, options);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("Falha em todas as rotas.");
+  }
+
   // =========================
   // Estado em memória
   // =========================
-  let rows = [];               // lista de produtos estratégicos
-  let currentGroup = 'drossi'; // valor do select (UX)
+  let rows = []; // lista de produtos estratégicos
+  let currentGroup = "drossi"; // UX apenas (não usado no DB)
 
   // Paginação
   const PAGE_SIZE = 20;
   let currentPage = 1;
 
-  // Estrutura esperada de cada item:
-  // {
-  //   mlb: 'MLB123',
-  //   name: 'Nome do produto',
-  //   percent_default: 19,
-  //   percent_applied: 19,
-  //   status: 'ok' | 'pendente' | 'erro'
-  // }
+  // =========================
+  // Util: pegar selecionados
+  // =========================
+  function getSelectedMlbs() {
+    const tbody = $("tbodyStrategicos");
+    if (!tbody) return [];
+    const checks = tbody.querySelectorAll(".row-select:checked");
+    return Array.from(checks)
+      .map((c) => c.getAttribute("data-mlb"))
+      .filter(Boolean);
+  }
+
+  function updateSummarySelected() {
+    const summarySelected = $("summarySelected");
+    if (!summarySelected) return;
+    summarySelected.textContent = `${getSelectedMlbs().length} selecionados`;
+  }
+
+  // =========================
+  // Status (pill)
+  // =========================
+  function computeStatusPill(row) {
+    // 1) Prioriza status do anúncio vindo do ML (listing_status)
+    const ls = String(row.listing_status || row.anuncio_status || "")
+      .toLowerCase()
+      .trim();
+
+    if (ls) {
+      if (ls === "active") return { label: "Ativo", cls: "status-pill--ok" };
+      if (ls === "paused")
+        return { label: "Pausado", cls: "status-pill--pending" };
+      if (ls === "closed")
+        return { label: "Encerrado", cls: "status-pill--default" };
+      if (ls === "inactive")
+        return { label: "Inativo", cls: "status-pill--default" };
+      return { label: ls.toUpperCase(), cls: "status-pill--default" };
+    }
+
+    // 2) Fallback: status "antigo" da tela
+    const s = String(row.status || "").toLowerCase();
+    if (s === "ok" || s === "ativo" || s === "promoção aplicada") {
+      return { label: "OK", cls: "status-pill--ok" };
+    }
+    if (s === "erro" || s === "falha") {
+      return { label: "Erro", cls: "status-pill--error" };
+    }
+    if (s === "pendente" || s === "novo") {
+      return { label: "Pendente", cls: "status-pill--pending" };
+    }
+    return { label: "—", cls: "status-pill--default" };
+  }
 
   // =========================
   // Carregar lista do backend
   // =========================
   async function loadRows() {
-    const tbody = $('tbodyStrategicos');
-    const summaryTotal = $('summaryTotal');
-    const summarySelected = $('summarySelected');
+    const tbody = $("tbodyStrategicos");
+    const summaryTotal = $("summaryTotal");
+    const summarySelected = $("summarySelected");
 
     if (tbody) {
       tbody.innerHTML = `
@@ -87,98 +186,94 @@
     }
 
     try {
-      // se você quiser já mandar o group:
-      // const data = await fetchJSON(`/api/estrategicos?group=${encodeURIComponent(currentGroup)}`, { method: 'GET' });
-      const data = await fetchJSON('/api/estrategicos', { method: 'GET' });
+      // DB: GET /api/estrategicos
+      // (mantemos compat se backend retornar array direto)
+      const data = await fetchJSONAny(
+        [
+          "/api/estrategicos", // principal
+        ],
+        { method: "GET" }
+      );
 
-      rows = Array.isArray(data?.items || data)
-        ? (data.items || data)
-        : [];
+      rows = Array.isArray(data?.items || data) ? data.items || data : [];
 
-      currentPage = 1; // sempre volta pra página 1 ao recarregar
+      currentPage = 1;
       renderTable();
 
-      if (summaryTotal)    summaryTotal.textContent    = `${rows.length} itens`;
+      if (summaryTotal) summaryTotal.textContent = `${rows.length} itens`;
       if (summarySelected) summarySelected.textContent = `0 selecionados`;
     } catch (err) {
-      console.error('loadRows:', err);
+      console.error("loadRows:", err);
       if (tbody) {
         tbody.innerHTML = `
           <tr>
             <td colspan="7" class="muted">
-              Erro ao carregar produtos estratégicos: ${err.message}
+              Erro ao carregar produtos estratégicos: ${escapeHtml(err.message)}
             </td>
           </tr>
         `;
       }
-      renderPagination(); // limpa paginador em caso de erro
+      renderPagination();
     }
-  }
-
-  // =========================
-  // Util: pegar selecionados
-  // =========================
-  function getSelectedMlbs() {
-    const tbody = $('tbodyStrategicos');
-    if (!tbody) return [];
-    const checks = tbody.querySelectorAll('.row-select:checked');
-    return Array.from(checks)
-      .map((c) => c.getAttribute('data-mlb'))
-      .filter(Boolean);
-  }
-
-  function updateSummarySelected() {
-    const summarySelected = $('summarySelected');
-    if (!summarySelected) return;
-    summarySelected.textContent = `${getSelectedMlbs().length} selecionados`;
   }
 
   // =========================
   // Paginação (render)
   // =========================
   function renderPagination() {
-    const container = $('strategicPagination');
+    const container = $("strategicPagination");
     if (!container) return;
 
     const totalItems = rows.length;
     const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
 
     if (totalPages <= 1) {
-      container.innerHTML = '';
+      container.innerHTML = "";
       return;
     }
 
     if (currentPage > totalPages) currentPage = totalPages;
 
-    let html = '';
+    // Se tiver muitas páginas, mostra janela
+    const maxButtons = 9;
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    start = Math.max(1, end - maxButtons + 1);
 
-    // botão anterior
-    html += `
+    let html = `
       <button type="button"
               class="pg-btn pg-prev"
               data-page="prev"
-              ${currentPage === 1 ? 'disabled' : ''}>
+              ${currentPage === 1 ? "disabled" : ""}>
         &laquo;
       </button>
     `;
 
-    // páginas numeradas
-    for (let p = 1; p <= totalPages; p++) {
+    if (start > 1) {
+      html += `<button type="button" class="pg-btn pg-num" data-page="1">1</button>`;
+      if (start > 2) html += `<span class="pg-ellipsis">…</span>`;
+    }
+
+    for (let p = start; p <= end; p++) {
       html += `
         <button type="button"
-                class="pg-btn pg-num ${p === currentPage ? 'is-active' : ''}"
+                class="pg-btn pg-num ${p === currentPage ? "is-active" : ""}"
                 data-page="${p}">
           ${p}
         </button>
       `;
     }
 
-    // botão próximo
+    if (end < totalPages) {
+      if (end < totalPages - 1) html += `<span class="pg-ellipsis">…</span>`;
+      html += `<button type="button" class="pg-btn pg-num" data-page="${totalPages}">${totalPages}</button>`;
+    }
+
     html += `
       <button type="button"
               class="pg-btn pg-next"
               data-page="next"
-              ${currentPage === totalPages ? 'disabled' : ''}>
+              ${currentPage === totalPages ? "disabled" : ""}>
         &raquo;
       </button>
     `;
@@ -190,9 +285,9 @@
   // Renderização da tabela
   // =========================
   function renderTable() {
-    const tbody = $('tbodyStrategicos');
-    const summaryTotal = $('summaryTotal');
-    const chkAll = $('chkSelectAllRows');
+    const tbody = $("tbodyStrategicos");
+    const summaryTotal = $("summaryTotal");
+    const chkAll = $("chkSelectAllRows");
 
     if (!tbody) return;
 
@@ -205,7 +300,7 @@
           </td>
         </tr>
       `;
-      if (summaryTotal) summaryTotal.textContent = '0 itens';
+      if (summaryTotal) summaryTotal.textContent = "0 itens";
       if (chkAll) chkAll.checked = false;
       renderPagination();
       updateSummarySelected();
@@ -218,43 +313,46 @@
     const startIdx = (currentPage - 1) * PAGE_SIZE;
     const pageRows = rows.slice(startIdx, startIdx + PAGE_SIZE);
 
-    const html = pageRows.map((row) => {
-      const mlb = row.mlb || '';
-      const name = row.name || row.nome || '';
-      const pDef = row.percent_default ?? row.percent_padrao;
-      const pApplied = row.percent_applied ?? row.percent_aplicada;
+    const html = pageRows
+      .map((row) => {
+        const mlb = row.mlb || "";
+        const id = row.id != null ? String(row.id) : "";
+        const name = row.name || row.nome || "";
+        const pDef =
+          row.percent_default ??
+          row.percent_padrao ??
+          row.default_percent ??
+          null;
+        const pApplied =
+          row.percent_applied ??
+          row.percent_aplicada ??
+          row.last_applied_percent ??
+          null;
 
-      let statusLabel = '—';
-      let statusClass = 'status-pill--default';
-      const s = (row.status || '').toLowerCase();
-      if (s === 'ok' || s === 'ativo' || s === 'promoção aplicada') {
-        statusLabel = 'OK';
-        statusClass = 'status-pill--ok';
-      } else if (s === 'erro' || s === 'falha') {
-        statusLabel = 'Erro';
-        statusClass = 'status-pill--error';
-      } else if (s === 'pendente' || s === 'novo') {
-        statusLabel = 'Pendente';
-        statusClass = 'status-pill--pending';
-      }
+        const pill = computeStatusPill(row);
 
-      return `
-        <tr data-mlb="${mlb}">
+        return `
+        <tr data-mlb="${escapeHtml(mlb)}" data-id="${escapeHtml(id)}">
           <td class="col-check">
-            <input type="checkbox" class="row-select" data-mlb="${mlb}">
+            <input type="checkbox" class="row-select" data-mlb="${escapeHtml(
+              mlb
+            )}">
           </td>
+
           <td class="col-mlb">
-            <span class="mlb-label">${mlb}</span>
+            <span class="mlb-label">${escapeHtml(mlb)}</span>
           </td>
+
           <td class="col-name">
             <input
               type="text"
               class="input-name"
               data-field="name"
-              value="${name.replace(/"/g, '&quot;')}"
+              value="${escapeHtml(name)}"
               placeholder="Opcional"
             >
           </td>
+
           <td class="col-percent">
             <input
               type="number"
@@ -263,42 +361,49 @@
               min="0"
               max="90"
               step="0.1"
-              value="${pDef ?? ''}"
+              value="${pDef ?? ""}"
               placeholder="-"
             >
           </td>
+
           <td class="col-percent col-applied">
             ${
               pApplied != null &&
-              pApplied !== '' &&
-              !Number.isNaN(Number(pApplied))
-                ? `<span class="percent-applied-label">${formatPercent(pApplied)}</span>`
+              pApplied !== "" &&
+              Number.isFinite(Number(pApplied))
+                ? `<span class="percent-applied-label">${formatPercent(
+                    pApplied
+                  )}</span>`
                 : '<span class="muted">—</span>'
             }
           </td>
+
           <td class="col-status">
-            <span class="status-pill ${statusClass}">${statusLabel}</span>
+            <span class="status-pill ${pill.cls}">${escapeHtml(
+          pill.label
+        )}</span>
           </td>
+
           <td class="col-actions">
-            <button type="button" class="btn-xs btn-outline" data-action="save-row">
+            <button type="button" class="btn-xs btn-outline" data-action="save-row" title="Salvar no banco">
               💾 Salvar
             </button>
-            <button type="button" class="btn-xs btn-danger" data-action="delete-row">
+            <button type="button" class="btn-xs btn-outline" data-action="sync-row" title="Atualizar dados do ML (título/status/promo)">
+              🔄 Atualizar
+            </button>
+            <button type="button" class="btn-xs btn-danger" data-action="delete-row" title="Remover da lista">
               🗑️
             </button>
           </td>
         </tr>
       `;
-    }).join('');
+      })
+      .join("");
 
     tbody.innerHTML = html;
 
-    if (summaryTotal) {
-      summaryTotal.textContent = `${rows.length} itens`;
-    }
-    if (chkAll) {
-      chkAll.checked = false;
-    }
+    if (summaryTotal) summaryTotal.textContent = `${rows.length} itens`;
+    if (chkAll) chkAll.checked = false;
 
     renderPagination();
     updateSummarySelected();
@@ -306,46 +411,138 @@
 
   // =========================
   // Persistência: salvar 1 item
+  // - tenta PUT /api/estrategicos/:id (novo)
+  // - fallback POST /api/estrategicos (legado upsert por mlb)
   // =========================
-  async function saveRow(mlb) {
-    const row = rows.find((r) => String(r.mlb) === String(mlb));
+  async function saveRow(mlbOrId) {
+    const row =
+      rows.find((r) => String(r.mlb) === String(mlbOrId)) ||
+      rows.find((r) => String(r.id) === String(mlbOrId));
     if (!row) return;
 
-    try {
-      const payload = {
-        mlb: row.mlb,
-        name: row.name || row.nome || '',
-        percent_default: row.percent_default ?? row.percent_padrao ?? null,
-      };
+    const payload = {
+      mlb: row.mlb,
+      name: row.name || row.nome || "",
+      percent_default:
+        row.percent_default ??
+        row.percent_padrao ??
+        row.default_percent ??
+        null,
+    };
 
-      await fetchJSON('/api/estrategicos', {
-        method: 'POST',
+    try {
+      // Novo: PUT por id
+      if (row.id != null) {
+        const payloadPut = {
+          name: payload.name,
+          percent_default: payload.percent_default,
+        };
+
+        try {
+          await fetchJSON(
+            `/api/estrategicos/${encodeURIComponent(String(row.id))}`,
+            {
+              method: "PUT",
+              body: JSON.stringify(payloadPut),
+            }
+          );
+          toast(`✅ Produto ${row.mlb} atualizado no banco.`);
+          await loadRows();
+          return;
+        } catch (e) {
+          if (e && (e.status === 404 || e.status === 405)) {
+            // fallback legado
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      // Legado: POST upsert por MLB
+      await fetchJSON("/api/estrategicos", {
+        method: "POST",
         body: JSON.stringify(payload),
       });
 
-      toast(`✅ Produto ${mlb} salvo com sucesso.`);
-      await loadRows(); // recarrega já com nome/% aplicada do backend
+      toast(`✅ Produto ${row.mlb} salvo com sucesso.`);
+      await loadRows();
     } catch (err) {
-      console.error('saveRow:', err);
-      toast(`❌ Erro ao salvar ${mlb}: ${err.message}`);
+      console.error("saveRow:", err);
+      toast(`❌ Erro ao salvar ${row.mlb}: ${err.message}`);
+    }
+  }
+
+  // =========================
+  // Sync 1 item (Atualizar do ML)
+  // - backend atual: POST /api/estrategicos/:id/sync
+  // - opcional: compat por MLB (se você criar)
+  // =========================
+  async function syncRow(mlbOrId) {
+    const row =
+      rows.find((r) => String(r.id) === String(mlbOrId)) ||
+      rows.find((r) => String(r.mlb) === String(mlbOrId));
+
+    if (!row) return;
+
+    const id = row.id != null ? String(row.id) : null;
+    const mlb = String(row.mlb || "")
+      .trim()
+      .toUpperCase();
+
+    try {
+      // 1) Prioriza o endpoint correto por ID (EXISTE no backend)
+      if (id) {
+        await fetchJSON(`/api/estrategicos/${encodeURIComponent(id)}/sync`, {
+          method: "POST",
+        });
+        toast(`✅ Atualizado do ML: ${mlb || id}`);
+        await loadRows();
+        return;
+      }
+
+      // 2) Fallback opcional (só vai funcionar se você criar rota compat por MLB)
+      if (mlb) {
+        await fetchJSON(`/api/estrategicos/${encodeURIComponent(mlb)}/sync`, {
+          method: "POST",
+        });
+        toast(`✅ Atualizado do ML: ${mlb}`);
+        await loadRows();
+        return;
+      }
+
+      toast("Seleção inválida para atualizar.");
+    } catch (err) {
+      console.error("syncRow:", err);
+      if (err && (err.status === 404 || err.status === 405)) {
+        toast(
+          "ℹ️ Endpoint de “Atualizar do ML” não disponível para este item (provável falta do ID no DB)."
+        );
+        return;
+      }
+      toast(`❌ Erro ao atualizar: ${err.message}`);
     }
   }
 
   // =========================
   // Remover item (individual)
+  // Mantém DELETE por MLB (compat)
   // =========================
   async function deleteRow(mlb) {
-    if (!confirm(`Deseja realmente remover o MLB ${mlb} da lista de estratégicos?`)) {
+    if (
+      !confirm(
+        `Deseja realmente remover o MLB ${mlb} da lista de estratégicos?`
+      )
+    )
       return;
-    }
+
     try {
       await fetchJSON(`/api/estrategicos/${encodeURIComponent(mlb)}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
       rows = rows.filter((r) => String(r.mlb) !== String(mlb));
       renderTable();
     } catch (err) {
-      console.error('deleteRow:', err);
+      console.error("deleteRow:", err);
       toast(`❌ Erro ao remover ${mlb}: ${err.message}`);
     }
   }
@@ -356,131 +553,110 @@
   async function handleDeleteSelected() {
     const selected = getSelectedMlbs();
     if (!selected.length) {
-      toast('Selecione ao menos um item para excluir.');
+      toast("Selecione ao menos um item para excluir.");
       return;
     }
 
-    if (!confirm(`Remover ${selected.length} item(ns) da lista de estratégicos?`)) {
+    if (
+      !confirm(`Remover ${selected.length} item(ns) da lista de estratégicos?`)
+    )
       return;
-    }
 
     let ok = 0;
     let errCount = 0;
 
-    try {
-      for (const mlb of selected) {
-        try {
-          await fetchJSON(`/api/estrategicos/${encodeURIComponent(mlb)}`, {
-            method: 'DELETE',
-          });
-          ok += 1;
-        } catch (err) {
-          console.error('Erro ao excluir', mlb, err);
-          errCount += 1;
-        }
+    for (const mlb of selected) {
+      try {
+        await fetchJSON(`/api/estrategicos/${encodeURIComponent(mlb)}`, {
+          method: "DELETE",
+        });
+        ok += 1;
+      } catch (err) {
+        console.error("Erro ao excluir", mlb, err);
+        errCount += 1;
       }
-
-      rows = rows.filter((r) => !selected.includes(String(r.mlb)));
-      renderTable();
-
-      let msg = `✅ ${ok} item(ns) removidos.`;
-      if (errCount > 0) msg += ` ❗ ${errCount} falharam (veja o console).`;
-      toast(msg);
-    } catch (err) {
-      console.error('handleDeleteSelected:', err);
-      toast(`❌ Erro ao excluir selecionados: ${err.message}`);
     }
+
+    rows = rows.filter((r) => !selected.includes(String(r.mlb)));
+    renderTable();
+
+    let msg = `✅ ${ok} item(ns) removidos.`;
+    if (errCount > 0) msg += ` ❗ ${errCount} falharam (veja o console).`;
+    toast(msg);
   }
 
   // =========================
   // Adicionar item(s) via painel de lote
   // =========================
   function openAddMlbsPanel() {
-    const panel = $('addMlbsPanel');
-    const textarea = $('txtAddMlbs');
-    const status = $('addMlbsStatus');
+    const panel = $("addMlbsPanel");
+    const textarea = $("txtAddMlbs");
+    const status = $("addMlbsStatus");
 
     if (!panel) return;
     panel.hidden = false;
 
     if (textarea) {
-      textarea.value = '';
+      textarea.value = "";
       textarea.focus();
     }
-    if (status) {
-      status.textContent = '';
-    }
+    if (status) status.textContent = "";
   }
 
   function closeAddMlbsPanel() {
-    const panel = $('addMlbsPanel');
-    const textarea = $('txtAddMlbs');
-    const status = $('addMlbsStatus');
+    const panel = $("addMlbsPanel");
+    const textarea = $("txtAddMlbs");
+    const status = $("addMlbsStatus");
 
     if (panel) panel.hidden = true;
-    if (textarea) textarea.value = '';
-    if (status) status.textContent = '';
+    if (textarea) textarea.value = "";
+    if (status) status.textContent = "";
   }
 
   async function handleAddMlbsConfirm() {
-    const textarea = $('txtAddMlbs');
-    const status = $('addMlbsStatus');
-
+    const textarea = $("txtAddMlbs");
+    const status = $("addMlbsStatus");
     if (!textarea) return;
 
-    const raw = textarea.value || '';
+    const raw = textarea.value || "";
     const mlbs = raw
       .split(/[\s,;]+/g)
       .map((s) => s.trim().toUpperCase())
       .filter(Boolean);
 
     if (!mlbs.length) {
-      toast('Informe ao menos um MLB.');
+      toast("Informe ao menos um MLB.");
       return;
     }
 
-    const progressWrap  = $('bulkAddProgress');
-    const progressFill  = $('bulkAddProgressFill');
-    const progressLabel = $('bulkAddProgressLabel');
+    const progressWrap = $("bulkAddProgress");
+    const progressFill = $("bulkAddProgressFill");
+    const progressLabel = $("bulkAddProgressLabel");
 
     const total = mlbs.length;
-    let processed  = 0;
-    let okCount    = 0;
+    let processed = 0;
+    let okCount = 0;
     let errorCount = 0;
 
-    if (status) {
-      status.textContent = `Enviando ${total} MLB(s)...`;
-    }
+    if (status) status.textContent = `Enviando ${total} MLB(s)...`;
 
     if (progressWrap && progressFill && progressLabel) {
       progressWrap.hidden = false;
-      progressFill.style.width = '0%';
+      progressFill.style.width = "0%";
       progressLabel.textContent = `0 / ${total}`;
     }
 
     try {
       for (const mlb of mlbs) {
         try {
-          const exists = rows.some((r) => String(r.mlb) === mlb);
-          if (!exists) {
-            rows.push({
-              mlb,
-              name: '',
-              percent_default: null,
-              percent_applied: null,
-              status: 'novo',
-            });
-          }
-
-          await fetchJSON('/api/estrategicos', {
-            method: 'POST',
+          await fetchJSON("/api/estrategicos", {
+            method: "POST",
             body: JSON.stringify({ mlb }),
           });
-
           okCount += 1;
         } catch (err) {
           errorCount += 1;
-          console.error('Erro ao adicionar MLB', mlb, err);
+          console.error("Erro ao adicionar MLB", mlb, err);
         } finally {
           processed += 1;
           if (progressFill && progressLabel) {
@@ -492,23 +668,17 @@
       }
 
       let msg = `✅ ${okCount} MLB(s) adicionados/atualizados.`;
-      if (errorCount > 0) {
-        msg += ` ❗ ${errorCount} falharam (veja o console).`;
-      }
+      if (errorCount > 0) msg += ` ❗ ${errorCount} falharam (veja o console).`;
       toast(msg);
 
-      if (status) {
-        status.textContent = 'Itens adicionados com sucesso.';
-      }
+      if (status) status.textContent = "Itens adicionados com sucesso.";
 
       closeAddMlbsPanel();
       await loadRows();
     } catch (err) {
-      console.error('handleAddMlbsConfirm:', err);
+      console.error("handleAddMlbsConfirm:", err);
       toast(`❌ Erro ao adicionar itens: ${err.message}`);
-      if (status) {
-        status.textContent = `Erro: ${err.message}`;
-      }
+      if (status) status.textContent = `Erro: ${err.message}`;
     } finally {
       if (progressWrap) {
         setTimeout(() => {
@@ -522,13 +692,19 @@
   // Upload CSV
   // =========================
   function parseCsvToItems(text) {
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
     if (!lines.length) return [];
 
     let startIndex = 0;
     const header = lines[0].toLowerCase();
 
-    if (header.includes('mlb') && (header.includes('percent') || header.includes('desconto'))) {
+    if (
+      header.includes("mlb") &&
+      (header.includes("percent") || header.includes("desconto"))
+    ) {
       startIndex = 1; // pula cabeçalho
     }
 
@@ -542,9 +718,10 @@
       if (!parts[0]) continue;
 
       const mlb = parts[0].toUpperCase();
-      const percent = parts[1] != null && parts[1] !== ''
-        ? Number(String(parts[1]).replace('%', '').replace(',', '.'))
-        : null;
+      const percent =
+        parts[1] != null && parts[1] !== ""
+          ? Number(String(parts[1]).replace("%", "").replace(",", "."))
+          : null;
 
       items.push({
         mlb,
@@ -556,41 +733,39 @@
   }
 
   async function handleUploadProcess() {
-    const fileInput = $('fileStrategicos');
-    const chkRemove = $('chkRemoveMissing');
-    const uploadStatus = $('uploadStatus');
+    const fileInput = $("fileStrategicos");
+    const chkRemove = $("chkRemoveMissing");
+    const uploadStatus = $("uploadStatus");
 
     if (!fileInput || !fileInput.files || !fileInput.files.length) {
-      toast('Selecione um arquivo primeiro.');
+      toast("Selecione um arquivo primeiro.");
       return;
     }
 
     const file = fileInput.files[0];
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      toast('Por enquanto, só estou aceitando arquivos CSV.');
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast("Por enquanto, só estou aceitando arquivos CSV.");
       return;
     }
 
-    if (uploadStatus) {
-      uploadStatus.textContent = 'Lendo arquivo...';
-    }
+    if (uploadStatus) uploadStatus.textContent = "Lendo arquivo...";
 
     try {
       const text = await file.text();
       const items = parseCsvToItems(text);
 
       if (!items.length) {
-        toast('Nenhuma linha válida encontrada no arquivo.');
-        if (uploadStatus) uploadStatus.textContent = 'Nenhum dado válido encontrado.';
+        toast("Nenhuma linha válida encontrada no arquivo.");
+        if (uploadStatus)
+          uploadStatus.textContent = "Nenhum dado válido encontrado.";
         return;
       }
 
-      if (uploadStatus) {
+      if (uploadStatus)
         uploadStatus.textContent = `Enviando ${items.length} itens...`;
-      }
 
-      await fetchJSON('/api/estrategicos/replace', {
-        method: 'POST',
+      await fetchJSON("/api/estrategicos/replace", {
+        method: "POST",
         body: JSON.stringify({
           items,
           remove_missing: !!(chkRemove && chkRemove.checked),
@@ -598,10 +773,11 @@
       });
 
       toast(`✅ Lista atualizada com ${items.length} itens do arquivo.`);
-      if (uploadStatus) uploadStatus.textContent = 'Lista atualizada com sucesso.';
+      if (uploadStatus)
+        uploadStatus.textContent = "Lista atualizada com sucesso.";
       await loadRows();
     } catch (err) {
-      console.error('handleUploadProcess:', err);
+      console.error("handleUploadProcess:", err);
       toast(`❌ Erro ao processar arquivo: ${err.message}`);
       if (uploadStatus) uploadStatus.textContent = `Erro: ${err.message}`;
     }
@@ -611,18 +787,18 @@
   // Preencher "% padrão (salvo)"
   // =========================
   function handleFillFromGlobal() {
-    const inputGlobal = $('percentGlobal');
+    const inputGlobal = $("percentGlobal");
     if (!inputGlobal) return;
 
     const val = inputGlobal.value;
-    if (val === '' || val == null) {
-      toast('Informe um percentual padrão primeiro.');
+    if (val === "" || val == null) {
+      toast("Informe um percentual padrão primeiro.");
       return;
     }
 
     const n = Number(val);
-    if (Number.isNaN(n)) {
-      toast('Percentual inválido.');
+    if (!Number.isFinite(n)) {
+      toast("Percentual inválido.");
       return;
     }
 
@@ -630,15 +806,15 @@
       r.percent_default = n;
     });
 
-    const tbody = $('tbodyStrategicos');
+    const tbody = $("tbodyStrategicos");
     if (!tbody) return;
 
-    tbody.querySelectorAll('tr').forEach((tr) => {
-      const mlb = tr.getAttribute('data-mlb');
+    tbody.querySelectorAll("tr").forEach((tr) => {
+      const mlb = tr.getAttribute("data-mlb");
       const row = rows.find((r) => String(r.mlb) === String(mlb));
       if (!row) return;
       const input = tr.querySelector('input[data-field="percent_default"]');
-      if (input) input.value = row.percent_default ?? '';
+      if (input) input.value = row.percent_default ?? "";
     });
   }
 
@@ -648,12 +824,12 @@
   async function handleApplySelected() {
     const selected = getSelectedMlbs();
     if (!selected.length) {
-      toast('Selecione ao menos um item na tabela.');
+      toast("Selecione ao menos um item na tabela.");
       return;
     }
 
-    const promotionTypeSel = $('promotionType');
-    const type = promotionTypeSel ? promotionTypeSel.value : 'DEAL';
+    const promotionTypeSel = $("promotionType");
+    const type = promotionTypeSel ? promotionTypeSel.value : "DEAL";
 
     const items = [];
     for (const mlb of selected) {
@@ -661,38 +837,37 @@
       if (!row) continue;
 
       const pct = row.percent_default;
-      if (pct == null || pct === '') continue;
+      if (pct == null || pct === "") continue;
 
-      items.push({
-        mlb,
-        percent: Number(pct),
-      });
+      items.push({ mlb, percent: Number(pct) });
     }
 
     if (!items.length) {
-      toast('Nenhum dos itens selecionados possui % padrão preenchida.');
+      toast("Nenhum dos itens selecionados possui % padrão preenchida.");
       return;
     }
 
-    if (!confirm(
-      `Confirmar aplicação de promoções para ${items.length} itens com tipo ${type}?`
-    )) {
+    if (
+      !confirm(
+        `Confirmar aplicação de promoções para ${items.length} itens com tipo ${type}?`
+      )
+    ) {
       return;
     }
 
     try {
-      await fetchJSON('/api/estrategicos/apply', {
-        method: 'POST',
+      await fetchJSON("/api/estrategicos/apply", {
+        method: "POST",
         body: JSON.stringify({
           items,
           promotion_type: type,
         }),
       });
 
-      toast('✅ Promoções enviadas para processamento.');
+      toast("✅ Promoções enviadas para processamento.");
       await loadRows();
     } catch (err) {
-      console.error('handleApplySelected:', err);
+      console.error("handleApplySelected:", err);
       toast(`❌ Erro ao aplicar promoções: ${err.message}`);
     }
   }
@@ -701,73 +876,65 @@
   // Bind de eventos estáticos
   // =========================
   function bindStaticEvents() {
-    const groupSel = $('strategicGroup');
+    const groupSel = $("strategicGroup");
     if (groupSel) {
-      groupSel.addEventListener('change', () => {
+      groupSel.addEventListener("change", () => {
         currentGroup = groupSel.value;
+        // No DB, group é só UX. Se quiser usar como filtro no futuro, adicionamos query aqui.
         loadRows();
       });
       currentGroup = groupSel.value;
     }
 
-    const btnAddRow = $('btnAddRow');
-    if (btnAddRow) {
-      btnAddRow.addEventListener('click', openAddMlbsPanel);
-    }
+    const btnAddRow = $("btnAddRow");
+    if (btnAddRow) btnAddRow.addEventListener("click", openAddMlbsPanel);
 
-    const btnAddMlbsConfirm = $('btnAddMlbsConfirm');
-    const btnAddMlbsCancel  = $('btnAddMlbsCancel');
-
-    if (btnAddMlbsConfirm) {
-      btnAddMlbsConfirm.addEventListener('click', handleAddMlbsConfirm);
-    }
-    if (btnAddMlbsCancel) {
-      btnAddMlbsCancel.addEventListener('click', (ev) => {
+    const btnAddMlbsConfirm = $("btnAddMlbsConfirm");
+    const btnAddMlbsCancel = $("btnAddMlbsCancel");
+    if (btnAddMlbsConfirm)
+      btnAddMlbsConfirm.addEventListener("click", handleAddMlbsConfirm);
+    if (btnAddMlbsCancel)
+      btnAddMlbsCancel.addEventListener("click", (ev) => {
         ev.preventDefault();
         closeAddMlbsPanel();
       });
-    }
 
-    const btnToggleUpload = $('btnToggleUpload');
-    const uploadPanel = $('uploadPanel');
-    const btnCloseUpload = $('btnCloseUpload');
+    const btnToggleUpload = $("btnToggleUpload");
+    const uploadPanel = $("uploadPanel");
+    const btnCloseUpload = $("btnCloseUpload");
     if (btnToggleUpload && uploadPanel) {
-      btnToggleUpload.addEventListener('click', () => {
+      btnToggleUpload.addEventListener("click", () => {
         uploadPanel.hidden = !uploadPanel.hidden;
       });
     }
     if (btnCloseUpload && uploadPanel) {
-      btnCloseUpload.addEventListener('click', () => {
+      btnCloseUpload.addEventListener("click", () => {
         uploadPanel.hidden = true;
       });
     }
 
-    const btnProcessFile = $('btnProcessFile');
-    if (btnProcessFile) {
-      btnProcessFile.addEventListener('click', handleUploadProcess);
-    }
+    const btnProcessFile = $("btnProcessFile");
+    if (btnProcessFile)
+      btnProcessFile.addEventListener("click", handleUploadProcess);
 
-    const btnFillFromGlobal = $('btnFillFromGlobal');
-    if (btnFillFromGlobal) {
-      btnFillFromGlobal.addEventListener('click', handleFillFromGlobal);
-    }
+    const btnFillFromGlobal = $("btnFillFromGlobal");
+    if (btnFillFromGlobal)
+      btnFillFromGlobal.addEventListener("click", handleFillFromGlobal);
 
-    const btnApplySelected = $('btnApplySelected');
-    if (btnApplySelected) {
-      btnApplySelected.addEventListener('click', handleApplySelected);
-    }
+    const btnApplySelected = $("btnApplySelected");
+    if (btnApplySelected)
+      btnApplySelected.addEventListener("click", handleApplySelected);
 
-    const btnDeleteSelected = $('btnDeleteSelected');
-    if (btnDeleteSelected) {
-      btnDeleteSelected.addEventListener('click', handleDeleteSelected);
-    }
+    const btnDeleteSelected = $("btnDeleteSelected");
+    if (btnDeleteSelected)
+      btnDeleteSelected.addEventListener("click", handleDeleteSelected);
 
-    const chkAll = $('chkSelectAllRows');
+    const chkAll = $("chkSelectAllRows");
     if (chkAll) {
-      chkAll.addEventListener('change', () => {
-        const tbody = $('tbodyStrategicos');
+      chkAll.addEventListener("change", () => {
+        const tbody = $("tbodyStrategicos");
         if (!tbody) return;
-        const checks = tbody.querySelectorAll('.row-select');
+        const checks = tbody.querySelectorAll(".row-select");
         checks.forEach((c) => {
           c.checked = chkAll.checked;
         });
@@ -775,73 +942,79 @@
       });
     }
 
-    const tbody = $('tbodyStrategicos');
+    const tbody = $("tbodyStrategicos");
     if (tbody) {
       // Delegação de eventos na tabela
-      tbody.addEventListener('change', (ev) => {
+      tbody.addEventListener("change", (ev) => {
         const target = ev.target;
         if (!target) return;
 
-        if (target.classList.contains('row-select')) {
+        if (target.classList.contains("row-select")) {
           updateSummarySelected();
           return;
         }
 
         if (
-          target.classList.contains('input-name') ||
-          target.classList.contains('input-percent')
+          target.classList.contains("input-name") ||
+          target.classList.contains("input-percent")
         ) {
-          const tr = target.closest('tr[data-mlb]');
+          const tr = target.closest("tr[data-mlb]");
           if (!tr) return;
-          const mlb = tr.getAttribute('data-mlb');
-          const field = target.getAttribute('data-field');
+
+          const mlb = tr.getAttribute("data-mlb");
+          const field = target.getAttribute("data-field");
+
           const row = rows.find((r) => String(r.mlb) === String(mlb));
           if (!row) return;
 
-          if (field === 'name') {
+          if (field === "name") {
             row.name = target.value;
-          } else if (field === 'percent_default') {
-            const n = target.value === '' ? null : Number(target.value);
+          } else if (field === "percent_default") {
+            const n = target.value === "" ? null : Number(target.value);
             row.percent_default = Number.isNaN(n) ? null : n;
           }
         }
       });
 
-      tbody.addEventListener('click', (ev) => {
-        const btn = ev.target.closest('button[data-action]');
+      tbody.addEventListener("click", (ev) => {
+        const btn = ev.target.closest("button[data-action]");
         if (!btn) return;
 
-        const tr = btn.closest('tr[data-mlb]');
+        const tr = btn.closest("tr[data-mlb]");
         if (!tr) return;
 
-        const mlb = tr.getAttribute('data-mlb');
-        const action = btn.getAttribute('data-action');
+        const mlb = tr.getAttribute("data-mlb");
+        const id = tr.getAttribute("data-id");
+        const action = btn.getAttribute("data-action");
 
-        if (action === 'save-row') {
-          saveRow(mlb);
-        } else if (action === 'delete-row') {
+        if (action === "save-row") {
+          // prefere id, mas funciona com mlb
+          saveRow(id || mlb);
+        } else if (action === "sync-row") {
+          syncRow(id || mlb);
+        } else if (action === "delete-row") {
           deleteRow(mlb);
         }
       });
     }
 
     // Eventos da paginação (delegação)
-    const pagination = $('strategicPagination');
+    const pagination = $("strategicPagination");
     if (pagination) {
-      pagination.addEventListener('click', (ev) => {
-        const btn = ev.target.closest('[data-page]');
+      pagination.addEventListener("click", (ev) => {
+        const btn = ev.target.closest("[data-page]");
         if (!btn) return;
 
-        const action = btn.getAttribute('data-page');
+        const action = btn.getAttribute("data-page");
         const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
 
-        if (action === 'prev') {
+        if (action === "prev") {
           if (currentPage > 1) currentPage -= 1;
-        } else if (action === 'next') {
+        } else if (action === "next") {
           if (currentPage < totalPages) currentPage += 1;
         } else {
           const n = Number(action);
-          if (!Number.isNaN(n)) {
+          if (Number.isFinite(n)) {
             currentPage = Math.min(Math.max(1, n), totalPages);
           }
         }
@@ -854,12 +1027,12 @@
   // =========================
   // Boot
   // =========================
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener("DOMContentLoaded", () => {
     try {
       bindStaticEvents();
       loadRows();
     } catch (err) {
-      console.error('Erro na inicialização de estratégicos:', err);
+      console.error("Erro na inicialização de estratégicos:", err);
     }
   });
 })();

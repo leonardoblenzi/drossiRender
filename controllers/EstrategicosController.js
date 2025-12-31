@@ -1,104 +1,83 @@
 // controllers/EstrategicosController.js
 //
-// Persistência em JSON por grupo (drossi / diplany / rossidecor)
-// + integração com CriarPromocaoService para aplicar promoções.
-// + snapshot de promoções ativas direto da API do ML (mesma lógica da Curva ABC)
+// Produtos Estratégicos — Persistência em PostgreSQL (Render) por meli_conta_id
+// + integração com CriarPromocaoService para aplicar promoções
+// + sync de nome/% aplicada/status direto da API do Mercado Livre
+//
+// Tabela: anuncios_estrategicos
 
-const fs = require('fs').promises;
-const path = require('path');
-const CriarPromocaoService = require('../services/criarPromocaoService');
+"use strict";
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const ALLOWED_GROUPS = new Set(['drossi', 'diplany', 'rossidecor']);
+const CriarPromocaoService = require("../services/criarPromocaoService");
+
+// DB (padrão: module.exports = { query } em ../db/db.js)
+let db;
+try {
+  db = require("../db/db");
+} catch (e) {
+  db = require("../db");
+}
 
 // fetch compatível (Node <18)
-const _fetch = (typeof fetch !== 'undefined') ? fetch : require('node-fetch');
+const _fetch = typeof fetch !== "undefined" ? fetch : require("node-fetch");
 const fetchRef = (...args) => _fetch(...args);
 
-// -------------------- Helpers de grupo/arquivo --------------------
+// -------------------- Helpers --------------------
 
-function resolveGroup(req, res) {
-  const qGroup = (req.query.group || req.body?.group || '').toString().trim().toLowerCase();
-  if (ALLOWED_GROUPS.has(qGroup)) return qGroup;
-
-  const accKey = (res.locals.accountKey || '').toString().trim().toLowerCase();
-  if (ALLOWED_GROUPS.has(accKey)) return accKey;
-
-  // fallback – pode ajustar se quiser um "default"
-  return 'drossi';
-}
-
-async function ensureDataDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
-function getFilePath(group) {
-  return path.join(DATA_DIR, `estrategicos_${group}.json`);
-}
+const TABLE = "anuncios_estrategicos";
 
 function toNumOrNull(v) {
-  if (v === '' || v == null) return null;
-  const n = Number(String(v).replace(',', '.'));
+  if (v === "" || v == null) return null;
+  const n = Number(String(v).replace(",", "."));
   return Number.isNaN(n) ? null : n;
 }
 
-function normalizeItem(raw = {}, idx = 0) {
-  const mlb = (raw.mlb || '').toString().trim();
+function ensureContaId(res) {
+  // preferências comuns do seu projeto
+  const id =
+    res?.locals?.mlCreds?.meli_conta_id ??
+    res?.locals?.mlCreds?.meliContaId ??
+    res?.locals?.meli_conta_id ??
+    res?.locals?.meliContaId ??
+    null;
+
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function getAccessToken(req, res) {
+  // preferir o que authMiddleware injeta
+  const t = req?.ml?.accessToken || req?.ml?.access_token;
+  if (t) return t;
+
+  // fallback: ensureAccount injeta res.locals.mlCreds
+  const t2 = res?.locals?.mlCreds?.access_token;
+  if (t2) return t2;
+
+  return null;
+}
+
+function normalizeRow(r = {}) {
   return {
-    id: raw.id || `row-${idx + 1}`,
-    mlb,
-    name: (raw.name || '').toString(),
-    percent_default: toNumOrNull(raw.percent_default),
-    percent_cycle: toNumOrNull(raw.percent_cycle),
-    percent_applied: toNumOrNull(raw.percent_applied),
-    status: (raw.status || '').toString()
+    id: r.id,
+    mlb: r.mlb,
+    name: r.name || r.nome_produto || "",
+    percent_default:
+      r.percent_default != null ? Number(r.percent_default) : null,
+    percent_cycle: r.percent_cycle != null ? Number(r.percent_cycle) : null,
+    percent_applied:
+      r.percent_applied != null ? Number(r.percent_applied) : null,
+    status: r.status || "",
+    listing_status: r.listing_status || r.status_anuncio || null,
+    last_synced_at: r.last_synced_at || r.ultimo_sync_em || null,
+    updated_at: r.updated_at || r.atualizado_em || null,
+    created_at: r.created_at || r.criado_em || null,
   };
 }
-
-// Carrega itens do JSON; se não existir, volta lista vazia
-async function loadItems(group) {
-  await ensureDataDir();
-  const file = getFilePath(group);
-
-  try {
-    const txt = await fs.readFile(file, 'utf8');
-    const json = JSON.parse(txt);
-
-    if (Array.isArray(json.items)) {
-      return { items: json.items.map(normalizeItem), meta: json.meta || {} };
-    }
-    if (Array.isArray(json)) {
-      return { items: json.map(normalizeItem), meta: {} };
-    }
-    return { items: [], meta: {} };
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.error(`[Estrategicos] Erro ao ler arquivo ${file}:`, err.message || err);
-    }
-    return { items: [], meta: {} };
-  }
-}
-
-async function saveItems(group, items, metaExtra = {}) {
-  await ensureDataDir();
-  const file = getFilePath(group);
-  const payload = {
-    group,
-    updated_at: new Date().toISOString(),
-    total: items.length,
-    meta: metaExtra,
-    items
-  };
-  await fs.writeFile(file, JSON.stringify(payload, null, 2), 'utf8');
-}
-
-// ====================================================================
-// ===================== HELPERS DE PROMO (ML) ========================
-// ===== Copiados/adaptados do analytics-abc-Routes.js para uso aqui ==
-// ====================================================================
 
 /** GET JSON com retry simples */
-async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
+async function httpGetJson(url, headers, retries = 2) {
   let lastErr;
   for (let i = 0; i < retries; i++) {
     let r, status, text;
@@ -108,26 +87,22 @@ async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
       text = await r.text();
     } catch (e) {
       lastErr = e;
+      await new Promise((res) => setTimeout(res, 250 * (i + 1)));
       continue;
-    }
-
-    if (dbgArr) {
-      dbgArr.push({
-        type: 'http',
-        url,
-        status,
-        body: (text || '').slice(0, 512)
-      });
     }
 
     if (status === 429 || (status >= 500 && status < 600)) {
-      await new Promise(res => setTimeout(res, 400 * (i + 1)));
+      await new Promise((res) => setTimeout(res, 350 * (i + 1)));
       continue;
     }
+
     if (!r.ok) {
-      lastErr = new Error(`GET ${url} -> ${status}`);
+      lastErr = new Error(
+        `GET ${url} -> ${status} :: ${(text || "").slice(0, 200)}`
+      );
       break;
     }
+
     try {
       return JSON.parse(text);
     } catch (e) {
@@ -135,69 +110,29 @@ async function httpGetJson(url, headers, retries = 3, dbgArr = null) {
       break;
     }
   }
-  if (lastErr) throw lastErr;
-  return null;
-}
 
-/** Token provider (mesma ideia do ABC) */
-async function getToken(app, req, accountId) {
-  const injected = app.get('getAccessTokenForAccount');
-  if (typeof injected === 'function') return injected(accountId, req);
-  try {
-    const { getAccessTokenForAccount } = require('../services/ml-auth');
-    return getAccessTokenForAccount(accountId, req);
-  } catch {
-    throw new Error(
-      `Não foi possível obter token para a conta "${accountId}". ` +
-      `Configure app.set('getAccessTokenForAccount', fn) ou crie services/ml-auth.js`
-    );
-  }
-}
-
-/** Seller ID do token */
-async function getSellerId(token) {
-  const r = await fetchRef('https://api.mercadolibre.com/users/me', {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!r.ok) throw new Error(`users/me ${r.status}`);
-  const me = await r.json();
-  return me.id;
-}
-
-/** Mescla duas fontes de promo (prioriza ativo e maior %). */
-function mergePromo(a, b) {
-  const A = a || { active: false, percent: null, source: null };
-  const B = b || { active: false, percent: null, source: null };
-  const aPct = (A.percent != null ? Number(A.percent) : null);
-  const bPct = (B.percent != null ? Number(B.percent) : null);
-
-  // se uma estiver ativa e a outra não, mantém a ativa
-  if (A.active && !B.active) return A;
-  if (B.active && !A.active) return B;
-
-  // ambas ativas (ou ambas inativas): fica com a que tiver maior % conhecida
-  if (aPct != null && bPct != null) return (bPct > aPct) ? B : A;
-
-  // somente uma tem % → use a que tem % (se empatar, prioriza A)
-  if (bPct != null && aPct == null) return B;
-  return A;
+  throw lastErr || new Error(`Falha em GET ${url}`);
 }
 
 /**
  * Lê a Prices API do item e tenta inferir promoção ativa “agora”.
- * Mesmo código do Curva ABC.
+ * Retorna percent em 0..1
  */
-async function fetchItemPromoNow({ token, itemId, dbgArr }) {
-  const url = `https://api.mercadolibre.com/items/${itemId}/prices`;
+async function fetchItemPromoNow({ token, itemId }) {
+  const url = `https://api.mercadolibre.com/items/${encodeURIComponent(
+    itemId
+  )}/prices`;
+  const headers = { Authorization: `Bearer ${token}` };
 
   const pct = (full, price) => {
-    const f = Number(full || 0), p = Number(price || 0);
-    if (f > 0 && p > 0 && p < f) return 1 - (p / f);
+    const f = Number(full || 0);
+    const p = Number(price || 0);
+    if (f > 0 && p > 0 && p < f) return 1 - p / f;
     return null;
   };
 
   try {
-    const j = await httpGetJson(url, { Authorization: `Bearer ${token}` }, 2, dbgArr);
+    const j = await httpGetJson(url, headers, 2);
 
     const buckets = [];
     if (Array.isArray(j?.prices?.prices)) buckets.push(...j.prices.prices);
@@ -209,280 +144,80 @@ async function fetchItemPromoNow({ token, itemId, dbgArr }) {
     const nowMs = Date.now();
     const candidates = [];
 
-    // 1) Preços com type=promotion dentro da janela
+    // 1) Preços type=promotion dentro da janela
     for (const p of buckets) {
-      const t  = String(p?.type || '').toLowerCase();
-      if (t !== 'promotion') continue;
+      const t = String(p?.type || "").toLowerCase();
+      if (t !== "promotion") continue;
 
       const df = p?.conditions?.start_time || p?.date_from || p?.start_time;
-      const dt = p?.conditions?.end_time   || p?.date_to   || p?.end_time;
-      const inWindow = (!df || nowMs >= new Date(df).getTime()) &&
-                       (!dt || nowMs <= new Date(dt).getTime());
+      const dt = p?.conditions?.end_time || p?.date_to || p?.end_time;
+
+      const inWindow =
+        (!df || nowMs >= new Date(df).getTime()) &&
+        (!dt || nowMs <= new Date(dt).getTime());
 
       if (!inWindow) continue;
 
       const percent = pct(p?.regular_amount, p?.amount);
       if (percent !== null && percent > 0) {
-        const source = p?.metadata?.campaign_id ? 'marketplace_campaign' : 'seller_promotion';
-        candidates.push({ percent, source, active: true });
+        candidates.push({ active: true, percent });
       }
     }
 
-    // 2) Nó “promotions”
+    // 2) Nó promotions
     for (const p of promoNodes) {
-      const st = String(p?.status || '').toLowerCase();
+      const st = String(p?.status || "").toLowerCase();
       const df = p?.date_from || p?.start_time;
-      const dt = p?.date_to   || p?.end_time;
-      const inWindow = (!df || nowMs >= new Date(df).getTime()) &&
-                       (!dt || nowMs <= new Date(dt).getTime());
-      const isActive = (st ? st === 'active' : true) && inWindow;
+      const dt = p?.date_to || p?.end_time;
+
+      const inWindow =
+        (!df || nowMs >= new Date(df).getTime()) &&
+        (!dt || nowMs <= new Date(dt).getTime());
+
+      const isActive = (st ? st === "active" : true) && inWindow;
       if (!isActive) continue;
 
-      const percent = pct(p?.regular_amount || p?.base_price, p?.price || p?.amount);
+      const percent = pct(
+        p?.regular_amount || p?.base_price,
+        p?.price || p?.amount
+      );
       if (percent !== null && percent > 0) {
-        const source = (p?.type || p?.campaign_type || p?.origin || 'promotion').toString();
-        candidates.push({ percent, source, active: true });
+        candidates.push({ active: true, percent });
       }
     }
 
-    // 3) Fallback standard/active
-    const anyPrice = (buckets || []).find(x => x?.amount);
+    // 3) Fallback inferred
+    const anyPrice = (buckets || []).find((x) => x?.amount);
     if (anyPrice && anyPrice?.regular_amount) {
       const percent = pct(anyPrice.regular_amount, anyPrice.amount);
       if (percent !== null && percent > 0) {
-        candidates.push({ percent, source: 'inferred_from_regular_amount', active: true });
+        candidates.push({ active: true, percent });
       }
     }
 
-    if (candidates.length) {
-      candidates.sort((a, b) => (b.percent || 0) - (a.percent || 0));
-      const best = candidates[0];
-      return { active: true, percent: best.percent, source: best.source };
-    }
+    if (!candidates.length) return { active: false, percent: null };
 
-    return { active: false, percent: null, source: null };
-  } catch (e) {
-    dbgArr && dbgArr.push({ type: 'promo_error', url, message: e.message || String(e) });
-    return { active: false, percent: null, source: null };
+    candidates.sort((a, b) => (b.percent || 0) - (a.percent || 0));
+    return { active: true, percent: candidates[0].percent };
+  } catch {
+    return { active: false, percent: null };
   }
 }
 
-/**
- * Central de Promoções em batch — mesma função do ABC, simplificada para uso aqui.
- */
-async function fetchPromotionsForItemsBatch({ token, sellerId, itemIds, promosDbg }) {
-  const out = {};
-  const ids = Array.from(new Set((itemIds || []).map(i => String(i).toUpperCase())));
-  if (!ids.length) return out;
-
-  const keepBetter = (prev, next) => mergePromo(prev, next);
-
-  const bySite = new Map();
-  for (const id of ids) {
-    const site = id.slice(0, 3);
-    if (!bySite.has(site)) bySite.set(site, new Set());
-    bySite.get(site).add(id);
-  }
-
-  const base = 'https://api.mercadolibre.com';
+/** Busca nome e status do anúncio no ML */
+async function fetchItemBasics({ token, itemId }) {
+  // manter simples/robusto: sem depender do parâmetro attributes
+  const url = `https://api.mercadolibre.com/items/${encodeURIComponent(
+    itemId
+  )}`;
   const headers = { Authorization: `Bearer ${token}` };
-  const nowMs = Date.now();
+  const j = await httpGetJson(url, headers, 2);
 
-  for (const [site, wantedSet] of bySite.entries()) {
-    const searchUrl = new URL(`${base}/seller-promotions/search`);
-    searchUrl.searchParams.set('site_id', site);
-    searchUrl.searchParams.set('seller_id', String(sellerId));
-    searchUrl.searchParams.set('status', 'active');
-
-    let promos;
-    try {
-      promos = await httpGetJson(searchUrl.toString(), headers, 2, promosDbg);
-    } catch (e) {
-      promosDbg && promosDbg.push({ type: 'promos_search_error', url: String(searchUrl), message: e.message });
-      continue;
-    }
-
-    const list = Array.isArray(promos?.results) ? promos.results
-                : Array.isArray(promos?.promotions) ? promos.promotions
-                : [];
-
-    for (const p of list) {
-      const promoId = p.id || p.promotion_id;
-      if (!promoId) continue;
-
-      let offset = 0;
-      const limit = 200;
-      for (;;) {
-        const itemsUrl = new URL(`${base}/seller-promotions/${promoId}/items`);
-        itemsUrl.searchParams.set('offset', String(offset));
-        itemsUrl.searchParams.set('limit', String(limit));
-
-        let j;
-        try {
-          j = await httpGetJson(itemsUrl.toString(), headers, 2, promosDbg);
-        } catch (e) {
-          promosDbg && promosDbg.push({ type: 'promos_items_error', url: String(itemsUrl), message: e.message });
-          break;
-        }
-
-        const arr = Array.isArray(j?.results) ? j.results
-                  : Array.isArray(j?.items) ? j.items
-                  : [];
-
-        for (const it of arr) {
-          const itemId = String(it.item_id || it.id || '').toUpperCase();
-          if (!itemId || !wantedSet.has(itemId)) continue;
-
-          const st = String(it.status || '').toLowerCase();
-          const df = it.date_from || it.start_time;
-          const dt = it.date_to   || it.end_time;
-
-          const inWindow = (!df || nowMs >= new Date(df).getTime()) &&
-                           (!dt || nowMs <= new Date(dt).getTime());
-          const itemActive = (st ? st === 'active' : true) && inWindow;
-          if (!itemActive) continue;
-
-          let pct =
-            it.applied_percentage ??
-            it.discount_percentage ??
-            it.discount_rate ??
-            it.benefit_percentage ??
-            null;
-          if (pct != null) {
-            pct = Number(pct);
-            if (!Number.isFinite(pct)) pct = null;
-            else if (pct > 1) pct = pct / 100;
-            if (pct <= 0) pct = null;
-          }
-
-          const next = { active: true, percent: pct, source: 'seller_promotion_batch' };
-          out[itemId] = keepBetter(out[itemId], next);
-        }
-
-        const total = j?.paging?.total ?? j?.total ?? arr.length;
-        offset += limit;
-        if (offset >= total) break;
-      }
-    }
-  }
-
-  return out;
-}
-
-/** Fallback de promo por /items/{id}/prices + /items/{id} (mesmo do ABC) */
-async function fetchPromotionForItemFallback({ token, itemId, promosDbg }) {
-  const headers = { Authorization: `Bearer ${token}` };
-
-  try {
-    const u = `https://api.mercadolibre.com/items/${encodeURIComponent(itemId)}/prices`;
-    const j = await httpGetJson(u, headers, 2, promosDbg);
-
-    const prices = [];
-    if (Array.isArray(j?.prices?.prices)) prices.push(...j.prices.prices);
-    if (Array.isArray(j?.prices)) prices.push(...j.prices);
-
-    const current = prices.find(p => p.type === 'standard' || p.status === 'active');
-    const promo   = prices.find(p => p.type === 'promotion');
-
-    const pct = (orig, now) => {
-      const o = Number(orig || 0), n = Number(now || 0);
-      return (o > 0 && n > 0 && n < o) ? (1 - n / o) : null;
-    };
-
-    if (promo) {
-      const percent = pct(promo.regular_amount, promo.amount);
-      if (percent !== null) return { active: true, percent, source: 'prices_promotion' };
-    }
-
-    if (current && current.regular_amount) {
-      const percent = pct(current.regular_amount, current.amount);
-      if (percent !== null) return { active: true, percent, source: 'prices_regular_amount' };
-    }
-  } catch (e) {
-    promosDbg && promosDbg.push({ type: 'prices_api_error', itemId, message: e.message });
-  }
-
-  try {
-    const u = `https://api.mercadolibre.com/items/${encodeURIComponent(itemId)}?attributes=price,original_price`;
-    const j = await httpGetJson(u, headers, 2, promosDbg);
-    const price = Number(j?.price ?? NaN);
-    const original = Number(j?.original_price ?? NaN);
-    if (Number.isFinite(price) && Number.isFinite(original) && original > price) {
-      const pct = (original - price) / original;
-      return { active: true, percent: pct, source: 'items_original_price' };
-    }
-  } catch (e) {
-    promosDbg && promosDbg.push({ type: 'items_api_error', itemId, message: e.message });
-  }
-
-  return { active: false, percent: null, source: null };
-}
-
-/**
- * Snapshot de promo para lista de MLBs de UMA conta,
- * usando o mesmo pipeline do /abc-ml/items:
- * - Central de promoções (batch)
- * - Fallback /items/{id}/prices
- * - Merge de fontes
- */
-async function getPromosSnapshotForList({ req, res, group, mlbIds }) {
-  const app = req.app;
-  const accountKey = res.locals?.accountKey || group || 'default';
-
-  const token = await getToken(app, req, accountKey);
-  const sellerId = await getSellerId(token);
-
-  const ids = Array.from(
-    new Set((mlbIds || []).map(id => String(id || '').toUpperCase()).filter(Boolean))
-  );
-  if (!ids.length) return {};
-
-  const dbg = { calls: [] };
-
-  // 1) batch Central de Promoções
-  const batchMap = await fetchPromotionsForItemsBatch({
-    token,
-    sellerId,
-    itemIds: ids,
-    promosDbg: dbg.calls
-  });
-
-  // 2) prices snapshot
-  const pricesMap = {};
-  for (const id of ids) {
-    try {
-      pricesMap[id] = await fetchItemPromoNow({ token, itemId: id, dbgArr: dbg.calls });
-    } catch (e) {
-      dbg.calls.push({ type: 'prices_single_error', itemId: id, message: e.message });
-      pricesMap[id] = { active: false, percent: null, source: null };
-    }
-  }
-
-  // 3) fallback extra por item (mesma ideia do ABC)
-  for (const id of ids) {
-    if (batchMap[id]) continue; // já tem do batch
-    try {
-      const fb = await fetchPromotionForItemFallback({ token, itemId: id, promosDbg: dbg.calls });
-      if (fb && fb.active) {
-        batchMap[id] = mergePromo(batchMap[id], fb);
-      }
-    } catch (e) {
-      dbg.calls.push({ type: 'promo_fallback_error', itemId: id, message: e.message });
-    }
-  }
-
-  // 4) merge final (prices + central)
-  const out = {};
-  for (const id of ids) {
-    const merged = mergePromo(pricesMap[id], batchMap[id]);
-    out[id] = {
-      active: !!merged.active,
-      percent: merged.percent != null ? Number(merged.percent) : null, // 0..1
-      source: merged.source || batchMap[id]?.source || pricesMap[id]?.source || null
-    };
-  }
-
-  return out;
+  return {
+    title: j?.title || "",
+    status: j?.status || null, // active/paused/closed...
+    sub_status: Array.isArray(j?.sub_status) ? j.sub_status : null,
+  };
 }
 
 // ====================================================================
@@ -490,293 +225,622 @@ async function getPromosSnapshotForList({ req, res, group, mlbIds }) {
 // ====================================================================
 
 class EstrategicosController {
-  // GET /api/estrategicos?group=drossi
+  // GET /api/estrategicos
   static async list(req, res) {
     try {
-      const group = resolveGroup(req, res);
-      const { items, meta } = await loadItems(group);
-
-      // flag opcional pra desligar ML (ex: debug): ?include_promos=0
-      const includePromos = String(req.query.include_promos || '1') !== '0';
-
-      let itemsOut = items;
-
-      if (includePromos && items.length) {
-        try {
-          const mlbIds = items.map(i => i.mlb).filter(Boolean);
-          const promoMap = await getPromosSnapshotForList({ req, res, group, mlbIds });
-
-          itemsOut = items.map(it => {
-            const key = String(it.mlb || '').toUpperCase();
-            const promo = promoMap[key];
-
-            if (promo && promo.active && promo.percent != null) {
-              // percent vem 0..1 do pipeline da Curva ABC
-              const pct100 = promo.percent * 100;
-
-              // só preenche se ainda não tiver valor salvo (pra não sobrescrever histórico da tela)
-              const hasApplied = it.percent_applied != null && !Number.isNaN(Number(it.percent_applied));
-
-              return {
-                ...it,
-                percent_applied: hasApplied ? it.percent_applied : pct100,
-                status: it.status || 'Promoção ativa'
-              };
-            }
-
-            return it;
-          });
-        } catch (e) {
-          console.error('[EstrategicosController.list] Erro ao buscar promoções ML:', e);
-          // se der erro, continua retornando a lista crua do JSON
-        }
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
       }
+
+      const r = await db.query(
+        `SELECT *
+           FROM ${TABLE}
+          WHERE meli_conta_id = $1
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC`,
+        [meli_conta_id]
+      );
+
+      const items = (r.rows || []).map(normalizeRow);
 
       return res.json({
         ok: true,
-        group,
-        total: itemsOut.length,
-        meta,
-        items: itemsOut
+        meli_conta_id,
+        total: items.length,
+        items,
       });
     } catch (err) {
-      console.error('[EstrategicosController.list] Erro:', err);
-      return res.status(500).json({ ok: false, error: err.message || String(err) });
+      console.error("[EstrategicosController.list] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
     }
   }
 
   // POST /api/estrategicos
-  // body: { group?, mlb, name?, percent_default?, percent_cycle?, percent_applied?, status? }
+  // body: { mlb, name?, percent_default? }
   static async upsert(req, res) {
     try {
-      const group = resolveGroup(req, res);
-      const body = req.body || {};
-      const mlb = (body.mlb || '').toString().trim();
-
-      if (!mlb) {
-        return res.status(400).json({ ok: false, error: 'mlb é obrigatório' });
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
       }
 
-      const { items } = await loadItems(group);
-      const idx = items.findIndex(i => (i.mlb || '').toUpperCase() === mlb.toUpperCase());
-      const base = idx >= 0 ? items[idx] : {};
+      const body = req.body || {};
+      const mlb = (body.mlb || "").toString().trim().toUpperCase();
+      if (!mlb) {
+        return res.status(400).json({ ok: false, error: "mlb é obrigatório" });
+      }
 
-      const item = normalizeItem(
-        {
-          ...base,
-          ...body
-        },
-        idx >= 0 ? idx : items.length
+      // importante: quando não vier, NÃO sobrescreve
+      const hasName = Object.prototype.hasOwnProperty.call(body, "name");
+      const hasPct = Object.prototype.hasOwnProperty.call(
+        body,
+        "percent_default"
       );
 
-      if (idx >= 0) items[idx] = item;
-      else items.push(item);
+      const name = hasName ? (body.name || "").toString() : null;
+      const percent_default = hasPct ? toNumOrNull(body.percent_default) : null;
 
-      await saveItems(group, items);
-      return res.json({ ok: true, group, item });
+      // flags para update condicional
+      const shouldSetName = hasName && String(name || "").trim() !== "";
+      const shouldSetPct = hasPct; // se veio, pode até ser null (limpar)
+
+      const r = await db.query(
+        `
+        INSERT INTO ${TABLE} (meli_conta_id, mlb, name, percent_default, updated_at, created_at)
+        VALUES ($1, $2, $3, $4, NOW(), NOW())
+        ON CONFLICT (meli_conta_id, mlb)
+        DO UPDATE SET
+          name = CASE WHEN $5 THEN EXCLUDED.name ELSE ${TABLE}.name END,
+          percent_default = CASE WHEN $6 THEN EXCLUDED.percent_default ELSE ${TABLE}.percent_default END,
+          updated_at = NOW()
+        RETURNING *;
+        `,
+        [
+          meli_conta_id,
+          mlb,
+          shouldSetName ? name : null,
+          shouldSetPct ? percent_default : null,
+          shouldSetName,
+          shouldSetPct,
+        ]
+      );
+
+      return res.json({ ok: true, item: normalizeRow(r.rows[0]) });
     } catch (err) {
-      console.error('[EstrategicosController.upsert] Erro:', err);
-      return res.status(500).json({ ok: false, error: err.message || String(err) });
+      console.error("[EstrategicosController.upsert] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
     }
   }
 
-  // DELETE /api/estrategicos/:mlb
-  static async remove(req, res) {
+  // PUT /api/estrategicos/:id
+  // body: { percent_default?, name? }
+  static async update(req, res) {
     try {
-      const group = resolveGroup(req, res);
-      const mlbParam = (req.params.mlb || '').toString().trim();
-      if (!mlbParam) {
-        return res.status(400).json({ ok: false, error: 'mlb ausente na URL' });
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
       }
 
-      const { items } = await loadItems(group);
-      const before = items.length;
-      const filtered = items.filter(
-        i => (i.mlb || '').toUpperCase() !== mlbParam.toUpperCase()
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ ok: false, error: "ID inválido." });
+      }
+
+      const body = req.body || {};
+
+      const hasPct = Object.prototype.hasOwnProperty.call(
+        body,
+        "percent_default"
       );
-      const removed = before - filtered.length;
+      const hasName = Object.prototype.hasOwnProperty.call(body, "name");
 
-      await saveItems(group, filtered);
+      if (!hasPct && !hasName) {
+        return res.status(400).json({
+          ok: false,
+          error: "Nada para atualizar (envie percent_default e/ou name).",
+        });
+      }
 
-      return res.json({
-        ok: true,
-        group,
-        removed,
-        total: filtered.length
-      });
+      const pctVal = hasPct ? toNumOrNull(body.percent_default) : null;
+      // se enviar name como "" a gente limpa (vira NULL) pra manter UI limpa
+      const nameVal = hasName ? String(body.name || "").trim() : null;
+      const nameToSet = hasName ? (nameVal ? nameVal : null) : null;
+
+      const r = await db.query(
+        `
+        UPDATE ${TABLE}
+           SET
+             percent_default = CASE WHEN $1 THEN $2 ELSE percent_default END,
+             name            = CASE WHEN $3 THEN $4 ELSE name END,
+             updated_at      = NOW()
+         WHERE id = $5 AND meli_conta_id = $6
+         RETURNING *;
+        `,
+        [hasPct, pctVal, hasName, nameToSet, id, meli_conta_id]
+      );
+
+      if (!r.rows?.length) {
+        return res.status(404).json({
+          ok: false,
+          error: "Registro não encontrado para esta conta.",
+        });
+      }
+
+      return res.json({ ok: true, item: normalizeRow(r.rows[0]) });
     } catch (err) {
-      console.error('[EstrategicosController.remove] Erro:', err);
-      return res.status(500).json({ ok: false, error: err.message || String(err) });
+      console.error("[EstrategicosController.update] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  // DELETE /api/estrategicos/:mlb (compat)
+  static async remove(req, res) {
+    try {
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
+      }
+
+      const mlb = (req.params.mlb || "").toString().trim().toUpperCase();
+      if (!mlb) {
+        return res.status(400).json({ ok: false, error: "mlb ausente na URL" });
+      }
+
+      const r = await db.query(
+        `DELETE FROM ${TABLE} WHERE meli_conta_id = $1 AND mlb = $2`,
+        [meli_conta_id, mlb]
+      );
+
+      return res.json({ ok: true, removed: r.rowCount || 0 });
+    } catch (err) {
+      console.error("[EstrategicosController.remove] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  // DELETE /api/estrategicos/id/:id
+  static async removeById(req, res) {
+    try {
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
+      }
+
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ ok: false, error: "ID inválido." });
+      }
+
+      const r = await db.query(
+        `DELETE FROM ${TABLE} WHERE meli_conta_id = $1 AND id = $2`,
+        [meli_conta_id, id]
+      );
+
+      return res.json({ ok: true, removed: r.rowCount || 0 });
+    } catch (err) {
+      console.error("[EstrategicosController.removeById] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
     }
   }
 
   // POST /api/estrategicos/replace
-  // body: { group?, items: [...] }
+  // body: { items:[{ mlb, name?, percent_default? }], remove_missing?: boolean }
   static async replace(req, res) {
-    try {
-      const group = resolveGroup(req, res);
-      const body = req.body || {};
-      const list = Array.isArray(body.items) ? body.items : [];
-
-      const norm = list.map((raw, idx) => normalizeItem(raw, idx));
-
-      await saveItems(group, norm);
-      return res.json({
-        ok: true,
-        group,
-        total: norm.length
+    const meli_conta_id = ensureContaId(res);
+    if (!meli_conta_id) {
+      return res.status(401).json({
+        ok: false,
+        error: "Conta do ML não selecionada (meli_conta_id ausente).",
       });
-    } catch (err) {
-      console.error('[EstrategicosController.replace] Erro:', err);
-      return res.status(500).json({ ok: false, error: err.message || String(err) });
     }
-  }
 
-  // POST /api/estrategicos/upload
-  // multipart/form-data com field "file" (CSV)
-  // body: { group?, remove_missing?: "1" | "0" }
-  static async upload(req, res) {
+    const body = req.body || {};
+    const list = Array.isArray(body.items) ? body.items : [];
+    const removeMissing =
+      String(body.remove_missing || "0") === "1" ||
+      body.remove_missing === true;
+
+    const norm = list
+      .map((raw) => ({
+        mlb: (raw.mlb || "").toString().trim().toUpperCase(),
+        name: (raw.name || "").toString().trim(),
+        percent_default: toNumOrNull(raw.percent_default),
+      }))
+      .filter((x) => x.mlb);
+
     try {
-      const group = resolveGroup(req, res);
-      const file = req.file;
-      const removeMissing = String(req.body?.remove_missing || '0') === '1';
+      await db.query("BEGIN");
 
-      if (!file) {
-        return res.status(400).json({ ok: false, error: 'Arquivo não enviado (field "file")' });
-      }
-
-      const ext = path.extname(file.originalname || '').toLowerCase();
-
-      if (ext !== '.csv') {
-        return res.status(400).json({
-          ok: false,
-          error: 'Atualmente apenas CSV é suportado. Exporte o Excel como .csv.'
-        });
-      }
-
-      const text = file.buffer.toString('utf8');
-      const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-      if (!lines.length) {
-        return res.status(400).json({ ok: false, error: 'Arquivo vazio.' });
-      }
-
-      // Cabeçalho – busca colunas mlb / percent
-      const header = lines[0].split(/[,;|\t]/).map(h => h.trim().toLowerCase());
-      const mlbIdx = header.findIndex(h => h === 'mlb');
-      const pctIdx = header.findIndex(h => h === 'percent' || h === 'percentual' || h === 'desconto');
-
-      if (mlbIdx === -1 || pctIdx === -1) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Cabeçalho inválido. Esperado colunas "mlb" e "percent".'
-        });
-      }
-
-      const parsed = [];
-      for (let i = 1; i < lines.length; i++) {
-        const rowText = lines[i].trim();
-        if (!rowText) continue;
-        const cols = rowText.split(/[,;|\t]/);
-        const mlb = (cols[mlbIdx] || '').toString().trim();
-        const pct = toNumOrNull(cols[pctIdx]);
-        if (!mlb || pct == null) continue;
-        parsed.push({ mlb, percent: pct });
-      }
-
-      if (!parsed.length) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Nenhuma linha válida encontrada (mlb + percent).'
-        });
-      }
-
-      // Mescla com itens existentes
-      const { items: existing } = await loadItems(group);
-      const existingMap = new Map(
-        existing.map(i => [String(i.mlb || '').toUpperCase(), normalizeItem(i)])
-      );
-
-      const seen = new Set();
-      const merged = [];
-
-      for (const row of parsed) {
-        const key = row.mlb.toUpperCase();
-        seen.add(key);
-        const base = existingMap.get(key) || {
-          id: `row-${merged.length + 1}`,
-          mlb: row.mlb,
-          name: '',
-          percent_default: null,
-          percent_cycle: null,
-          percent_applied: null,
-          status: ''
-        };
-
-        merged.push({
-          ...base,
-          mlb: row.mlb,
-          percent_default: row.percent,
-          percent_cycle: row.percent
-        });
-      }
-
-      if (!removeMissing) {
-        // Mantém itens que não estavam no arquivo
-        for (const [key, it] of existingMap.entries()) {
-          if (!seen.has(key)) merged.push(it);
+      if (removeMissing) {
+        if (norm.length) {
+          const mlbs = norm.map((x) => x.mlb);
+          // remove tudo que NÃO está na lista
+          await db.query(
+            `
+            DELETE FROM ${TABLE}
+             WHERE meli_conta_id = $1
+               AND NOT (mlb = ANY($2::text[]))
+            `,
+            [meli_conta_id, mlbs]
+          );
+        } else {
+          await db.query(`DELETE FROM ${TABLE} WHERE meli_conta_id = $1`, [
+            meli_conta_id,
+          ]);
         }
       }
 
-      await saveItems(group, merged, { source: 'upload-csv' });
+      for (const it of norm) {
+        const hasName = it.name !== "";
+        const hasPct = Object.prototype.hasOwnProperty.call(
+          it,
+          "percent_default"
+        );
+
+        await db.query(
+          `
+          INSERT INTO ${TABLE} (meli_conta_id, mlb, name, percent_default, updated_at, created_at)
+          VALUES ($1, $2, $3, $4, NOW(), NOW())
+          ON CONFLICT (meli_conta_id, mlb)
+          DO UPDATE SET
+            name = CASE WHEN $5 THEN EXCLUDED.name ELSE ${TABLE}.name END,
+            percent_default = CASE WHEN $6 THEN EXCLUDED.percent_default ELSE ${TABLE}.percent_default END,
+            updated_at = NOW();
+          `,
+          [
+            meli_conta_id,
+            it.mlb,
+            hasName ? it.name : null,
+            it.percent_default,
+            hasName,
+            hasPct,
+          ]
+        );
+      }
+
+      await db.query("COMMIT");
+
+      const r = await db.query(
+        `SELECT * FROM ${TABLE}
+          WHERE meli_conta_id = $1
+          ORDER BY updated_at DESC NULLS LAST, id DESC`,
+        [meli_conta_id]
+      );
 
       return res.json({
         ok: true,
-        group,
-        total: merged.length,
-        from_file: parsed.length,
-        removed_by_file: removeMissing ? existing.length - merged.length : 0,
-        message: 'Arquivo processado com sucesso.'
+        total: r.rows.length,
+        items: r.rows.map(normalizeRow),
       });
     } catch (err) {
-      console.error('[EstrategicosController.upload] Erro:', err);
-      return res.status(500).json({ ok: false, error: err.message || String(err) });
+      try {
+        await db.query("ROLLBACK");
+      } catch {}
+      console.error("[EstrategicosController.replace] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  // POST /api/estrategicos/:id/sync
+  static async syncOne(req, res) {
+    try {
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
+      }
+
+      const token = getAccessToken(req, res);
+      if (!token) {
+        return res.status(401).json({
+          ok: false,
+          error: "Token ML ausente (authMiddleware não injetou accessToken).",
+        });
+      }
+
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ ok: false, error: "ID inválido." });
+      }
+
+      const r0 = await db.query(
+        `SELECT * FROM ${TABLE} WHERE id = $1 AND meli_conta_id = $2`,
+        [id, meli_conta_id]
+      );
+      if (!r0.rows?.length) {
+        return res.status(404).json({
+          ok: false,
+          error: "Registro não encontrado para esta conta.",
+        });
+      }
+
+      const row = r0.rows[0];
+      const mlb = String(row.mlb || "").toUpperCase();
+
+      const basics = await fetchItemBasics({ token, itemId: mlb });
+      const promo = await fetchItemPromoNow({ token, itemId: mlb });
+
+      const percentApplied100 =
+        promo?.active && promo?.percent != null
+          ? Number(promo.percent) * 100
+          : null;
+
+      const statusUi =
+        promo?.active && percentApplied100 != null
+          ? `Promoção ativa (${percentApplied100.toFixed(2)}%)`
+          : "";
+
+      const r1 = await db.query(
+        `
+        UPDATE ${TABLE}
+           SET
+             name = COALESCE($1, name),
+             listing_status = COALESCE($2, listing_status),
+             percent_applied = $3,
+             status = CASE WHEN NULLIF($4, '') IS NOT NULL THEN $4 ELSE status END,
+             last_synced_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $5 AND meli_conta_id = $6
+         RETURNING *;
+        `,
+        [
+          basics?.title ? String(basics.title) : null,
+          basics?.status ? String(basics.status) : null,
+          percentApplied100,
+          statusUi,
+          id,
+          meli_conta_id,
+        ]
+      );
+
+      return res.json({ ok: true, item: normalizeRow(r1.rows[0]) });
+    } catch (err) {
+      console.error("[EstrategicosController.syncOne] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  // POST /api/estrategicos/:mlb/sync  (compat com front/versões antigas)
+  static async syncByMlb(req, res) {
+    try {
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
+      }
+
+      const token = getAccessToken(req, res);
+      if (!token) {
+        return res.status(401).json({
+          ok: false,
+          error: "Token ML ausente (authMiddleware não injetou accessToken).",
+        });
+      }
+
+      const mlb = (req.params.mlb || "").toString().trim().toUpperCase();
+      if (!mlb) {
+        return res.status(400).json({ ok: false, error: "mlb ausente na URL" });
+      }
+
+      // garante que existe registro pra esta conta
+      const r0 = await db.query(
+        `SELECT * FROM ${TABLE} WHERE meli_conta_id = $1 AND mlb = $2 LIMIT 1`,
+        [meli_conta_id, mlb]
+      );
+
+      let id;
+      if (r0.rows?.length) {
+        id = r0.rows[0].id;
+      } else {
+        const rIns = await db.query(
+          `
+          INSERT INTO ${TABLE} (meli_conta_id, mlb, updated_at, created_at)
+          VALUES ($1, $2, NOW(), NOW())
+          ON CONFLICT (meli_conta_id, mlb)
+          DO UPDATE SET updated_at = NOW()
+          RETURNING *;
+          `,
+          [meli_conta_id, mlb]
+        );
+        id = rIns.rows[0].id;
+      }
+
+      // reaproveita lógica de syncOne (sem duplicar)
+      req.params.id = String(id);
+      return EstrategicosController.syncOne(req, res);
+    } catch (err) {
+      console.error("[EstrategicosController.syncByMlb] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  // POST /api/estrategicos/sync
+  // body opcional: { ids?: number[], limit?: number }
+  static async syncAll(req, res) {
+    try {
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
+      }
+
+      const token = getAccessToken(req, res);
+      if (!token) {
+        return res.status(401).json({
+          ok: false,
+          error: "Token ML ausente (authMiddleware não injetou accessToken).",
+        });
+      }
+
+      const body = req.body || {};
+      const limit = Number(body.limit || 0);
+      const ids = Array.isArray(body.ids)
+        ? body.ids
+            .map((x) => Number(x))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        : null;
+
+      let q = `SELECT * FROM ${TABLE} WHERE meli_conta_id = $1`;
+      const params = [meli_conta_id];
+
+      if (ids && ids.length) {
+        q += ` AND id = ANY($2::bigint[])`;
+        params.push(ids);
+      }
+
+      q += ` ORDER BY updated_at DESC NULLS LAST, id DESC`;
+      if (limit > 0) q += ` LIMIT ${Math.min(limit, 500)}`;
+
+      const r = await db.query(q, params);
+      const rows = r.rows || [];
+
+      const updated = [];
+      let okCount = 0;
+
+      for (const row of rows) {
+        const id = row.id;
+        const mlb = String(row.mlb || "").toUpperCase();
+
+        try {
+          const basics = await fetchItemBasics({ token, itemId: mlb });
+          const promo = await fetchItemPromoNow({ token, itemId: mlb });
+
+          const percentApplied100 =
+            promo?.active && promo?.percent != null
+              ? Number(promo.percent) * 100
+              : null;
+
+          const statusUi =
+            promo?.active && percentApplied100 != null
+              ? `Promoção ativa (${percentApplied100.toFixed(2)}%)`
+              : "";
+
+          const r1 = await db.query(
+            `
+            UPDATE ${TABLE}
+               SET
+                 name = COALESCE($1, name),
+                 listing_status = COALESCE($2, listing_status),
+                 percent_applied = $3,
+                 status = CASE WHEN NULLIF($4, '') IS NOT NULL THEN $4 ELSE status END,
+                 last_synced_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $5 AND meli_conta_id = $6
+             RETURNING *;
+            `,
+            [
+              basics?.title ? String(basics.title) : null,
+              basics?.status ? String(basics.status) : null,
+              percentApplied100,
+              statusUi,
+              id,
+              meli_conta_id,
+            ]
+          );
+
+          updated.push(normalizeRow(r1.rows[0]));
+          okCount++;
+        } catch (e) {
+          updated.push({
+            ...normalizeRow(row),
+            status: `Erro ao sincronizar: ${e.message || String(e)}`,
+          });
+        }
+      }
+
+      return res.json({
+        ok: true,
+        total: rows.length,
+        synced_ok: okCount,
+        items: updated,
+      });
+    } catch (err) {
+      console.error("[EstrategicosController.syncAll] Erro:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
     }
   }
 
   // POST /api/estrategicos/apply
-  // body: { group?, promotion_type, items: [{ mlb, percent }] }
+  // body: { promotion_type, items: [{ mlb, percent }] }
   static async apply(req, res) {
     try {
-      const group = resolveGroup(req, res);
-      const { promotion_type, items } = req.body || {};
-
-      if (!Array.isArray(items) || !items.length) {
-        return res.status(400).json({ ok: false, error: 'Informe "items": [{ mlb, percent }]' });
+      const meli_conta_id = ensureContaId(res);
+      if (!meli_conta_id) {
+        return res.status(401).json({
+          ok: false,
+          error: "Conta do ML não selecionada (meli_conta_id ausente).",
+        });
       }
 
-      const t = String(promotion_type || 'DEAL').toUpperCase();
+      const { promotion_type, items } = req.body || {};
+      if (!Array.isArray(items) || !items.length) {
+        return res
+          .status(400)
+          .json({ ok: false, error: 'Informe "items": [{ mlb, percent }]' });
+      }
+
+      const t = String(promotion_type || "DEAL").toUpperCase();
 
       const list = items
-        .map(r => ({
-          mlb: (r.mlb || '').toString().trim(),
-          percent: toNumOrNull(r.percent)
+        .map((r) => ({
+          mlb: (r.mlb || "").toString().trim().toUpperCase(),
+          percent: toNumOrNull(r.percent),
         }))
-        .filter(r => r.mlb && r.percent != null && r.percent > 0);
+        .filter((r) => r.mlb && r.percent != null && r.percent > 0);
 
       if (!list.length) {
-        return res.status(400).json({ ok: false, error: 'Nenhum item válido (mlb + percent > 0).' });
+        return res.status(400).json({
+          ok: false,
+          error: "Nenhum item válido (mlb + percent > 0).",
+        });
       }
 
       const options = {
         mlCreds: res.locals?.mlCreds || {},
         accountKey: res.locals?.accountKey,
-        logger: console
+        promotionType: t,
+        promotion_type: t,
+        logger: console,
       };
-
-      const { items: existing } = await loadItems(group);
-      const indexByMlb = new Map(
-        existing.map((i, idx) => [String(i.mlb || '').toUpperCase(), { item: i, idx }])
-      );
 
       const results = [];
       let okCount = 0;
@@ -788,66 +852,72 @@ class EstrategicosController {
             it.percent,
             options
           );
-
           const success = !!out?.success;
           if (success) okCount++;
 
-          const key = it.mlb.toUpperCase();
-          const found = indexByMlb.get(key);
-          if (found) {
-            existing[found.idx] = {
-              ...existing[found.idx],
-              percent_cycle: it.percent,
-              percent_applied: it.percent,
-              status: success ? 'Promoção aplicada' : 'Falha na aplicação'
-            };
-          } else {
-            existing.push(
-              normalizeItem(
-                {
-                  mlb: it.mlb,
-                  name: '',
-                  percent_default: it.percent,
-                  percent_cycle: it.percent,
-                  percent_applied: success ? it.percent : null,
-                  status: success ? 'Promoção aplicada' : 'Falha na aplicação'
-                },
-                existing.length
-              )
-            );
-          }
+          // Atualiza no DB (upsert por (meli_conta_id, mlb))
+          // - percent_cycle sempre atualiza (tentativa atual)
+          // - percent_applied só atualiza se success
+          // - percent_default: se já existe, mantém; se não existe, define (evita sobrescrever default do usuário)
+          await db.query(
+            `
+            INSERT INTO ${TABLE}
+              (meli_conta_id, mlb, percent_default, percent_cycle, percent_applied, status, updated_at, created_at)
+            VALUES
+              ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+            ON CONFLICT (meli_conta_id, mlb)
+            DO UPDATE SET
+              percent_default = COALESCE(${TABLE}.percent_default, EXCLUDED.percent_default),
+              percent_cycle   = EXCLUDED.percent_cycle,
+              percent_applied = CASE WHEN $7 THEN EXCLUDED.percent_applied ELSE ${TABLE}.percent_applied END,
+              status          = EXCLUDED.status,
+              updated_at      = NOW();
+            `,
+            [
+              meli_conta_id,
+              it.mlb,
+              it.percent, // default (só entra se ainda não existir)
+              it.percent, // cycle
+              it.percent, // applied (quando success)
+              success ? "Promoção aplicada" : "Falha na aplicação",
+              success,
+            ]
+          );
 
           results.push({
             mlb: it.mlb,
             percent: it.percent,
             success,
-            response: out
+            response: out,
           });
         } catch (errApply) {
-          console.error('[EstrategicosController.apply] Erro em', it.mlb, errApply);
+          console.error(
+            "[EstrategicosController.apply] Erro em",
+            it.mlb,
+            errApply
+          );
           results.push({
             mlb: it.mlb,
             percent: it.percent,
             success: false,
-            error: errApply.message || String(errApply)
+            error: errApply.message || String(errApply),
           });
         }
       }
 
-      await saveItems(group, existing, { last_apply_type: t });
-
       return res.json({
         ok: true,
-        group,
         promotion_type: t,
         total: list.length,
         applied_ok: okCount,
         results,
-        message: `Aplicação de promoção finalizada. Sucesso em ${okCount}/${list.length}.`
+        message: `Aplicação de promoção finalizada. Sucesso em ${okCount}/${list.length}.`,
       });
     } catch (err) {
-      console.error('[EstrategicosController.apply] Erro geral:', err);
-      return res.status(500).json({ ok: false, error: err.message || String(err) });
+      console.error("[EstrategicosController.apply] Erro geral:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: err.message || String(err) });
     }
   }
 }
