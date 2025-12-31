@@ -312,11 +312,11 @@ thead th.percent, tbody td.percent { text-align: right; white-space: nowrap; }
   background: var(--card-bg, #fff);    /* mantém a cor do card visível no scroll */
 }
 
-/* Garantir largura mínima para não amassar colunas */
 .table-scroll table {
-  min-width: 1200px;                   /* ajuste conforme suas colunas */
-  table-layout: fixed;                 /* colunas previsíveis */
+  min-width: 1200px;
+  table-layout: auto;
 }
+
 
 /* Células sem quebra por padrão (evita estourar altura) */
 #grid th, #grid td {
@@ -490,3 +490,38 @@ thead th.percent, tbody td.percent { text-align: right; white-space: nowrap; }
 
 /* estado de erro opcional (bolinha vermelha) */
 #reportFab .rf-check.err{ background:#e11d48; }
+/* Cabeçalho da tabela (Itens + busca) */
+.table-head{
+  display:flex;
+  gap:12px;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom: 10px;
+}
+
+.table-head .input{
+  max-width: 320px;
+}
+
+/* Wrapper que segura a rolagem horizontal da TABELA */
+.table-scroll{
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+}
+
+/* Importante: a tabela pode ser maior que o card, mas agora ela rola dentro */
+.table-scroll #grid{
+  margin-top: 0;          /* você tinha table { margin-top:12px } */
+  min-width: 1200px;      /* ajuste se quiser: 1400px/1600px dependendo das colunas */
+  width: 100%;
+}
+
+/* Evita “vazar” por algum cálculo de largura */
+.table-scroll { contain: layout paint; }
+
+/* Pager sem inline style */
+#pager{ margin-top: 8px; }

@@ -185,38 +185,21 @@
     </section>
 
     <!-- Tabela -->
-    <section class="card" style="cursor:default">
-      <div class="table-scroll" style="display:flex;gap:12px;align-items:center;justify-content:space-between">
-        <strong>Itens</strong>
-        <input id="fSearch" placeholder="Buscar por MLB, SKU ou título" class="input" style="max-width:320px">
-      </div>
-      <table id="grid">
+   <section class="card" style="cursor:default">
+  <div class="table-head">
+    <strong>Itens</strong>
+    <input id="fSearch" placeholder="Buscar por MLB, SKU ou título" class="input">
+  </div>
 
+  <div class="table-scroll">
+    <table id="grid">
+      ...
+    </table>
+  </div>
 
-  <thead>
-    <tr>
-      <th>Índice</th>
-      <th>MLB</th>
-      <th>Título</th>
-      <th>Unidades</th>
-      <th class="percent">Unid. (%)</th>
-      <th class="num">Valor</th>
-      <th class="percent">FATURAMENTO %</th>
-      <th class="promo">PROMO</th>
-      <th class="percent">% APLICADA</th>
-      <th>ADS</th>
-      <th class="num">Cliques</th>
-      <th class="num">Impr.</th>
-      <th class="num">Invest.</th>
-      <th class="percent">ACOS</th>
-      <th class="num">Receita Ads</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+  <div id="pager" class="pager-wrap muted"></div>
+</section>
 
-      <div id="pager" style="margin-top:8px" class="pager-wrap muted"></div>
-    </section>
   </div>
 <!-- Painel lateral de progresso -->
 <div id="abcProgress" class="abc-progress hidden" aria-live="polite">
