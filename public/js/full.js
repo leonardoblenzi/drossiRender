@@ -1,378 +1,473 @@
-// public/js/full.js
+// /public/js/full.js
 (() => {
-  console.log('🚚 Full • Produtos');
+  const qs = (s, el = document) => el.querySelector(s);
+  const qsa = (s, el = document) => Array.from(el.querySelectorAll(s));
 
-  /* ========= Helpers ========= */
-  const qs = (s, el=document) => el.querySelector(s);
-  const qsa = (s, el=document) => Array.from(el.querySelectorAll(s));
-  const $ = (id) => document.getElementById(id);
-  const toAbs = (p) => (/^https?:\/\//i.test(p) ? p : (p.startsWith('/') ? p : `/${p}`));
-  const safeOn = (el, type, fn) => { if (el) el.addEventListener(type, fn); };
+  const loadingOverlay = qs("#loadingOverlay");
+  const tbody = qs("#productsTableBody");
+  const pagination = qs("#pagination");
 
-  const state = {
+  const searchInput = qs("#searchInput");
+  const pageSizeSelect = qs("#pageSizeSelect");
+  const statusFilter = qs("#statusFilter");
+
+  const chipTotal = qs("#chipTotal");
+  const chipSelected = qs("#chipSelected");
+  const itemsInfo = qs("#itemsInfo");
+
+  const selectAllCheckbox = qs("#selectAllCheckbox");
+  const selectPageBtn = qs("#selectPageBtn");
+  const clearSelectionBtn = qs("#clearSelectionBtn");
+  const syncSelectedBtn = qs("#syncSelectedBtn");
+  const removeSelectedBtn = qs("#removeSelectedBtn");
+
+  const addProductBtn = qs("#addProductBtn");
+  const reloadBtn = qs("#reloadBtn");
+  const exportBtn = qs("#exportBtn");
+
+  const currentAccountEls = [
+    qs("#currentAccount"),
+    qs("#account-current"),
+  ].filter(Boolean);
+
+  // Modals
+  const addProductModalEl = qs("#addProductModal");
+  const addProductModal = addProductModalEl
+    ? new bootstrap.Modal(addProductModalEl)
+    : null;
+  const addProductForm = qs("#addProductForm");
+  const mlbInput = qs("#mlbInput");
+  const addProductError = qs("#addProductError");
+  const addProductSuccess = qs("#addProductSuccess");
+  const addProductSubmitBtn = qs("#addProductSubmitBtn");
+
+  const confirmRemoveModalEl = qs("#confirmRemoveModal");
+  const confirmRemoveModal = confirmRemoveModalEl
+    ? new bootstrap.Modal(confirmRemoveModalEl)
+    : null;
+  const removeCountEl = qs("#removeCount");
+  const removeProductError = qs("#removeProductError");
+  const confirmRemoveBtn = qs("#confirmRemoveBtn");
+
+  // State
+  let state = {
     page: 1,
-    pageSize: Number(localStorage.getItem('full.pageSize') || 25),
-    q: localStorage.getItem('full.q') || '',
-    status: localStorage.getItem('full.status') || 'all',
-    loading: false,
-    total: 0,
-    rows: []
+    pageSize: Number(pageSizeSelect?.value || 25),
+    q: "",
+    status: "all",
+    paging: { page: 1, pages: 1, total: 0, pageSize: 25 },
+    rows: [],
+    selected: new Set(), // mlbs
   };
 
-  /* ========= UI refs ========= */
-  const $tbody = $('tbody');
-  const $error = $('errorBox');
-  const $countTotal = $('countTotal');
-  const $pageInfo = $('pageInfo');
-  const $q = $('q');
-  const $pageSize = $('pageSize');
-  const $prev = $('prev');
-  const $next = $('next');
-  const $btnReload = $('btnReload');
-  const $btnCSV = $('btnCSV');
-
-  /* ========= API =========
-     GET /api/full/products?page=&page_size=&q=&status=
-     -> { items, total, page, page_size }
-  */
-  async function jget(url) {
-    const r = await fetch(toAbs(url), { credentials: 'same-origin', cache: 'no-store' });
-    if (!r.ok) {
-      const t = await r.text().catch(()=> '');
-      throw new Error(`HTTP ${r.status} ${url} ${t}`.trim());
-    }
-    return r.json();
+  function setLoading(on) {
+    if (!loadingOverlay) return;
+    loadingOverlay.style.display = on ? "flex" : "none";
   }
 
-  function money(cents) {
-    const n = Number(cents || 0) / 100;
-    return n.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+  function fmtMoney(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
-  function badgeStatus(s) {
-    const map = {
-      active:     { cls:'ok',    txt:'Ativo no Full' },
-      intransfer: { cls:'warn',  txt:'Em transferência' },
-      ineligible: { cls:'muted', txt:'Inelegível' },
-      no_stock:   { cls:'muted', txt:'Sem estoque no CD' },
-    };
-    const hit = map[s] || { cls:'muted', txt: String(s || '—') };
-    return `<span class="badge ${hit.cls}">${hit.txt}</span>`;
+  function badgeForStatus(s) {
+    const st = String(s || "").toLowerCase();
+    if (st === "active") return ["Ativo", "badge-ok"];
+    if (st === "no_stock") return ["Sem estoque", "badge-warn"];
+    if (st === "intransfer") return ["Transferência", "badge-warn"];
+    if (st === "ineligible") return ["Inelegível", "badge-muted"];
+    return [s || "-", "badge-muted"];
   }
 
-  function copy(text) {
-    navigator.clipboard?.writeText(text).catch(()=>{});
-  }
-
-  /* ========= Render ========= */
-  function skeletonRows(n=8) {
-    if (!$tbody) return;
-    $tbody.innerHTML = '';
-    for (let i=0; i<n; i++) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 8;
-      td.innerHTML = `<div class="row-skel"></div>`;
-      tr.appendChild(td);
-      $tbody.appendChild(tr);
-    }
-  }
-
-  function render() {
-    if ($error) $error.style.display = 'none';
-    if ($countTotal) $countTotal.textContent = `${state.total.toLocaleString('pt-BR')} itens`;
-    if ($pageInfo) $pageInfo.textContent = `Página ${state.page}`;
-    if ($pageSize) $pageSize.value = String(state.pageSize);
-    if ($q) $q.value = state.q;
-
-    // chips
-    qsa('.chip').forEach(ch => {
-      ch.classList.toggle('active', ch.dataset.status === state.status);
+  async function getJSON(url, opts = {}) {
+    const r = await fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      ...opts,
     });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok)
+      throw new Error(data?.message || data?.error || `Erro HTTP ${r.status}`);
+    return data;
+  }
 
-    if (state.loading) {
-      skeletonRows();
-      return;
+  async function loadWhoAmI() {
+    try {
+      const data = await getJSON("/api/account/whoami");
+      const label =
+        data?.accountLabel || data?.accountKey || "Conta selecionada";
+      currentAccountEls.forEach((el) => (el.textContent = label));
+    } catch {
+      currentAccountEls.forEach((el) => (el.textContent = "Nenhuma"));
     }
+  }
 
-    if (!$tbody) return;
+  function updateChips() {
+    chipTotal.textContent = `${state.paging.total || 0} itens`;
+    chipSelected.textContent = `${state.selected.size} selecionados`;
+  }
+
+  function buildQuery() {
+    const params = new URLSearchParams();
+    params.set("page", String(state.page));
+    params.set("pageSize", String(state.pageSize));
+    if (state.q) params.set("q", state.q);
+    if (state.status) params.set("status", state.status);
+    return `/api/full/anuncios?${params.toString()}`;
+  }
+
+  async function fetchList() {
+    setLoading(true);
+    try {
+      const data = await getJSON(buildQuery());
+      state.rows = data.results || [];
+      state.paging = data.paging || state.paging;
+      itemsInfo.textContent = `${state.paging.total || 0} itens`;
+      renderTable();
+      renderPagination();
+      updateChips();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderTable() {
+    if (!tbody) return;
 
     if (!state.rows.length) {
-      $tbody.innerHTML = `<tr><td colspan="8"><div class="empty">Nenhum item encontrado.</div></td></tr>`;
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="9" class="text-center py-5 text-muted">
+            <div class="mb-2"><i class="bi bi-inbox" style="font-size:32px;"></i></div>
+            Nenhum produto encontrado
+          </td>
+        </tr>
+      `;
+      selectAllCheckbox.checked = false;
       return;
     }
 
-    const rows = state.rows.map(row => {
-      const mlbHTML = `<a href="https://www.mercadolivre.com.br/anuncios/${row.mlb}" target="_blank" rel="noopener" title="Abrir no ML" class="mono">${row.mlb}</a>`;
-      const promoTxt = row.promo_active ? 'Sim' : 'Não';
-      const pctTxt = (row.promo_active && typeof row.promo_percent === 'number') ? `${row.promo_percent.toFixed(2)}%` : '—';
+    tbody.innerHTML = state.rows
+      .map((row) => {
+        const mlb = row.mlb;
+        const checked = state.selected.has(mlb) ? "checked" : "";
+        const [label, cls] = badgeForStatus(row.status);
 
-      return `
-        <tr>
-          <td class="mono" title="Clique para copiar MLB" style="cursor:pointer" data-copy="${row.mlb}">${mlbHTML}</td>
-          <td>${row.title || '—'}</td>
-          <td>${Number(row.stock_full||0).toLocaleString('pt-BR')}</td>
-          <td>${money(row.price_cents)}</td>
-          <td>${promoTxt}</td>
-          <td>${pctTxt}</td>
-          <td>${badgeStatus(row.status)}</td>
-          <td>
-            <button class="btn btn-mini" data-details="${row.mlb}">Detalhes</button>
-            <button class="btn btn-mini" data-open="${row.mlb}">ML</button>
+        const img = row.image_url
+          ? `<img class="product-img" src="${row.image_url}" alt="" loading="lazy">`
+          : `<div class="product-img d-flex align-items-center justify-content-center"><i class="bi bi-image text-muted"></i></div>`;
+
+        return `
+        <tr data-mlb="${mlb}">
+          <td class="col-check">
+            <input type="checkbox" class="form-check-input row-check" data-mlb="${mlb}" ${checked}>
           </td>
-        </tr>`;
-    }).join('');
+          <td class="col-img">${img}</td>
+          <td class="col-mlb">
+            <div class="fw-bold">${mlb}</div>
+            <div class="small text-muted text-truncate" style="max-width:360px;">${
+              row.title || "-"
+            }</div>
+          </td>
+          <td class="col-sku">${row.sku || "-"}</td>
+          <td class="col-qty"><span class="fw-bold">${
+            row.stock_full ?? 0
+          }</span></td>
+          <td class="col-sold">${row.sold_total ?? 0}</td>
+          <td class="col-price">${fmtMoney(row.price)}</td>
+          <td class="col-status">
+            <span class="badge-soft ${cls}">${label}</span>
+          </td>
+          <td class="col-actions">
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-primary btn-sm btn-pill btn-sync-one" data-mlb="${mlb}">
+                <i class="bi bi-arrow-repeat"></i>
+              </button>
+              <button class="btn btn-outline-danger btn-sm btn-pill btn-del-one" data-mlb="${mlb}">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      })
+      .join("");
 
-    $tbody.innerHTML = rows;
+    // header checkbox (selecionar todos da página)
+    const allOnPage = state.rows.every((r) => state.selected.has(r.mlb));
+    selectAllCheckbox.checked = allOnPage;
 
-    // bind ações por linha
-    qsa('[data-copy]').forEach(el => {
-      el.addEventListener('click', () => copy(el.dataset.copy));
-    });
-    qsa('[data-open]').forEach(el => {
-      el.addEventListener('click', () => {
-        const mlb = el.dataset.open;
-        window.open(`https://www.mercadolivre.com.br/anuncios/${mlb}`, '_blank', 'noopener');
+    // binds
+    qsa(".row-check", tbody).forEach((el) => {
+      el.addEventListener("change", () => {
+        const mlb = el.getAttribute("data-mlb");
+        if (el.checked) state.selected.add(mlb);
+        else state.selected.delete(mlb);
+        updateChips();
+        selectAllCheckbox.checked = state.rows.every((r) =>
+          state.selected.has(r.mlb)
+        );
       });
     });
-    qsa('[data-details]').forEach(el => {
-      el.addEventListener('click', () => openDetails(el.dataset.details));
+
+    qsa(".btn-sync-one", tbody).forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const mlb = btn.getAttribute("data-mlb");
+        await syncMlbs([mlb]);
+      });
+    });
+
+    qsa(".btn-del-one", tbody).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mlb = btn.getAttribute("data-mlb");
+        openRemoveModal([mlb]);
+      });
     });
   }
 
-  /* ========= Data ========= */
-  async function load() {
+  function renderPagination() {
+    if (!pagination) return;
+    const { page, pages } = state.paging;
+
+    const mk = (p, label, active = false, disabled = false) => `
+      <li class="page-item ${active ? "active" : ""} ${
+      disabled ? "disabled" : ""
+    }">
+        <a class="page-link" href="#" data-page="${p}">${label}</a>
+      </li>
+    `;
+
+    let html = "";
+    html += mk(page - 1, "‹", false, page <= 1);
+
+    const start = Math.max(1, page - 2);
+    const end = Math.min(pages, page + 2);
+
+    for (let p = start; p <= end; p++) {
+      html += mk(p, String(p), p === page, false);
+    }
+
+    html += mk(page + 1, "›", false, page >= pages);
+
+    pagination.innerHTML = html;
+
+    qsa("a.page-link", pagination).forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const p = Number(a.getAttribute("data-page"));
+        if (!Number.isFinite(p)) return;
+        if (p < 1 || p > state.paging.pages) return;
+        state.page = p;
+        fetchList();
+      });
+    });
+  }
+
+  function currentPageMlbs() {
+    return state.rows.map((r) => r.mlb);
+  }
+
+  function clearSelection() {
+    state.selected.clear();
+    updateChips();
+    renderTable();
+  }
+
+  function selectAllOnPage() {
+    currentPageMlbs().forEach((mlb) => state.selected.add(mlb));
+    updateChips();
+    renderTable();
+  }
+
+  async function syncMlbs(mlbs) {
+    setLoading(true);
     try {
-      state.loading = true;
-      render();
-
-      const url = `/api/full/products?page=${state.page}&page_size=${state.pageSize}&q=${encodeURIComponent(state.q||'')}&status=${encodeURIComponent(state.status)}`;
-      const data = await jget(url);
-
-      state.rows = Array.isArray(data.items) ? data.items : [];
-      state.total = Number(data.total || 0);
-      state.page = Number(data.page || state.page);
-      state.pageSize = Number(data.page_size || state.pageSize);
-
-      state.loading = false;
-      render();
-
-      // desabilita paginação quando cabível
-      const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize));
-      if ($prev) $prev.disabled = state.page <= 1;
-      if ($next) $next.disabled = state.page >= maxPage;
+      await getJSON("/api/full/anuncios/sync", {
+        method: "POST",
+        body: JSON.stringify({ mlbs }),
+      });
+      await fetchList();
     } catch (e) {
-      state.loading = false;
-      if ($error) {
-        $error.textContent = e.message || String(e);
-        $error.style.display = '';
-      } else {
-        console.error('Erro Full • Produtos:', e);
-      }
-      state.rows = [];
-      render();
-    }
-  }
-
-  /* ========= CSV ========= */
-  function exportCSV() {
-    const headers = ['MLB','Título','Estoque Full','Preço','Promo','% Aplicada','Status'];
-    const lines = [headers.join(';')];
-
-    state.rows.forEach(r => {
-      const promoTxt = r.promo_active ? 'Sim' : 'Não';
-      const pctTxt = (r.promo_active && typeof r.promo_percent === 'number') ? r.promo_percent.toFixed(2) : '';
-      const row = [
-        r.mlb || '',
-        (r.title || '').replace(/[\r\n;]+/g,' ').trim(),
-        String(r.stock_full ?? ''),
-        (Number(r.price_cents||0)/100).toFixed(2).replace('.',','), // BR
-        promoTxt,
-        pctTxt,
-        r.status || ''
-      ].map(v => `"${String(v).replace(/"/g,'""')}"`);
-      lines.push(row.join(';'));
-    });
-
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-    a.href = URL.createObjectURL(blob);
-    a.download = `full_produtos_${ts}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  /* ========= Modal Detalhes ========= */
-  const $modal = $('modalFullDetails');
-  const $fdClose = $('fd-close');
-
-  function openModal() { if ($modal) $modal.style.display = 'block'; }
-  function closeModal() { if ($modal) $modal.style.display = 'none'; }
-
-  $fdClose?.addEventListener('click', closeModal);
-  window.addEventListener('click', (e) => { if (e.target === $modal) closeModal(); });
-
-  function fmtMoney(n) { return Number(n||0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' }); }
-  function fmtDateISO(d) { try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return '—'; } }
-  function round2(n) { const x = Number(n); return (isFinite(x) ? x.toFixed(2) : '—'); }
-
-  async function fetchDetails(mlb) {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 10000);
-    try {
-      const r = await fetch(`/api/full/product/${encodeURIComponent(mlb)}`, { cache:'no-store', signal: ctl.signal });
-      if (!r.ok) {
-        const txt = await r.text().catch(()=> '');
-        throw new Error(`HTTP ${r.status} ${txt}`.trim());
-      }
-      return await r.json();
+      alert(`Falha ao atualizar: ${e.message}`);
     } finally {
-      clearTimeout(t);
+      setLoading(false);
     }
   }
 
-  function computeVelocity(sold40) {
-    const total = Number(sold40 || 0);
-    return total / 40; // un/dia
-  }
-  function computeDoc(stock, vel) {
-    const v = Number(vel || 0);
-    if (v <= 0) return null;
-    return Number(stock || 0) / v; // dias
-  }
-  function computeOOS(docDays) {
-    if (!isFinite(docDays) || docDays == null) return null;
-    const dt = new Date();
-    dt.setDate(dt.getDate() + Math.floor(docDays));
-    return dt;
+  function openRemoveModal(mlbs) {
+    removeProductError.classList.add("d-none");
+    removeProductError.textContent = "";
+    removeCountEl.textContent = String(mlbs.length);
+    confirmRemoveBtn.onclick = async () => {
+      setLoading(true);
+      try {
+        await getJSON("/api/full/anuncios/bulk-delete", {
+          method: "POST",
+          body: JSON.stringify({ mlbs }),
+        });
+
+        // remove da seleção
+        mlbs.forEach((m) => state.selected.delete(m));
+        confirmRemoveModal.hide();
+        await fetchList();
+      } catch (e) {
+        removeProductError.textContent = e.message;
+        removeProductError.classList.remove("d-none");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    confirmRemoveModal.show();
   }
 
-  function setText(id, txt) { const el = $(id); if (el) el.textContent = txt; }
-  function setLink(id, href) { const el = $(id); if (el) el.href = href; }
-  function setImg(id, src) { const el = $(id); if (el) el.src = src || ''; }
+  function exportCSV() {
+    // exporta a página atual (simples e rápido)
+    const headers = [
+      "MLB",
+      "SKU",
+      "Título",
+      "Inventory ID",
+      "Preço",
+      "Qtd Full",
+      "Vendas",
+      "Status",
+    ];
+    const rows = state.rows.map((r) => [
+      r.mlb,
+      r.sku || "",
+      (r.title || "").replaceAll('"', '""'),
+      r.inventory_id || "",
+      r.price ?? "",
+      r.stock_full ?? 0,
+      r.sold_total ?? 0,
+      r.status || "",
+    ]);
 
-  async function openDetails(mlb) {
-    if (!$modal) {
-      window.open(`https://www.mercadolivre.com.br/anuncios/${mlb}`, '_blank', 'noopener');
+    const csv = [
+      headers.join(";"),
+      ...rows.map((arr) => arr.map((x) => `"${String(x ?? "")}"`).join(";")),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `full_produtos_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // Events
+  let searchTimer = null;
+  searchInput?.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.q = String(searchInput.value || "").trim();
+      state.page = 1;
+      fetchList();
+    }, 250);
+  });
+
+  pageSizeSelect?.addEventListener("change", () => {
+    state.pageSize = Number(pageSizeSelect.value || 25);
+    state.page = 1;
+    fetchList();
+  });
+
+  statusFilter?.addEventListener("change", () => {
+    state.status = String(statusFilter.value || "all");
+    state.page = 1;
+    fetchList();
+  });
+
+  reloadBtn?.addEventListener("click", async () => {
+    // “premium” = recarregar sincroniza a página atual (para não explodir rate limit)
+    const mlbs = currentPageMlbs();
+    if (!mlbs.length) return fetchList();
+    await syncMlbs(mlbs);
+  });
+
+  exportBtn?.addEventListener("click", exportCSV);
+
+  addProductBtn?.addEventListener("click", () => {
+    addProductError.classList.add("d-none");
+    addProductSuccess.classList.add("d-none");
+    addProductForm.reset();
+    addProductModal.show();
+  });
+
+  addProductForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    addProductError.classList.add("d-none");
+    addProductSuccess.classList.add("d-none");
+
+    const mlb = String(mlbInput.value || "")
+      .trim()
+      .toUpperCase();
+    if (!mlb.startsWith("MLB")) {
+      addProductError.textContent = "MLB inválido.";
+      addProductError.classList.remove("d-none");
       return;
     }
 
-    // limpa UI
-    setText('fd-title', 'Carregando...');
-    setText('fd-mlb', mlb);
-    setText('fd-price', '—');
-    setText('fd-promo', '—');
-    setText('fd-stock', '—');
-    setText('fd-sold40', '—');
-    setText('fd-vel', '—');
-    setText('fd-doc', '—');
-    setText('fd-oos', '—');
-    setImg('fd-image', '');
-    setLink('fd-open-ml', `https://www.mercadolivre.com.br/anuncios/${mlb}`);
-    const $skus = $('fd-skus');
-    if ($skus) $skus.innerHTML = `<tr><td colspan="7"><div class="row-skel"></div></td></tr>`;
-    const $err = $('fd-error');
-    if ($err) { $err.style.display = 'none'; $err.textContent = ''; }
-
-    openModal();
-
+    addProductSubmitBtn.disabled = true;
     try {
-      const data = await fetchDetails(mlb);
+      await getJSON("/api/full/anuncios", {
+        method: "POST",
+        body: JSON.stringify({ mlb }),
+      });
 
-      // header
-      setText('fd-title', data.title || '—');
-      setImg('fd-image', data.image || '');
-      setText('fd-mlb', data.mlb || mlb);
-      setText('fd-price', fmtMoney((data.price_cents || 0) / 100));
-      const promoTxt = data.promo_active ? (typeof data.promo_percent==='number' ? `Sim (${data.promo_percent.toFixed(2)}%)` : 'Sim') : 'Não';
-      setText('fd-promo', promoTxt);
-      setText('fd-stock', Number(data.stock_full_total||0).toLocaleString('pt-BR'));
+      addProductSuccess.textContent =
+        "Produto adicionado/sincronizado com sucesso.";
+      addProductSuccess.classList.remove("d-none");
 
-      // métricas gerais
-      const sold40 = Number(data.sales_40d?.total || 0);
-      const vel = computeVelocity(sold40);
-      const doc = computeDoc(data.stock_full_total, vel);
-      const oos = computeOOS(doc);
-
-      setText('fd-sold40', sold40.toLocaleString('pt-BR'));
-      setText('fd-vel', round2(vel));
-      setText('fd-doc', doc == null ? '—' : round2(doc));
-      setText('fd-oos', oos ? fmtDateISO(oos) : '—');
-
-      // tabela de SKUs
-      const rows = (data.skus || []).map(s => {
-        const velSKU = computeVelocity(s.sold_40d || 0);
-        const docSKU = computeDoc(s.stock_full, velSKU);
-        const oosSKU = computeOOS(docSKU);
-        return `
-          <tr>
-            <td class="mono">${s.sku || '—'}</td>
-            <td>${s.variation || '—'}</td>
-            <td>${Number(s.stock_full||0).toLocaleString('pt-BR')}</td>
-            <td>${Number(s.sold_40d||0).toLocaleString('pt-BR')}</td>
-            <td>${round2(velSKU)}</td>
-            <td>${docSKU == null ? '—' : round2(docSKU)}</td>
-            <td>${oosSKU ? fmtDateISO(oosSKU) : '—'}</td>
-          </tr>`;
-      }).join('');
-      if ($skus) $skus.innerHTML = rows || `<tr><td colspan="7"><div class="empty">Sem variações/SKUs.</div></td></tr>`;
-    } catch (e) {
-      const $err = $('fd-error');
-      if ($err) { $err.textContent = e.message || String(e); $err.style.display = ''; }
-    }
-  }
-
-  // expõe para inspeção se precisar (não obrigatório)
-  window.openDetails = openDetails;
-
-  /* ========= Events ========= */
-  function debounce(fn, ms=350) {
-    let t; return (...args) => { clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
-  }
-
-  if ($q) safeOn($q, 'input', debounce(() => {
-    state.q = $q.value.trim();
-    localStorage.setItem('full.q', state.q);
-    state.page = 1;
-    load();
-  }, 350));
-
-  if ($pageSize) safeOn($pageSize, 'change', () => {
-    state.pageSize = Number($pageSize.value);
-    localStorage.setItem('full.pageSize', String(state.pageSize));
-    state.page = 1;
-    load();
-  });
-
-  qsa('.chip').forEach(ch => {
-    ch.addEventListener('click', () => {
-      state.status = ch.dataset.status;
-      localStorage.setItem('full.status', state.status);
+      // refresh
       state.page = 1;
-      load();
-    });
-  });
-
-  safeOn($prev, 'click', () => {
-    if (state.page > 1) {
-      state.page -= 1;
-      load();
-    }
-  });
-  safeOn($next, 'click', () => {
-    const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize));
-    if (state.page < maxPage) {
-      state.page += 1;
-      load();
+      await fetchList();
+      setTimeout(() => addProductModal.hide(), 500);
+    } catch (err) {
+      addProductError.textContent = err.message;
+      addProductError.classList.remove("d-none");
+    } finally {
+      addProductSubmitBtn.disabled = false;
     }
   });
 
-  safeOn($btnReload, 'click', () => load());
-  safeOn($btnCSV, 'click', () => exportCSV());
+  selectAllCheckbox?.addEventListener("change", () => {
+    if (selectAllCheckbox.checked) selectAllOnPage();
+    else {
+      // remove só os da página
+      currentPageMlbs().forEach((mlb) => state.selected.delete(mlb));
+      updateChips();
+      renderTable();
+    }
+  });
 
-  // init
-  if ($pageSize) $pageSize.value = String(state.pageSize);
-  qsa('.chip').forEach(ch => ch.classList.toggle('active', ch.dataset.status === state.status));
-  load();
+  selectPageBtn?.addEventListener("click", selectAllOnPage);
+  clearSelectionBtn?.addEventListener("click", clearSelection);
+
+  syncSelectedBtn?.addEventListener("click", async () => {
+    if (!state.selected.size) return;
+    await syncMlbs(Array.from(state.selected));
+  });
+
+  removeSelectedBtn?.addEventListener("click", () => {
+    if (!state.selected.size) return;
+    openRemoveModal(Array.from(state.selected));
+  });
+
+  // Init
+  (async () => {
+    await loadWhoAmI();
+    await fetchList();
+  })();
 })();

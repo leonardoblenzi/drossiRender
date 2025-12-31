@@ -1,101 +1,24 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Full - Produtos Fulfillment</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-      <link rel="stylesheet" href="/css/dashboard.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FULL • Produtos Fulfillment</title>
 
-    <style>
-        .header-actions {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        .product-image {
-            width: 50px;
-            height: 50px;
-            object-fit: cover;
-            border-radius: 4px;
-        }
-        
-        .status-badge {
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-        }
-        
-        .price-display {
-            font-weight: 600;
-            color: #198754;
-        }
-        
-        .stock-display {
-            font-weight: 500;
-        }
-        
-        .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
-        
-        .mlb-link {
-            color: #0066cc;
-            text-decoration: none;
-            font-family: monospace;
-        }
-        
-        .mlb-link:hover {
-            text-decoration: underline;
-        }
-        
-        .select-all-header {
-            position: sticky;
-            top: 0;
-            background: white;
-            z-index: 10;
-        }
-        
-        .bulk-actions {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 0.375rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            display: none;
-        }
-        
-        .bulk-actions.show {
-            display: block;
-        }
-    </style>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/full.css">
 </head>
 <body>
-     <header class="account-bar">
+
+  <header class="account-bar">
     <div class="account-bar__left">
-    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
-      <img
-        src="/img/davantti.png"
-        alt="DAVANTTI"
-        class="brand__logo"
-        width="170"
-        height="42"
-        decoding="async"
-        loading="eager"
-      />
-    </a>
-  </div>
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img src="/img/davantti.png" alt="DAVANTTI" class="brand__logo" width="170" height="42" decoding="async" loading="eager"/>
+      </a>
+    </div>
     <div class="account-bar__right">
       <div class="account-bar__current">
         <span class="lbl">Conta:</span>
@@ -106,664 +29,241 @@
     </div>
   </header>
 
-  <!-- navegacao com abas-->
-<nav class="main-nav">
-  <div class="tabs">
-    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#produtos'">Produtos</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
-    <button class="nav-tab active" onclick="location.href='/dashboard#full'">FULL</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+  <nav class="main-nav">
+    <div class="tabs">
+      <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#produtos'">Produtos</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+      <button class="nav-tab active" onclick="location.href='/full'">FULL</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+    </div>
+  </nav>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="text-center text-white">
+      <div class="spinner-border" role="status"><span class="visually-hidden">Carregando...</span></div>
+      <div class="mt-2">Carregando...</div>
+    </div>
   </div>
-</nav>
-    
 
+  <main class="full-page">
+    <div class="container-fluid full-wrap">
 
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="text-center text-white">
-            <div class="spinner-border" role="status">
-                <span class="visually-hidden">Carregando...</span>
-            </div>
-            <div class="mt-2">Carregando...</div>
+      <!-- Header parecido com Estratégicos -->
+      <div class="page-top">
+        <div class="page-top__left">
+          <h1 class="page-title">
+            <i class="bi bi-box-seam"></i>
+            Full • Produtos
+          </h1>
+          <p class="page-subtitle">Itens em Fulfillment do Mercado Livre (estoque e status por inventory_id).</p>
         </div>
+
+        <div class="page-top__right">
+          <div class="account-pill">
+            <div class="account-pill__lbl">Conta</div>
+            <div class="account-pill__val" id="currentAccount">Carregando...</div>
+          </div>
+
+          <a href="/select-conta" class="btn btn-outline-secondary btn-sm btn-pill">
+            <i class="bi bi-arrow-left-right"></i> Trocar conta
+          </a>
+        </div>
+      </div>
+
+      <!-- Card: Config / Filtros + Seleção + Ações (igual Estratégicos) -->
+      <section class="card-panel">
+        <div class="card-panel__header">
+          <div>
+            <h3 class="card-panel__title">Configuração e ações</h3>
+            <p class="card-panel__hint">Use busca e filtros. Selecione itens e atualize/remoção em lote.</p>
+          </div>
+          <div class="chips">
+            <span class="chip" id="chipTotal">0 itens</span>
+            <span class="chip" id="chipSelected">0 selecionados</span>
+          </div>
+        </div>
+
+        <div class="card-panel__grid">
+          <!-- Esquerda: filtros -->
+          <div class="panel-block">
+            <label class="label-sm">Buscar</label>
+            <div class="input-group input-group-premium">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control" id="searchInput" placeholder="Buscar por MLB, SKU ou título...">
+            </div>
+
+            <div class="filters-row mt-3">
+              <div>
+                <label class="label-sm">Página</label>
+                <select class="form-select form-select-premium" id="pageSizeSelect">
+                  <option value="25">25 por página</option>
+                  <option value="50">50 por página</option>
+                  <option value="100">100 por página</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="label-sm">Status</label>
+                <select class="form-select form-select-premium" id="statusFilter">
+                  <option value="all">Todos</option>
+                  <option value="active">Ativos</option>
+                  <option value="no_stock">Sem estoque</option>
+                  <option value="intransfer">Em transferência</option>
+                  <option value="ineligible">Inelegíveis</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="actions-row mt-3">
+              <button class="btn btn-success btn-pill" id="addProductBtn">
+                <i class="bi bi-plus-circle"></i> Adicionar
+              </button>
+
+              <button class="btn btn-primary btn-pill" id="reloadBtn">
+                <i class="bi bi-arrow-clockwise"></i> Recarregar
+              </button>
+
+              <button class="btn btn-outline-secondary btn-pill" id="exportBtn">
+                <i class="bi bi-download"></i> CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Direita: seleção + ações em lote -->
+          <div class="panel-block panel-block--soft">
+            <div class="panel-mini-title">SELEÇÃO</div>
+
+            <div class="d-flex gap-2 flex-wrap mb-2">
+              <button class="btn btn-light btn-pill" id="selectPageBtn">
+                <i class="bi bi-check2-square"></i> Selecionar página
+              </button>
+              <button class="btn btn-light btn-pill" id="clearSelectionBtn">
+                <i class="bi bi-x-circle"></i> Limpar seleção
+              </button>
+            </div>
+
+            <div class="panel-mini-title mt-3">AÇÕES</div>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-outline-primary btn-pill" id="syncSelectedBtn">
+                <i class="bi bi-arrow-repeat"></i> Atualizar selecionados
+              </button>
+
+              <button class="btn btn-danger btn-pill" id="removeSelectedBtn">
+                <i class="bi bi-trash"></i> Excluir selecionados
+              </button>
+            </div>
+
+            <div class="mt-3 small text-muted">
+              Dica: “Recarregar” sincroniza a lista atual (busca/filtro/página).
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card: Lista -->
+      <section class="card-panel mt-3">
+        <div class="card-panel__header">
+          <div>
+            <h3 class="card-panel__title">Lista de produtos FULL</h3>
+            <p class="card-panel__hint">Preço do anúncio + estoque Fulfillment (available_quantity).</p>
+          </div>
+
+          <div class="right-tools">
+            <span class="small text-muted" id="itemsInfo">0 itens</span>
+          </div>
+        </div>
+
+        <div class="table-responsive full-table-wrap">
+          <table class="table table-hover align-middle full-table">
+            <thead class="table-light">
+              <tr>
+                <th class="col-check">
+                  <input type="checkbox" class="form-check-input" id="selectAllCheckbox" title="Selecionar todos da página">
+                </th>
+                <th class="col-img">Imagem</th>
+                <th class="col-mlb">MLB</th>
+                <th class="col-sku">SKU</th>
+                <th class="col-qty">Qtd. Full</th>
+                <th class="col-sold">Vendas</th>
+                <th class="col-price">Preço</th>
+                <th class="col-status">Status</th>
+                <th class="col-actions">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="productsTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="card-panel__footer">
+          <nav>
+            <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+          </nav>
+        </div>
+      </section>
+
     </div>
+  </main>
 
-    <div class="container-fluid mt-4">
-        <!-- Header -->
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2><i class="bi bi-box-seam"></i> Full • Produtos</h2>
-                <p class="text-muted mb-0">Itens em fulfillment do Mercado Livre</p>
-            </div>
-            <div class="text-end">
-                <small class="text-muted">Conta: <strong id="currentAccount">Carregando...</strong></small>
-                <br>
-                <a href="/select-conta" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-arrow-left-right"></i> Trocar Conta
-                </a>
-            </div>
+  <!-- Modal Adicionar Produto -->
+  <div class="modal fade" id="addProductModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content modal-premium">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Adicionar Produto FULL</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
+        <div class="modal-body">
+          <form id="addProductForm">
+            <div class="mb-2">
+              <label for="mlbInput" class="form-label">Código MLB</label>
+              <input type="text" class="form-control" id="mlbInput" placeholder="Ex: MLB1234567890" required>
+              <div class="form-text">Vamos consultar /items/{MLB} e depois o stock do fulfillment via inventory_id.</div>
+            </div>
 
-        <!-- Filtros e Ações -->
-        <div class="row mb-3">
-            <div class="col-md-6">
-                <div class="input-group">
-                    <span class="input-group-text"><i class="bi bi-search"></i></span>
-                    <input type="text" class="form-control" id="searchInput" placeholder="Buscar por MLB, título...">
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="header-actions">
-                    <select class="form-select" id="pageSizeSelect" style="width: auto;">
-                        <option value="25">25 por página</option>
-                        <option value="50">50 por página</option>
-                        <option value="100">100 por página</option>
-                    </select>
-                    
-                    <select class="form-select" id="statusFilter" style="width: auto;">
-                        <option value="all">Todos</option>
-                        <option value="active">Ativos</option>
-                        <option value="no_stock">Sem Estoque</option>
-                        <option value="intransfer">Em Transferência</option>
-                        <option value="ineligible">Inelegíveis</option>
-                    </select>
-                    
-                    <button class="btn btn-success" id="addProductBtn">
-                        <i class="bi bi-plus-circle"></i> Adicionar Produto
-                    </button>
-                    
-                    <button class="btn btn-primary" id="reloadBtn">
-                        <i class="bi bi-arrow-clockwise"></i> Recarregar
-                    </button>
-                    
-                    <button class="btn btn-outline-secondary" id="exportBtn">
-                        <i class="bi bi-download"></i> Exportar CSV
-                    </button>
-                </div>
-            </div>
+            <div id="addProductError" class="alert alert-danger d-none mt-3"></div>
+            <div id="addProductSuccess" class="alert alert-success d-none mt-3"></div>
+          </form>
         </div>
-
-        <!-- Ações em Lote -->
-        <div class="bulk-actions" id="bulkActions">
-            <div class="d-flex justify-content-between align-items-center">
-                <span><strong id="selectedCount">0</strong> produto(s) selecionado(s)</span>
-                <div>
-                    <button class="btn btn-danger btn-sm" id="removeSelectedBtn">
-                        <i class="bi bi-trash"></i> Remover Selecionados
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" id="clearSelectionBtn">
-                        <i class="bi bi-x"></i> Limpar Seleção
-                    </button>
-                </div>
-            </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light btn-pill" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" form="addProductForm" class="btn btn-success btn-pill" id="addProductSubmitBtn">
+            <i class="bi bi-plus-circle"></i> Adicionar
+          </button>
         </div>
-
-        <!-- Tabela de Produtos -->
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead class="table-light select-all-header">
-                    <tr>
-                        <th width="50">
-                            <input type="checkbox" class="form-check-input" id="selectAllCheckbox">
-                        </th>
-                        <th width="80">Imagem</th>
-                        <th width="150">MLB</th>
-                        <th>Título</th>
-                        <th width="120">Estoque Full</th>
-                        <th width="120">Preço</th>
-                        <th width="100">Promo</th>
-                        <th width="120">% Aplicada</th>
-                        <th width="120">Status</th>
-                        <th width="100">Ações</th>
-                    </tr>
-                </thead>
-                <tbody id="productsTableBody">
-                    <!-- Produtos serão carregados aqui -->
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Paginação -->
-        <div class="d-flex justify-content-between align-items-center mt-3">
-            <div>
-                <small class="text-muted" id="itemsInfo">0 itens</small>
-            </div>
-            <nav>
-                <ul class="pagination pagination-sm mb-0" id="pagination">
-                    <!-- Paginação será gerada aqui -->
-                </ul>
-            </nav>
-        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- Modal Adicionar Produto -->
-    <div class="modal fade" id="addProductModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-plus-circle"></i> Adicionar Produto
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="addProductForm">
-                        <div class="mb-3">
-                            <label for="mlbInput" class="form-label">Código MLB</label>
-                            <input type="text" class="form-control" id="mlbInput" 
-                                   placeholder="Ex: MLB1234567890" required>
-                            <div class="form-text">
-                                Digite o código MLB do produto que está no Fulfillment
-                            </div>
-                        </div>
-                        <div id="addProductError" class="alert alert-danger d-none"></div>
-                        <div id="addProductSuccess" class="alert alert-success d-none"></div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" form="addProductForm" class="btn btn-success" id="addProductSubmitBtn">
-                        <i class="bi bi-plus-circle"></i> Adicionar
-                    </button>
-                </div>
-            </div>
+  <!-- Modal Confirmar Remoção -->
+  <div class="modal fade" id="confirmRemoveModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content modal-premium">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-exclamation-triangle text-warning"></i> Confirmar Remoção</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
-    </div>
-
-    <!-- Modal Confirmar Remoção -->
-    <div class="modal fade" id="confirmRemoveModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-exclamation-triangle text-warning"></i> Confirmar Remoção
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Tem certeza que deseja remover <strong id="removeCount">0</strong> produto(s) selecionado(s)?</p>
-                    <p class="text-muted">Esta ação não pode ser desfeita.</p>
-                    <div id="removeProductError" class="alert alert-danger d-none"></div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-danger" id="confirmRemoveBtn">
-                        <i class="bi bi-trash"></i> Remover
-                    </button>
-                </div>
-            </div>
+        <div class="modal-body">
+          <p>Tem certeza que deseja remover <strong id="removeCount">0</strong> produto(s)?</p>
+          <p class="text-muted mb-0">Esta ação não pode ser desfeita.</p>
+          <div id="removeProductError" class="alert alert-danger d-none mt-2"></div>
         </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light btn-pill" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-danger btn-pill" id="confirmRemoveBtn">
+            <i class="bi bi-trash"></i> Remover
+          </button>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Estado da aplicação
-        let currentPage = 1;
-        let pageSize = 25;
-        let searchQuery = '';
-        let statusFilter = 'all';
-        let selectedProducts = new Set();
-
-        // Elementos DOM
-        const loadingOverlay = document.getElementById('loadingOverlay');
-        const searchInput = document.getElementById('searchInput');
-        const pageSizeSelect = document.getElementById('pageSizeSelect');
-        const statusFilterSelect = document.getElementById('statusFilter');
-        const productsTableBody = document.getElementById('productsTableBody');
-        const pagination = document.getElementById('pagination');
-        const itemsInfo = document.getElementById('itemsInfo');
-        const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-        const bulkActions = document.getElementById('bulkActions');
-        const selectedCount = document.getElementById('selectedCount');
-
-        // Modais
-        const addProductModal = new bootstrap.Modal(document.getElementById('addProductModal'));
-        const confirmRemoveModal = new bootstrap.Modal(document.getElementById('confirmRemoveModal'));
-
-        // Inicialização
-        document.addEventListener('DOMContentLoaded', function() {
-            loadCurrentAccount();
-            loadProducts();
-            setupEventListeners();
-        });
-
-        // Event Listeners
-        function setupEventListeners() {
-            // Busca
-            let searchTimeout;
-            searchInput.addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    searchQuery = this.value.trim();
-                    currentPage = 1;
-                    loadProducts();
-                }, 500);
-            });
-
-            // Filtros
-            pageSizeSelect.addEventListener('change', function() {
-                pageSize = parseInt(this.value);
-                currentPage = 1;
-                loadProducts();
-            });
-
-            statusFilterSelect.addEventListener('change', function() {
-                statusFilter = this.value;
-                currentPage = 1;
-                loadProducts();
-            });
-
-            // Botões
-            document.getElementById('reloadBtn').addEventListener('click', loadProducts);
-            document.getElementById('addProductBtn').addEventListener('click', () => {
-                document.getElementById('mlbInput').value = '';
-                document.getElementById('addProductError').classList.add('d-none');
-                document.getElementById('addProductSuccess').classList.add('d-none');
-                addProductModal.show();
-            });
-
-            // Seleção
-            selectAllCheckbox.addEventListener('change', function() {
-                const checkboxes = document.querySelectorAll('.product-checkbox');
-                checkboxes.forEach(cb => {
-                    cb.checked = this.checked;
-                    if (this.checked) {
-                        selectedProducts.add(cb.dataset.mlb);
-                    } else {
-                        selectedProducts.delete(cb.dataset.mlb);
-                    }
-                });
-                updateBulkActions();
-            });
-
-            // Ações em lote
-            document.getElementById('removeSelectedBtn').addEventListener('click', function() {
-                if (selectedProducts.size === 0) return;
-                
-                document.getElementById('removeCount').textContent = selectedProducts.size;
-                document.getElementById('removeProductError').classList.add('d-none');
-                confirmRemoveModal.show();
-            });
-
-            document.getElementById('clearSelectionBtn').addEventListener('click', function() {
-                selectedProducts.clear();
-                document.querySelectorAll('.product-checkbox').forEach(cb => cb.checked = false);
-                selectAllCheckbox.checked = false;
-                updateBulkActions();
-            });
-
-            // Formulário adicionar produto
-            document.getElementById('addProductForm').addEventListener('submit', handleAddProduct);
-            
-            // Confirmar remoção
-            document.getElementById('confirmRemoveBtn').addEventListener('click', handleRemoveProducts);
-        }
-
-        // Carregar conta atual
-        async function loadCurrentAccount() {
-            try {
-                const response = await fetch('/api/account/current');
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById('currentAccount').textContent = data.account || 'Nenhuma';
-                }
-            } catch (error) {
-                console.error('Erro ao carregar conta:', error);
-            }
-        }
-
-        // Carregar produtos
-        async function loadProducts() {
-            showLoading(true);
-            
-            try {
-                const params = new URLSearchParams({
-                    page: currentPage,
-                    page_size: pageSize,
-                    q: searchQuery,
-                    status: statusFilter
-                });
-
-                const response = await fetch(`/api/full/products?${params}`);
-                
-                if (!response.ok) {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                renderProducts(data.items || []);
-                renderPagination(data);
-                updateItemsInfo(data);
-                
-            } catch (error) {
-                console.error('Erro ao carregar produtos:', error);
-                showError('Erro ao carregar produtos: ' + error.message);
-                renderProducts([]);
-            } finally {
-                showLoading(false);
-            }
-        }
-
-        // Renderizar produtos
-        function renderProducts(products) {
-            if (products.length === 0) {
-                productsTableBody.innerHTML = `
-                    <tr>
-                        <td colspan="10" class="text-center py-4">
-                            <i class="bi bi-inbox text-muted" style="font-size: 2rem;"></i>
-                            <div class="text-muted mt-2">Nenhum produto encontrado</div>
-                        </td>
-                    </tr>
-                `;
-                return;
-            }
-
-            productsTableBody.innerHTML = products.map(product => `
-                <tr>
-                    <td>
-                        <input type="checkbox" class="form-check-input product-checkbox" 
-                               data-mlb="${product.mlb}" 
-                               ${selectedProducts.has(product.mlb) ? 'checked' : ''}>
-                    </td>
-                    <td>
-                        ${product.image ? 
-                            `<img src="${product.image}" class="product-image" alt="Produto">` : 
-                            `<div class="product-image bg-light d-flex align-items-center justify-content-center">
-                                <i class="bi bi-image text-muted"></i>
-                            </div>`
-                        }
-                    </td>
-                    <td>
-                        <a href="#" class="mlb-link" onclick="copyToClipboard('${product.mlb}')" 
-                           title="Clique para copiar">${product.mlb}</a>
-                    </td>
-                    <td>
-                        <div class="text-truncate" style="max-width: 300px;" title="${product.title}">
-                            ${product.title}
-                        </div>
-                    </td>
-                    <td>
-                        <span class="stock-display ${product.stock_full === 0 ? 'text-danger' : 'text-success'}">
-                            ${product.stock_full}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="price-display">
-                            ${formatPrice(product.price_cents)}
-                        </span>
-                    </td>
-                    <td>
-                        ${product.promo_active ? 
-                            `<span class="badge bg-warning text-dark">Ativa</span>` : 
-                            `<span class="text-muted">-</span>`
-                        }
-                    </td>
-                    <td>
-                        ${product.promo_percent ? 
-                            `${product.promo_percent.toFixed(2)}%` : 
-                            `<span class="text-muted">-</span>`
-                        }
-                    </td>
-                    <td>
-                        <span class="badge status-badge ${getStatusClass(product.status)}">
-                            ${getStatusText(product.status)}
-                        </span>
-                    </td>
-                    <td>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary btn-sm" 
-                                    onclick="syncProduct('${product.mlb}')" 
-                                    title="Sincronizar">
-                                <i class="bi bi-arrow-clockwise"></i>
-                            </button>
-                            <button class="btn btn-outline-info btn-sm" 
-                                    onclick="viewDetails('${product.mlb}')" 
-                                    title="Detalhes">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
-
-            // Adicionar event listeners para checkboxes
-            document.querySelectorAll('.product-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', function() {
-                    if (this.checked) {
-                        selectedProducts.add(this.dataset.mlb);
-                    } else {
-                        selectedProducts.delete(this.dataset.mlb);
-                    }
-                    updateBulkActions();
-                    updateSelectAllCheckbox();
-                });
-            });
-        }
-
-        // Atualizar ações em lote
-        function updateBulkActions() {
-            selectedCount.textContent = selectedProducts.size;
-            
-            if (selectedProducts.size > 0) {
-                bulkActions.classList.add('show');
-            } else {
-                bulkActions.classList.remove('show');
-            }
-        }
-
-        // Atualizar checkbox "selecionar todos"
-        function updateSelectAllCheckbox() {
-            const checkboxes = document.querySelectorAll('.product-checkbox');
-            const checkedBoxes = document.querySelectorAll('.product-checkbox:checked');
-            
-            if (checkedBoxes.length === 0) {
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.checked = false;
-            } else if (checkedBoxes.length === checkboxes.length) {
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.checked = true;
-            } else {
-                selectAllCheckbox.indeterminate = true;
-            }
-        }
-
-        // Adicionar produto
-        async function handleAddProduct(e) {
-            e.preventDefault();
-            
-            const mlbInput = document.getElementById('mlbInput');
-            const errorDiv = document.getElementById('addProductError');
-            const successDiv = document.getElementById('addProductSuccess');
-            const submitBtn = document.getElementById('addProductSubmitBtn');
-            
-            const mlb = mlbInput.value.trim().toUpperCase();
-            
-            // Validação
-            if (!mlb.match(/^MLB\d+$/)) {
-                showAddProductError('Formato de MLB inválido. Use: MLB1234567890');
-                return;
-            }
-            
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Adicionando...';
-            
-            try {
-                const response = await fetch('/api/full/products', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ mlb_id: mlb })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    successDiv.textContent = data.message;
-                    successDiv.classList.remove('d-none');
-                    errorDiv.classList.add('d-none');
-                    mlbInput.value = '';
-                    
-                    // Recarregar produtos após 1 segundo
-                    setTimeout(() => {
-                        addProductModal.hide();
-                        loadProducts();
-                    }, 1000);
-                } else {
-                    showAddProductError(data.message || 'Erro ao adicionar produto');
-                }
-                
-            } catch (error) {
-                console.error('Erro ao adicionar produto:', error);
-                showAddProductError('Erro de conexão: ' + error.message);
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="bi bi-plus-circle"></i> Adicionar';
-            }
-        }
-
-        // Remover produtos
-        async function handleRemoveProducts() {
-            const confirmBtn = document.getElementById('confirmRemoveBtn');
-            const errorDiv = document.getElementById('removeProductError');
-            
-            confirmBtn.disabled = true;
-            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Removendo...';
-            
-            try {
-                const response = await fetch('/api/full/products', {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ mlb_ids: Array.from(selectedProducts) })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    confirmRemoveModal.hide();
-                    selectedProducts.clear();
-                    updateBulkActions();
-                    loadProducts();
-                    showSuccess(data.message);
-                } else {
-                    errorDiv.textContent = data.message || 'Erro ao remover produtos';
-                    errorDiv.classList.remove('d-none');
-                }
-                
-            } catch (error) {
-                console.error('Erro ao remover produtos:', error);
-                errorDiv.textContent = 'Erro de conexão: ' + error.message;
-                errorDiv.classList.remove('d-none');
-            } finally {
-                confirmBtn.disabled = false;
-                confirmBtn.innerHTML = '<i class="bi bi-trash"></i> Remover';
-            }
-        }
-
-        // Sincronizar produto
-        async function syncProduct(mlb) {
-            showLoading(true);
-            
-            try {
-                const response = await fetch(`/api/full/products/${mlb}/sync`, {
-                    method: 'PUT'
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showSuccess(data.message);
-                    loadProducts();
-                } else {
-                    showError(data.message || 'Erro ao sincronizar produto');
-                }
-                
-            } catch (error) {
-                console.error('Erro ao sincronizar produto:', error);
-                showError('Erro de conexão: ' + error.message);
-            } finally {
-                showLoading(false);
-            }
-        }
-
-        // Funções auxiliares
-        function showAddProductError(message) {
-            const errorDiv = document.getElementById('addProductError');
-            const successDiv = document.getElementById('addProductSuccess');
-            
-            errorDiv.textContent = message;
-            errorDiv.classList.remove('d-none');
-            successDiv.classList.add('d-none');
-        }
-
-        function showLoading(show) {
-            loadingOverlay.style.display = show ? 'flex' : 'none';
-        }
-
-        function showError(message) {
-            // Implementar toast ou alert
-            alert('Erro: ' + message);
-        }
-
-        function showSuccess(message) {
-            // Implementar toast ou alert
-            alert('Sucesso: ' + message);
-        }
-
-        function formatPrice(cents) {
-            return new Intl.NumberFormat('pt-BR', {
-                style: 'currency',
-                currency: 'BRL'
-            }).format(cents / 100);
-        }
-
-        function getStatusClass(status) {
-            const classes = {
-                'active': 'bg-success',
-                'no_stock': 'bg-warning text-dark',
-                'intransfer': 'bg-info',
-                'ineligible': 'bg-danger'
-            };
-            return classes[status] || 'bg-secondary';
-        }
-
-        function getStatusText(status) {
-            const texts = {
-                'active': 'Ativo',
-                'no_stock': 'Sem Estoque',
-                'intransfer': 'Em Transferência',
-                'ineligible': 'Inelegível'
-            };
-            return texts[status] || status;
-        }
-
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                showSuccess('MLB copiado para a área de transferência');
-            });
-        }
-
-        function viewDetails(mlb) {
-            // Implementar modal de detalhes ou redirecionar
-            window.open(`/api/full/products/${mlb}`, '_blank');
-        }
-
-        function renderPagination(data) {
-            // Implementar paginação
-            const totalPages = Math.ceil(data.total / data.page_size);
-            // ... código da paginação
-        }
-
-        function updateItemsInfo(data) {
-            itemsInfo.textContent = `${data.total} itens`;
-        }
-    </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/full.js"></script>
 </body>
 </html>

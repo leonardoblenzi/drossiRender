@@ -1,0 +1,235 @@
+/* /public/css/full.css */
+
+/* Base (usa variáveis do seu dashboard.css quando existirem) */
+:root{
+  --full-bg: var(--ml-bg, #f5f5f5);
+  --card: var(--ml-card, #ffffff);
+  --txt: var(--ml-text, #2f2f2f);
+  --muted: var(--ml-muted, #6b7280);
+  --line: #e9ecef;
+  --shadow: 0 10px 26px rgba(16,24,40,.08);
+  --radius: 18px;
+}
+
+.full-page{
+  background: var(--full-bg);
+  min-height: calc(100vh - 140px);
+}
+
+.full-wrap{
+  max-width: 1200px;
+  margin: 92px auto 40px;
+  padding: 0 16px 24px;
+}
+
+/* Top header */
+.page-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:16px;
+  margin-bottom: 18px;
+}
+.page-title{
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin:0;
+  color: var(--txt);
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.page-subtitle{
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.page-top__right{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.account-pill{
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 14px rgba(16,24,40,.05);
+  min-width: 220px;
+}
+.account-pill__lbl{
+  font-size: .72rem;
+  color: var(--muted);
+  line-height: 1.1;
+}
+.account-pill__val{
+  font-weight: 800;
+  color: var(--txt);
+  line-height: 1.1;
+}
+
+/* Cards premium */
+.card-panel{
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.card-panel__header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  margin-bottom: 12px;
+}
+.card-panel__title{
+  margin:0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--txt);
+}
+.card-panel__hint{
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: .9rem;
+}
+
+.card-panel__grid{
+  display:grid;
+  grid-template-columns: 1.2fr .8fr;
+  gap: 14px;
+}
+@media (max-width: 992px){
+  .card-panel__grid{ grid-template-columns: 1fr; }
+}
+
+.panel-block{
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  background: #fff;
+}
+.panel-block--soft{
+  background: #fbfbfb;
+}
+
+.panel-mini-title{
+  font-size: .78rem;
+  font-weight: 800;
+  color: var(--muted);
+  letter-spacing: .08em;
+}
+
+/* Pills */
+.chips{ display:flex; gap:8px; flex-wrap:wrap; }
+.chip{
+  background: #f3f4f6;
+  border: 1px solid #eceff3;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: .82rem;
+  color: #111827;
+}
+
+/* Inputs premium */
+.label-sm{
+  font-size: .78rem;
+  font-weight: 800;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+.input-group-premium .input-group-text{
+  background: #fff;
+  border-color: var(--line);
+  border-right: none;
+}
+.input-group-premium .form-control{
+  border-color: var(--line);
+  border-left: none;
+}
+.form-select-premium{
+  border-color: var(--line);
+}
+
+.filters-row{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 576px){
+  .filters-row{ grid-template-columns: 1fr; }
+}
+
+.actions-row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.btn-pill{
+  border-radius: 999px !important;
+  padding: 8px 14px;
+  font-weight: 700;
+}
+
+/* Table */
+.full-table-wrap{
+  border-radius: 16px;
+  overflow:hidden;
+  border: 1px solid var(--line);
+}
+.full-table{
+  margin-bottom: 0;
+}
+.full-table thead th{
+  font-size: .82rem;
+  color: #111827;
+  background: #fafafa !important;
+  border-bottom: 1px solid var(--line) !important;
+}
+.full-table tbody td{
+  border-top: 1px solid #f1f3f5;
+}
+.col-img{ width: 72px; }
+.col-check{ width: 42px; }
+.col-actions{ width: 160px; }
+
+.product-img{
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid #eef0f3;
+  background: #fff;
+}
+
+.badge-soft{
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: .78rem;
+  font-weight: 800;
+  border: 1px solid #e7e9ee;
+  background: #f8fafc;
+  color: #111827;
+}
+.badge-soft.badge-ok{ background:#ecfdf5; border-color:#d1fae5; color:#065f46; }
+.badge-soft.badge-warn{ background:#fffbeb; border-color:#fde68a; color:#92400e; }
+.badge-soft.badge-bad{ background:#fef2f2; border-color:#fecaca; color:#991b1b; }
+.badge-soft.badge-muted{ background:#f3f4f6; border-color:#e5e7eb; color:#374151; }
+
+.card-panel__footer{
+  display:flex;
+  justify-content:flex-end;
+  margin-top: 12px;
+}
+
+.modal-premium{
+  border-radius: 18px;
+  border: 1px solid var(--line);
+}

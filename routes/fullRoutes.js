@@ -1,16 +1,23 @@
-// routes/fullRoutes.js (com novas rotas CRUD)
-const express = require('express');
+"use strict";
+
+const express = require("express");
+const FullController = require("../controllers/FullController");
+
 const router = express.Router();
-const FullController = require('../controllers/FullController');
 
-// Rotas existentes
-router.get('/products', FullController.listProducts);
-router.get('/products/:mlb', FullController.getProductDetail);
+// Listar (com paginação / busca / filtro)
+router.get("/anuncios", FullController.list);
 
-// NOVAS ROTAS CRUD
-router.post('/products', FullController.addProduct);           // Adicionar produto
-router.delete('/products', FullController.removeProducts);     // Remover produtos
-router.put('/products/:mlb/sync', FullController.syncProduct); // Sincronizar produto
-router.get('/stats', FullController.getStats);                 // Estatísticas
+// Adicionar MLB (faz fetch no ML, pega inventory_id e stock fulfillment)
+router.post("/anuncios", FullController.add);
+
+// Atualizar/sincronizar (todos ou selecionados)
+router.post("/anuncios/sync", FullController.sync);
+
+// Remover em lote
+router.post("/anuncios/bulk-delete", FullController.bulkDelete);
+
+// Remover 1
+router.delete("/anuncios/:mlb", FullController.removeOne);
 
 module.exports = router;
