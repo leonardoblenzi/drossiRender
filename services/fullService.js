@@ -2,58 +2,14 @@
 
 const db = require("../db/db");
 
-// Node 18+ já tem fetch global. Se estiver em Node 16, descomente:
-// const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...args));
-
 const ML_BASE = "https://api.mercadolibre.com";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function getMe(token) {
-  return mlGET(`/users/me`, token);
-}
-
-async function listUserItems(
-  userId,
-  token,
-  { status = "active", limit = 50, max = 5000 } = {}
-) {
-  const out = [];
-  let offset = 0;
-
-  // /users/{user_id}/items/search -> retorna ids
-  while (true) {
-    const qs = new URLSearchParams();
-    qs.set("limit", String(limit));
-    qs.set("offset", String(offset));
-    if (status && status !== "all") qs.set("status", status);
-
-    const data = await mlGET(
-      `/users/${encodeURIComponent(
-        String(userId)
-      )}/items/search?${qs.toString()}`,
-      token
-    );
-
-    const ids = Array.isArray(data?.results) ? data.results : [];
-    out.push(...ids);
-
-    const total = Number(data?.paging?.total || 0);
-    offset += limit;
-
-    if (!ids.length) break;
-    if (offset >= total) break;
-    if (out.length >= max) break; // proteção
-  }
-
-  return out;
-}
-
 function getAccessToken(req, res) {
   // ✅ ajuste se seu projeto guarda token em outro local
-  // (Ex.: res.locals.meli.access_token, req.meli.access_token etc.)
   const token =
     res?.locals?.mlCreds?.access_token ||
     res?.locals?.access_token ||
@@ -64,9 +20,18 @@ function getAccessToken(req, res) {
       "Token ML não disponível (middleware não injetou access_token)."
     );
     err.statusCode = 401;
+    err.details = { hint: "Verifique authMiddleware e res.locals.mlCreds" };
     throw err;
   }
   return token;
+}
+
+async function safeReadText(resp) {
+  try {
+    return (await resp.text()) || "";
+  } catch {
+    return "";
+  }
 }
 
 async function mlGET(path, token) {
@@ -79,7 +44,8 @@ async function mlGET(path, token) {
     },
   });
 
-  const text = await r.text();
+  const text = await safeReadText(r);
+
   let json = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -88,13 +54,66 @@ async function mlGET(path, token) {
   }
 
   if (!r.ok) {
+    // ✅ erro mais "debugável"
     const err = new Error(json?.message || `Erro ML ${r.status}`);
     err.statusCode = r.status;
-    err.details = json;
+    err.details = {
+      path,
+      url,
+      status: r.status,
+      response: json,
+      raw_preview:
+        typeof text === "string" ? text.slice(0, 500) : String(text),
+    };
     throw err;
   }
 
   return json;
+}
+
+async function getMe(token) {
+  return mlGET(`/users/me`, token);
+}
+
+async function listUserItems(
+  userId,
+  token,
+  { status = "active", limit = 50, max = 5000 } = {}
+) {
+  const out = [];
+
+  // ✅ blindagem: garante números válidos
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 50));
+  const safeMax = Math.max(1, Number(max) || 5000);
+
+  let offset = 0;
+
+  // /users/{user_id}/items/search -> retorna ids
+  while (true) {
+    const qs = new URLSearchParams();
+    qs.set("limit", String(safeLimit));
+    qs.set("offset", String(offset));
+    if (status && status !== "all") qs.set("status", status);
+
+    const data = await mlGET(
+      `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
+      token
+    );
+
+    const ids = Array.isArray(data?.results) ? data.results : [];
+    out.push(...ids);
+
+    const total = Number(data?.paging?.total || 0);
+
+    // incrementa SEMPRE com número
+    offset = offset + safeLimit;
+
+    if (!ids.length) break;
+    if (offset >= total) break;
+    if (out.length >= safeMax) break; // proteção
+  }
+
+  return out;
 }
 
 function pickSkuFromItem(item) {
@@ -284,15 +303,15 @@ module.exports = {
     if (String(mode || "").toUpperCase() === "IMPORT_ALL") {
       const me = await getMe(token);
       const userId = me?.id;
+
       if (!userId) {
-        const err = new Error(
-          "Não foi possível obter /users/me para importar."
-        );
+        const err = new Error("Não foi possível obter /users/me para importar.");
         err.statusCode = 500;
+        err.details = { me };
         throw err;
       }
 
-      // busca itens do vendedor (você pode usar status=all se quiser pegar paused também)
+      // busca itens do vendedor
       const itemIds = await listUserItems(userId, token, {
         status: "active",
         limit: 50,
@@ -303,11 +322,8 @@ module.exports = {
       let skippedNotFull = 0;
       const fail = [];
 
-      // loop com pequeno delay pra não estourar rate limit
       for (const id of itemIds) {
-        const mlb = String(id || "")
-          .trim()
-          .toUpperCase();
+        const mlb = String(id || "").trim().toUpperCase();
         if (!mlb) continue;
 
         try {
@@ -319,18 +335,16 @@ module.exports = {
             opts: { onlyIfFull: true },
           });
 
-          if (!row) {
-            skippedNotFull += 1;
-          } else {
-            importedFull += 1;
-          }
+          if (!row) skippedNotFull += 1;
+          else importedFull += 1;
 
-          await sleep(80);
+          await sleep(80); // rate-limit friendly
         } catch (e) {
           fail.push({
             mlb,
             message: e.message,
             statusCode: e.statusCode || 500,
+            details: e.details || null,
           });
         }
       }
@@ -345,7 +359,7 @@ module.exports = {
       };
     }
 
-    // ===== MODO ATUAL =====
+    // ===== MODO SYNC (selecionados ou tudo do DB) =====
     let targets = mlbs;
 
     if (!targets) {
@@ -376,7 +390,12 @@ module.exports = {
           });
         }
       } catch (e) {
-        fail.push({ mlb, message: e.message, statusCode: e.statusCode || 500 });
+        fail.push({
+          mlb,
+          message: e.message,
+          statusCode: e.statusCode || 500,
+          details: e.details || null,
+        });
       }
     }
 
@@ -385,11 +404,7 @@ module.exports = {
 
   async bulkDelete({ meli_conta_id, mlbs }) {
     const clean = mlbs
-      .map((x) =>
-        String(x || "")
-          .trim()
-          .toUpperCase()
-      )
+      .map((x) => String(x || "").trim().toUpperCase())
       .filter(Boolean);
 
     const r = await db.query(
