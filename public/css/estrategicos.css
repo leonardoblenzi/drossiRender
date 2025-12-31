@@ -555,3 +555,73 @@ code {
     flex-wrap: wrap;
   }
 }
+/* ===== Nome read-only ===== */
+.name-readonly{
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color:#111;
+  font-weight: 500;
+}
+
+/* ===== Inputs de dinheiro ===== */
+.input-money{
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  background: #fff;
+}
+.input-money:focus{
+  outline: none;
+  border-color: #7aa7ff;
+  box-shadow: 0 0 0 3px rgba(0,123,255,0.12);
+}
+
+.money-readonly{
+  font-weight: 600;
+  color:#222;
+}
+
+/* ===== Pills ===== */
+.status-pill{
+  display:inline-flex;
+  align-items:center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border:1px solid #e5e7eb;
+  background:#f9fafb;
+  color:#374151;
+}
+.status-pill--ok{ background:#ecfdf5; border-color:#a7f3d0; color:#065f46; }
+.status-pill--pending{ background:#fffbeb; border-color:#fde68a; color:#92400e; }
+.status-pill--error{ background:#fef2f2; border-color:#fecaca; color:#991b1b; }
+.status-pill--default{ background:#f3f4f6; border-color:#e5e7eb; color:#374151; }
+
+/* ===== Colunas ===== */
+.estrategicos-table td.col-money{ min-width: 160px; }
+.estrategicos-table td.col-percent{ min-width: 130px; }
+
+/* ===== Botões pequenos da tabela ===== */
+.btn-xs{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.80rem;
+  cursor:pointer;
+  border: 1px solid #cfd6df;
+  background:#fff;
+}
+.btn-outline:hover{ background:#f7f7f7; }
+.btn-danger{
+  border-color:#fecaca;
+  background:#fff5f5;
+}
+.btn-danger:hover{ background:#ffe4e6; }

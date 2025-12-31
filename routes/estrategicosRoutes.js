@@ -2,6 +2,11 @@
 //
 // Rotas REST para gerenciamento de Produtos Estratégicos.
 // Versão DB (por meli_conta_id via ensureAccount) + compat com rotas antigas.
+//
+// ✅ Importante: rotas por MLB e por ID NÃO podem conflitar.
+//    Por isso:
+//    - Sync por MLB: /api/estrategicos/:mlb/sync
+//    - Sync por ID:  /api/estrategicos/id/:id/sync   (bem específico)
 
 "use strict";
 
@@ -18,27 +23,21 @@ try {
   ensureAccount = null;
 }
 
-// Helper para aplicar middleware opcional
 const withAccount = ensureAccount ? [ensureAccount] : [];
 
 /**
  * GET /api/estrategicos
- * Lista todos os estratégicos da conta ML selecionada (cookie meli_conta_id).
- * Obs: parâmetro antigo ?group=... foi removido da lógica (agora é por conta/empresa via DB).
  */
 router.get("/api/estrategicos", ...withAccount, EstrategicosController.list);
 
 /**
  * POST /api/estrategicos
  * Upsert de 1 item.
- * body: { mlb, name?, percent_default? }
  */
 router.post("/api/estrategicos", ...withAccount, EstrategicosController.upsert);
 
 /**
  * PUT /api/estrategicos/:id
- * Atualiza campos editáveis de um estratégico (botão "Salvar" na linha).
- * body: { percent_default?, name? }
  */
 router.put(
   "/api/estrategicos/:id",
@@ -47,8 +46,7 @@ router.put(
 );
 
 /**
- * DELETE /api/estrategicos/:mlb
- * (Compat) Remove um estratégico pelo MLB (mantido para não quebrar o front antigo).
+ * DELETE /api/estrategicos/:mlb (compat)
  */
 router.delete(
   "/api/estrategicos/:mlb",
@@ -58,7 +56,6 @@ router.delete(
 
 /**
  * DELETE /api/estrategicos/id/:id
- * (Novo) Remove um estratégico pelo ID do DB.
  */
 router.delete(
   "/api/estrategicos/id/:id",
@@ -68,11 +65,6 @@ router.delete(
 
 /**
  * POST /api/estrategicos/replace
- * Substitui/mescla a lista inteira (upload CSV no front).
- * body: {
- *   items: [{ mlb, name?, percent_default? }],
- *   remove_missing?: boolean
- * }
  */
 router.post(
   "/api/estrategicos/replace",
@@ -81,34 +73,30 @@ router.post(
 );
 
 /**
- * POST /api/estrategicos/:id/sync
- * (Novo) Sincroniza 1 item com o Mercado Livre (nome/% aplicada/status) e persiste no DB.
- * Usado pelo botão "Atualizar" na linha (via ID).
- */
-router.post(
-  "/api/estrategicos/:id/sync",
-  ...withAccount,
-  EstrategicosController.syncOne
-);
-
-/**
- * POST /api/estrategicos/mlb/:mlb/sync
- * (Compat importante) Sincroniza 1 item pelo MLB.
+ * ✅ SYNC POR MLB (compat e o que seu front está chamando agora)
+ * POST /api/estrategicos/:mlb/sync
  *
- * IMPORTANTE:
- * - NÃO pode ser /api/estrategicos/:mlb/sync porque conflita com /:id/sync no Express.
- * - Mantemos uma rota dedicada /mlb/:mlb/sync para compat sem ambiguidade.
+ * Tem que vir ANTES de rotas com :id se elas forem parecidas,
+ * mas aqui já deixamos a rota por ID em /id/:id/sync para evitar conflito de vez.
  */
 router.post(
-  "/api/estrategicos/mlb/:mlb/sync",
+  "/api/estrategicos/:mlb/sync",
   ...withAccount,
   EstrategicosController.syncByMlb
 );
 
 /**
- * POST /api/estrategicos/sync
- * (Novo) Sincroniza TODOS os estratégicos da conta ML selecionada.
- * body opcional: { ids?: number[], limit?: number }
+ * ✅ SYNC POR ID (bem específico para não conflitar)
+ * POST /api/estrategicos/id/:id/sync
+ */
+router.post(
+  "/api/estrategicos/id/:id/sync",
+  ...withAccount,
+  EstrategicosController.syncOne
+);
+
+/**
+ * POST /api/estrategicos/sync (sync all)
  */
 router.post(
   "/api/estrategicos/sync",
@@ -118,11 +106,6 @@ router.post(
 
 /**
  * POST /api/estrategicos/apply
- * Aplica promoções nos estratégicos usando CriarPromocaoService/promocoesService.
- * body: {
- *   promotion_type,
- *   items: [{ mlb, percent }]
- * }
  */
 router.post(
   "/api/estrategicos/apply",

@@ -8,73 +8,63 @@
 
   <!-- Estilos globais + específicos -->
   <link rel="stylesheet" href="/css/dashboard.css?v=2">
-  <link rel="stylesheet" href="/css/estrategicos.css?v=1">
+  <link rel="stylesheet" href="/css/estrategicos.css?v=2">
 </head>
 <body>
   <!-- TOPO FIXO (mesmo padrão das outras telas) -->
   <header class="account-bar">
-  <div class="account-bar__left">
-    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
-      <img
-        src="/img/davantti.png"
-        alt="DAVANTTI"
-        class="brand__logo"
-        width="170"
-        height="42"
-        decoding="async"
-        loading="eager"
-      />
-    </a>
-  </div>
-
-  <div class="account-bar__right">
-    <div class="account-bar__current">
-      <span class="lbl">Conta:</span>
-
-      <!-- ✅ account-bar.js normalmente atualiza este data-account-label -->
-      <span
-        id="account-current"
-        class="val"
-        data-account-label
-      >Carregando...</span>
+    <div class="account-bar__left">
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
     </div>
 
-    <!-- ✅ mantém id (se você usa em outras páginas) + adiciona data-account-status -->
-    <button
-      id="btn-status"
-      class="account-bar__status"
-      title="Ver status do token"
-      type="button"
-      data-account-status
-    >Status</button>
+    <div class="account-bar__right">
+      <div class="account-bar__current">
+        <span class="lbl">Conta:</span>
+        <span id="account-current" class="val" data-account-label>Carregando...</span>
+      </div>
 
-    <!-- ✅ mantém id + adiciona data-account-switch -->
-    <button
-      id="account-switch"
-      class="account-bar__switch"
-      title="Trocar de conta"
-      type="button"
-      data-account-switch
-    >Trocar Conta</button>
-  </div>
-</header>
+      <button
+        id="btn-status"
+        class="account-bar__status"
+        title="Ver status do token"
+        type="button"
+        data-account-status
+      >Status</button>
 
+      <button
+        id="account-switch"
+        class="account-bar__switch"
+        title="Trocar de conta"
+        type="button"
+        data-account-switch
+      >Trocar Conta</button>
+    </div>
+  </header>
 
-
-<!-- navegacao com abas-->
-<nav class="main-nav">
-  <div class="tabs">
-    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
-    <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
-  </div>
-</nav>
+  <!-- navegacao com abas -->
+  <nav class="main-nav">
+    <div class="tabs">
+      <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+      <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+    </div>
+  </nav>
 
   <div class="wrap estrategicos-wrap">
     <!-- CABEÇALHO DA PÁGINA -->
@@ -82,8 +72,8 @@
       <div>
         <h2>Produtos Estratégicos</h2>
         <p class="subtitle">
-          Gerencie a lista de anúncios estratégicos por conta, defina percentuais-padrão e aplique promoções
-          recorrentes sem depender de planilhas externas.
+          Gerencie a lista por conta e defina <strong>Preço Promo</strong>. O sistema calcula a <strong>%</strong>
+          automaticamente a partir do <strong>Preço Original</strong> do anúncio.
         </p>
       </div>
 
@@ -115,15 +105,19 @@
           <h3>Lote de MLBs</h3>
           <p class="muted">
             Cole abaixo um ou mais <strong>MLBs</strong>, um por linha (ou separados por espaço / vírgula).<br>
-            Ao salvar, cada MLB será incluído como produto estratégico na conta selecionada.
+            O sistema valida duplicados e não insere MLB que já exista na lista.
           </p>
         </div>
       </header>
+
       <div class="estrategicos-add-panel__body">
         <label for="txtAddMlbs" class="estrategicos-add-panel__label">MLBs</label>
-        <textarea id="txtAddMlbs" class="estrategicos-add-panel__textarea"
-                  rows="6"
-                  placeholder="MLB123456789&#10;MLB987654321&#10;MLB000000001"></textarea>
+        <textarea
+          id="txtAddMlbs"
+          class="estrategicos-add-panel__textarea"
+          rows="6"
+          placeholder="MLB123456789&#10;MLB987654321&#10;MLB000000001"
+        ></textarea>
 
         <div class="estrategicos-add-panel__actions">
           <button id="btnAddMlbsConfirm" type="button" class="btn primary">
@@ -144,24 +138,26 @@
         <div>
           <h3>Atualizar Estratégicos por Arquivo</h3>
           <p class="muted">
-            Envie um arquivo <strong>CSV</strong> ou <strong>Excel</strong> contendo as colunas
-            <code>mlb</code> e <code>percent</code>. Opcionalmente, podemos remover da lista os itens
-            que não estiverem no arquivo.
+            Envie um arquivo <strong>CSV</strong> com as colunas <code>mlb</code> e <code>promo_price</code> (preço final desejado).
+            Itens já existentes serão ignorados e listados no relatório ao final.
           </p>
         </div>
       </header>
 
       <div class="estrategicos-upload__body">
         <div class="estrategicos-upload__field">
-          <label for="fileStrategicos">Arquivo (.csv, .xlsx)</label>
+          <label for="fileStrategicos">Arquivo (.csv)</label>
           <input id="fileStrategicos" type="file" accept=".csv,.xls,.xlsx" />
+          <small class="muted">Exemplo CSV: <code>MLB123;199.90</code></small>
         </div>
+
         <div class="estrategicos-upload__field inline">
           <label>
             <input id="chkRemoveMissing" type="checkbox" />
             Remover itens que não estiverem no arquivo
           </label>
         </div>
+
         <div class="estrategicos-upload__actions">
           <button id="btnProcessFile" class="btn primary" type="button">
             🔄 Processar arquivo
@@ -170,32 +166,33 @@
             Fechar
           </button>
         </div>
+
         <p id="uploadStatus" class="muted"></p>
       </div>
     </section>
 
-    <!-- CONTROLES GERAIS DE DESCONTO -->
+    <!-- CONTROLES DO CICLO -->
     <section class="card estrategicos-controls">
       <header class="card-header estrategicos-controls__header">
         <div>
           <h3>Configuração do ciclo atual</h3>
           <p class="muted">
-            Ajuste a porcentagem padrão para todos os itens ou personalize por produto na tabela abaixo.
+            Defina um <strong>Preço Promo</strong> global e preencha nos itens. A % é calculada automaticamente (não editável).
           </p>
         </div>
       </header>
+
       <div class="estrategicos-controls__body">
         <div class="estrategicos-controls__group">
-          <label for="percentGlobal">Percentual padrão (%)</label>
+          <label for="promoGlobal">Preço Promo global (R$)</label>
           <div class="estrategicos-controls__inline">
-            <input id="percentGlobal" type="number" min="0" max="90" step="0.1" placeholder="ex.: 19" />
-            <button id="btnFillFromGlobal" type="button" class="btn secondary">
-              Preencher coluna “% padrão (salvo)”
+            <input id="promoGlobal" type="number" min="0" step="0.01" placeholder="ex.: 199.90" />
+            <button id="btnFillPromoFromGlobal" type="button" class="btn secondary">
+              Preencher coluna “Preço Promo”
             </button>
           </div>
           <small class="muted">
-            Essa ação apenas preenche a coluna “% padrão (salvo)” da tabela. A promoção só é criada ao clicar em
-            “Aplicar promoção nos selecionados”.
+            Essa ação só preenche a coluna. A promoção só é criada ao clicar em <strong>Aplicar promoção</strong>.
           </small>
         </div>
 
@@ -208,22 +205,37 @@
             <option value="MARKETPLACE_CAMPAIGN">Marketplace Campaign</option>
           </select>
           <small class="muted">
-            Esse tipo será utilizado quando o sistema criar as promoções automaticamente.
+            Esse tipo será utilizado quando o sistema criar as promoções.
           </small>
         </div>
 
+        <!-- Ações em lote -->
         <div class="estrategicos-controls__group apply-actions">
+          <button id="btnSelectAllPages" class="btn secondary" type="button" title="Seleciona todos os itens da lista (todas as páginas)">
+            ✅ Selecionar todos
+          </button>
+
+          <button id="btnClearSelection" class="btn ghost" type="button" title="Limpa a seleção">
+            Limpar seleção
+          </button>
+
+          <button id="btnSyncSelected" class="btn secondary" type="button" title="Atualiza do ML os itens selecionados">
+            🔄 Atualizar selecionados
+          </button>
+
           <button id="btnApplySelected" class="btn primary" type="button">
             🚀 Aplicar promoção nos selecionados
           </button>
+
           <button id="btnDeleteSelected" class="btn danger" type="button">
             🗑 Excluir selecionados
           </button>
+
           <span id="applyHint" class="muted">
-            Selecione os itens na tabela; a % usada será a da coluna “% padrão (salvo)”.
+            Selecione itens na tabela (página atual) ou clique em <strong>Selecionar todos</strong>.
           </span>
 
-          <!-- Barra de progresso (lote de MLBs) -->
+          <!-- Barra de progresso (lote / bulk) -->
           <div id="bulkAddProgress" class="estrategicos-progress" hidden>
             <div class="estrategicos-progress__bar">
               <div id="bulkAddProgressFill" class="estrategicos-progress__fill"></div>
@@ -236,16 +248,17 @@
       </div>
     </section>
 
-    <!-- TABELA PRINCIPAL DE ESTRATÉGICOS -->
+    <!-- TABELA -->
     <section class="card estrategicos-table-card">
       <header class="card-header">
         <div>
           <h3>Lista de produtos estratégicos</h3>
           <p class="muted">
-            Adicione, edite ou remova produtos estratégicos. A coluna “% padrão (salvo)” será usada ao aplicar
-            as promoções.
+            <strong>Nome</strong> não é editável. <strong>Preço Original</strong> vem do ML. Você define <strong>Preço Promo</strong>
+            e a <strong>% calculada</strong> aparece automaticamente.
           </p>
         </div>
+
         <div class="estrategicos-table__summary">
           <span id="summaryTotal">0 itens</span>
           <span id="summarySelected">0 selecionados</span>
@@ -257,19 +270,22 @@
           <thead>
             <tr>
               <th style="width:32px;">
-                <input type="checkbox" id="chkSelectAllRows">
+                <!-- Este checkbox seleciona apenas a PÁGINA atual -->
+                <input type="checkbox" id="chkSelectAllRows" title="Seleciona todos da página atual">
               </th>
               <th>MLB</th>
               <th>Nome do produto</th>
-              <th>% padrão (salvo)</th>
+              <th>Preço Original</th>
+              <th>Preço Promo</th>
+              <th>% calculada</th>
               <th>% aplicada atualmente</th>
               <th>Status</th>
-              <th style="width:110px;">Ações</th>
+              <th style="width:140px;">Ações</th>
             </tr>
           </thead>
           <tbody id="tbodyStrategicos">
             <tr>
-              <td colspan="7" class="muted">
+              <td colspan="9" class="muted">
                 Nenhum produto estratégico cadastrado. Use <strong>“Adicionar item”</strong> ou
                 <strong>“Atualizar por arquivo”</strong>.
               </td>
@@ -277,12 +293,15 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Paginação -->
+      <div id="strategicPagination" class="strategic-pagination"></div>
     </section>
   </div>
 
   <!-- Scripts globais -->
   <script src="/js/account-bar.js" defer></script>
-  <!-- Script específico da página -->
+  <!-- Script específico -->
   <script src="/js/estrategicos.js" defer></script>
 </body>
 </html>

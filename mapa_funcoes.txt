@@ -88,30 +88,141 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
    ├─ js/validar-dimensoes.js
    └─ css/validar-dimensoes.css (+ dashboard.css)
 
-================================================================================
-3) Produtos Estratégicos
-================================================================================
+===============================================================================
+3) Produtos Estratégicos (Preço Original / Preço Promo / % calculada no FRONT)
 
 / (raiz do projeto)
 ├─ index.js
-│  ├─ app.use(estrategicosRoutes)
-│  └─ GET /estrategicos -> views/estrategicos.html
+│ ├─ app.use(estrategicosRoutes)
+│ └─ GET /estrategicos
+│ └─ views/estrategicos.html
+│ └─ carrega public/js/estrategicos.js + public/css/estrategicos.css
 │
 ├─ routes/estrategicosRoutes.js
-│  • GET    /api/estrategicos
-│  • POST   /api/estrategicos
-│  • DELETE /api/estrategicos/:mlb
-│  • POST   /api/estrategicos/replace
-│  • POST   /api/estrategicos/apply
-│
+│ ├─ (opcional) middleware de conta:
+│ │ • ensureAccount (cookie meli_conta_id) -> res.locals.mlCreds.meli_conta_id + access_token
+│ │
+│ ├─ LISTA / CRUD
+│ │ • GET /api/estrategicos
+│ │ -> EstrategicosController.list
+│ │
+│ │ • POST /api/estrategicos
+│ │ -> EstrategicosController.upsert
+│ │ -> 409 DUPLICATE_MLB se mlb já existir
+│ │
+│ │ • PUT /api/estrategicos/:id
+│ │ -> EstrategicosController.update
+│ │ -> atualiza SOMENTE promo_price (sem percent_calc no DB)
+│ │
+│ │ • DELETE /api/estrategicos/:mlb
+│ │ -> EstrategicosController.remove (compat por MLB)
+│ │
+│ │ • DELETE /api/estrategicos/id/:id
+│ │ -> EstrategicosController.removeById
+│ │
+│ ├─ IMPORT/REPLACE (CSV)
+│ │ • POST /api/estrategicos/replace
+│ │ -> EstrategicosController.replace
+│ │ -> insere apenas novos (report.skipped_existing)
+│ │ -> remove_missing (opcional)
+│ │
+│ ├─ SYNC (Atualizar do Mercado Livre)
+│ │ • POST /api/estrategicos/:mlb/sync
+│ │ -> EstrategicosController.syncByMlb
+│ │ -> busca item no ML + prices API
+│ │ -> atualiza: name, listing_status, original_price, percent_applied, status, last_synced_at
+│ │
+│ │ • POST /api/estrategicos/id/:id/sync
+│ │ -> EstrategicosController.syncOne
+│ │ -> mesmo fluxo, mas encontra o registro por ID
+│ │
+│ │ • POST /api/estrategicos/sync
+│ │ -> EstrategicosController.syncAll
+│ │ -> sync em massa por conta (opcional ids/limit)
+│ │
+│ ├─ APLICAR PROMOÇÃO (envia pro seu service de promo)
+│ │ • POST /api/estrategicos/apply
+│ │ -> EstrategicosController.apply
+│ │ -> calcula % a aplicar usando (original_price do DB) vs (promo_price enviado)
+│ │ -> chama CriarPromocaoService.aplicarDescontoUnico(mlb, percent)
+│ │ -> atualiza no DB: promo_price, percent_applied (quando sucesso), status
+│ │
+│ ├─ BULK (Selecionados / Selecionar Todos)
+│ │ • POST /api/estrategicos/bulk/sync
+│ │ -> EstrategicosController.bulkSync
+│ │ -> body: { all?: true, ids?: [], mlbs?: [], limit?: n }
+│ │ -> syncAndPersistOne para cada registro
+│ │
+│ │ • POST /api/estrategicos/bulk/delete
+│ │ -> EstrategicosController.bulkDelete
+│ │ -> body: { all?: true, confirm_all?: true, ids?: [], mlbs?: [] }
+│ │ -> proteção: all exige confirm_all
+│ │
 ├─ controllers/EstrategicosController.js
-│  • list/upsert/remove/replace/apply -> EstrategicosService
+│ ├─ DB: tabela anuncios_estrategicos por meli_conta_id
+│ ├─ Helpers internos:
+│ │ • ensureContaId(res) -> pega meli_conta_id de res.locals
+│ │ • getAccessToken(req,res) -> pega access_token
+│ │ • fetchItemBasics() -> GET /items/{mlb}?attributes=...
+│ │ • fetchPromoFromPricesApi() -> GET /items/{mlb}/prices (inferir promo ativa)
+│ │ • syncAndPersistOne() -> atualiza colunas do DB com dados do ML
+│ │
+│ ├─ Endpoints:
+│ │ • list -> SELECT por meli_conta_id
+│ │ • upsert -> INSERT (409 se duplicado)
+│ │ • update -> UPDATE promo_price (sem percent_calc no DB)
+│ │ • remove -> DELETE por mlb
+│ │ • removeById -> DELETE por id
+│ │ • replace -> INSERT novos + report de duplicados
+│ │ • syncByMlb -> sync 1 por mlb
+│ │ • syncOne -> sync 1 por id
+│ │ • syncAll -> sync em lote por conta
+│ │ • apply -> calcula % e chama CriarPromocaoService
+│ │ • bulkSync -> sync lote por ids/mlbs/all
+│ │ • bulkDelete -> delete lote por ids/mlbs/all
 │
-├─ services/estrategicosService.js
-│  • listarPorConta / upsert / replace / apply promos
+├─ services/criarPromocaoService.js
+│ └─ aplicarDescontoUnico(mlb, percentToApply, options)
+│ -> integração com Mercado Livre para aplicar promo (por %)
 │
 ├─ views/estrategicos.html
-└─ public/js/estrategicos.js + public/css/estrategicos.css
+│ ├─ Estrutura da tabela (checkbox por linha + checkbox no header)
+│ ├─ Botões:
+│ │ • "Selecionar todos" (modo global)
+│ │ • "Limpar seleção"
+│ │ • "Atualizar selecionados" (bulk sync)
+│ │ • "Excluir selecionados" (bulk delete)
+│ │ • "Aplicar promoções" (apply)
+│ │ • "Adicionar item" / "Atualizar por arquivo (CSV)"
+│ └─ IDs esperados no DOM (exemplos):
+│ • tbodyStrategicos, chkSelectAllRows, btnSelectAllGlobal, btnClearSelection,
+│ btnSyncSelected, btnDeleteSelected, btnApplySelected, summarySelected, summaryTotal...
+│
+└─ public/js/estrategicos.js
+├─ Carregamento:
+│ • loadRows() -> GET /api/estrategicos -> rows[] -> renderTable()
+│
+├─ Seleção:
+│ • header checkbox: seleciona/desmarca SOMENTE a página (20)
+│ • Selecionar Todos (global):
+│ - selectedAll=true e excludedMlbs controla exceções
+│ - getSelectedMlbsList() retorna todos rows (menos excluded)
+│
+├─ Cálculo:
+│ • computePct(original_price, promo_price) -> % calculada (apenas UI)
+│
+├─ Ações por linha:
+│ • saveRow(id||mlb) -> PUT /api/estrategicos/:id (ou POST fallback)
+│ • syncRow(id||mlb) -> POST /api/estrategicos/:mlb/sync (fallback /id/:id/sync)
+│ • deleteRow(mlb) -> DELETE /api/estrategicos/:mlb
+│
+├─ Bulk:
+│ • handleSyncSelected() -> POST /api/estrategicos/bulk/sync { mlbs: [...] }
+│ • handleDeleteSelected() -> POST /api/estrategicos/bulk/delete { mlbs: [...] }
+│ • handleApplySelected() -> POST /api/estrategicos/apply { promotion_type, items:[{mlb,promo_price}] }
+│
+└─ Import CSV:
+• handleUploadProcess() -> POST /api/estrategicos/replace
 
 ================================================================================
 4) Curva ABC (tempo real via API Mercado Livre)
