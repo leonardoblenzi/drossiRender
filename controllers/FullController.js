@@ -9,19 +9,6 @@ function pickContaId(req) {
   return meli_conta_id;
 }
 
-function toInt(v, fallback) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function normalizeMlbs(input) {
-  if (!Array.isArray(input)) return null;
-  const clean = input
-    .map((x) => String(x || "").trim().toUpperCase())
-    .filter(Boolean);
-  return clean.length ? clean : [];
-}
-
 module.exports = {
   async list(req, res) {
     try {
@@ -33,29 +20,18 @@ module.exports = {
         });
       }
 
-      // ✅ blindagem forte contra NaN/strings
-      const page = Math.max(1, toInt(req.query.page, 1));
-      const pageSize = Math.min(200, Math.max(10, toInt(req.query.pageSize, 25)));
-
+      const page = Math.max(1, Number(req.query.page || 1));
+      const pageSize = Math.min(200, Math.max(10, Number(req.query.pageSize || 25)));
       const q = String(req.query.q || "").trim();
-      const status = String(req.query.status || "all").trim();
+      const status = String(req.query.status || "all");
 
-      const out = await FullService.list({
-        meli_conta_id,
-        page,
-        pageSize,
-        q,
-        status,
-      });
-
+      const out = await FullService.list({ meli_conta_id, page, pageSize, q, status });
       return res.json({ success: true, ...out });
     } catch (error) {
-      const code = error.statusCode || 500;
-      return res.status(code).json({
+      return res.status(500).json({
         success: false,
         error: "Erro ao listar FULL",
         message: error.message,
-        details: error.details || null,
       });
     }
   },
@@ -72,19 +48,10 @@ module.exports = {
 
       const mlb = String(req.body?.mlb || "").trim().toUpperCase();
       if (!mlb || !mlb.startsWith("MLB")) {
-        return res.status(400).json({
-          success: false,
-          error: "MLB inválido.",
-        });
+        return res.status(400).json({ success: false, error: "MLB inválido." });
       }
 
-      const row = await FullService.addOrUpdateFromML({
-        req,
-        res,
-        meli_conta_id,
-        mlb,
-      });
-
+      const row = await FullService.addOrUpdateFromML({ req, res, meli_conta_id, mlb });
       return res.json({ success: true, item: row });
     } catch (error) {
       const code = error.statusCode || 500;
@@ -107,21 +74,10 @@ module.exports = {
         });
       }
 
-      // ✅ alinhado com o service:
-      // - mode: "IMPORT_ALL" -> FullService.sync({ mode: "IMPORT_ALL" })
-      // - mlbs: [] -> sync selecionados
-      // - mlbs: null -> sync tudo do DB
-      const mode = String(req.body?.mode || "").trim().toUpperCase() || null;
-      const mlbs = normalizeMlbs(req.body?.mlbs); // null | [] | [..]
+      const mode = String(req.body?.mode || "").toUpperCase() || null;
+      const mlbs = Array.isArray(req.body?.mlbs) ? req.body.mlbs : null;
 
-      const out = await FullService.sync({
-        req,
-        res,
-        meli_conta_id,
-        mlbs: mlbs === null ? null : mlbs, // preserva null corretamente
-        mode,
-      });
-
+      const out = await FullService.sync({ req, res, meli_conta_id, mlbs, mode });
       return res.json({ success: true, ...out });
     } catch (error) {
       const code = error.statusCode || 500;
@@ -144,23 +100,18 @@ module.exports = {
         });
       }
 
-      const mlbs = normalizeMlbs(req.body?.mlbs) || [];
+      const mlbs = Array.isArray(req.body?.mlbs) ? req.body.mlbs : [];
       if (!mlbs.length) {
-        return res.status(400).json({
-          success: false,
-          error: "Nenhum MLB informado.",
-        });
+        return res.status(400).json({ success: false, error: "Nenhum MLB informado." });
       }
 
       const out = await FullService.bulkDelete({ meli_conta_id, mlbs });
       return res.json({ success: true, ...out });
     } catch (error) {
-      const code = error.statusCode || 500;
-      return res.status(code).json({
+      return res.status(500).json({
         success: false,
         error: "Erro ao remover em lote",
         message: error.message,
-        details: error.details || null,
       });
     }
   },
@@ -176,26 +127,13 @@ module.exports = {
       }
 
       const mlb = String(req.params.mlb || "").trim().toUpperCase();
-      if (!mlb || !mlb.startsWith("MLB")) {
-        return res.status(400).json({
-          success: false,
-          error: "MLB inválido.",
-        });
-      }
-
-      const out = await FullService.bulkDelete({
-        meli_conta_id,
-        mlbs: [mlb],
-      });
-
+      const out = await FullService.bulkDelete({ meli_conta_id, mlbs: [mlb] });
       return res.json({ success: true, ...out });
     } catch (error) {
-      const code = error.statusCode || 500;
-      return res.status(code).json({
+      return res.status(500).json({
         success: false,
         error: "Erro ao remover",
         message: error.message,
-        details: error.details || null,
       });
     }
   },

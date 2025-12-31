@@ -19,24 +19,21 @@
   const selectPageBtn = qs("#selectPageBtn");
   const clearSelectionBtn = qs("#clearSelectionBtn");
 
+  // ✅ badge opcional: mostra "Modo seleção" quando tiver itens selecionados
+  const selectionBadge = qs("#selectionModeBadge") || qs("#badgeSelectionMode");
+
   // ✅ NOVO (com fallback para não quebrar se ainda não alterou o HTML)
   const syncBtn = qs("#syncBtn") || qs("#reloadBtn");
-  const deleteSelectedBtn =
-    qs("#deleteSelectedBtn") || qs("#removeSelectedBtn");
+  const deleteSelectedBtn = qs("#deleteSelectedBtn") || qs("#removeSelectedBtn");
 
   const addProductBtn = qs("#addProductBtn");
   const exportBtn = qs("#exportBtn");
 
-  const currentAccountEls = [
-    qs("#currentAccount"),
-    qs("#account-current"),
-  ].filter(Boolean);
+  const currentAccountEls = [qs("#currentAccount"), qs("#account-current")].filter(Boolean);
 
   // Modals
   const addProductModalEl = qs("#addProductModal");
-  const addProductModal = addProductModalEl
-    ? new bootstrap.Modal(addProductModalEl)
-    : null;
+  const addProductModal = addProductModalEl ? new bootstrap.Modal(addProductModalEl) : null;
   const addProductForm = qs("#addProductForm");
   const mlbInput = qs("#mlbInput");
   const addProductError = qs("#addProductError");
@@ -44,9 +41,7 @@
   const addProductSubmitBtn = qs("#addProductSubmitBtn");
 
   const confirmRemoveModalEl = qs("#confirmRemoveModal");
-  const confirmRemoveModal = confirmRemoveModalEl
-    ? new bootstrap.Modal(confirmRemoveModalEl)
-    : null;
+  const confirmRemoveModal = confirmRemoveModalEl ? new bootstrap.Modal(confirmRemoveModalEl) : null;
   const removeCountEl = qs("#removeCount");
   const removeProductError = qs("#removeProductError");
   const confirmRemoveBtn = qs("#confirmRemoveBtn");
@@ -107,16 +102,16 @@
     // Se vier HTML (redirect silencioso pra /login ou /select-conta), estoura erro claro
     const looksHtml =
       body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
+
     if (!r.ok) {
-      if (looksHtml)
+      if (looksHtml) {
         throw new Error(
           `HTTP ${r.status} (HTML/redirect). Verifique login/conta/permissão.`
         );
+      }
       try {
         const data = ct.includes("application/json") ? JSON.parse(body) : {};
-        throw new Error(
-          data?.message || data?.error || `Erro HTTP ${r.status}`
-        );
+        throw new Error(data?.message || data?.error || `Erro HTTP ${r.status}`);
       } catch {
         throw new Error(`Erro HTTP ${r.status}: ${body.slice(0, 200)}`.trim());
       }
@@ -137,17 +132,38 @@
   async function loadWhoAmI() {
     try {
       const data = await getJSON("/api/account/whoami");
-      const label =
-        data?.accountLabel || data?.accountKey || "Conta selecionada";
+      const label = data?.accountLabel || data?.accountKey || "Conta selecionada";
       currentAccountEls.forEach((el) => (el.textContent = label));
     } catch {
       currentAccountEls.forEach((el) => (el.textContent = "Nenhuma"));
     }
   }
 
+  function updateSelectionBadge() {
+    if (!selectionBadge) return;
+    const on = state.selected.size > 0;
+    selectionBadge.classList.toggle("d-none", !on);
+    // opcional: contador no badge
+    const countEl = selectionBadge.querySelector("[data-selected-count]");
+    if (countEl) countEl.textContent = String(state.selected.size);
+  }
+
+  function updateBulkButtonsState() {
+    // Selecionar página: desabilita se não tem rows na página
+    if (selectPageBtn) selectPageBtn.disabled = !state.rows.length;
+
+    // Limpar seleção / Excluir selecionados: desabilita se não tem seleção
+    const hasSel = state.selected.size > 0;
+    if (clearSelectionBtn) clearSelectionBtn.disabled = !hasSel;
+    if (deleteSelectedBtn) deleteSelectedBtn.disabled = !hasSel;
+
+    updateSelectionBadge();
+  }
+
   function updateChips() {
-    chipTotal.textContent = `${state.paging.total || 0} itens`;
-    chipSelected.textContent = `${state.selected.size} selecionados`;
+    if (chipTotal) chipTotal.textContent = `${state.paging.total || 0} itens`;
+    if (chipSelected) chipSelected.textContent = `${state.selected.size} selecionados`;
+    updateBulkButtonsState();
   }
 
   function buildQuery() {
@@ -165,7 +181,21 @@
       const data = await getJSON(buildQuery());
       state.rows = data.results || [];
       state.paging = data.paging || state.paging;
+
       if (itemsInfo) itemsInfo.textContent = `${state.paging.total || 0} itens`;
+
+      // ✅ remove da seleção itens que não existem mais (limpeza leve)
+      // (não remove seleção de outros itens fora da página; só garante que itens da página removidos não fiquem quebrados)
+      const currentSet = new Set(state.rows.map((r) => r.mlb));
+      for (const mlb of Array.from(state.selected)) {
+        // não mexe com seleção global, mas se o item estava na página e sumiu, remove
+        // (se você quiser manter seleção global sempre, remova esse bloco)
+        // Aqui a regra é: se o item selecionado não existe mais no DB na listagem atual, pode ficar — então não removemos.
+        // => mantendo assim: não faz nada.
+        void currentSet;
+        void mlb;
+      }
+
       renderTable();
       renderPagination();
       updateChips();
@@ -187,6 +217,7 @@
         </tr>
       `;
       if (selectAllCheckbox) selectAllCheckbox.checked = false;
+      updateBulkButtonsState();
       return;
     }
 
@@ -208,14 +239,10 @@
           <td class="col-img">${img}</td>
           <td class="col-mlb">
             <div class="fw-bold">${mlb}</div>
-            <div class="small text-muted text-truncate" style="max-width:360px;">${
-              row.title || "-"
-            }</div>
+            <div class="small text-muted text-truncate" style="max-width:360px;">${row.title || "-"}</div>
           </td>
           <td class="col-sku">${row.sku || "-"}</td>
-          <td class="col-qty"><span class="fw-bold">${
-            row.stock_full ?? 0
-          }</span></td>
+          <td class="col-qty"><span class="fw-bold">${row.stock_full ?? 0}</span></td>
           <td class="col-sold">${row.sold_total ?? 0}</td>
           <td class="col-price">${fmtMoney(row.price)}</td>
           <td class="col-status">
@@ -246,13 +273,15 @@
     qsa(".row-check", tbody).forEach((el) => {
       el.addEventListener("change", () => {
         const mlb = el.getAttribute("data-mlb");
+        if (!mlb) return;
+
         if (el.checked) state.selected.add(mlb);
         else state.selected.delete(mlb);
+
         updateChips();
+
         if (selectAllCheckbox) {
-          selectAllCheckbox.checked = state.rows.every((r) =>
-            state.selected.has(r.mlb)
-          );
+          selectAllCheckbox.checked = state.rows.every((r) => state.selected.has(r.mlb));
         }
       });
     });
@@ -260,6 +289,7 @@
     qsa(".btn-sync-one", tbody).forEach((btn) => {
       btn.addEventListener("click", async () => {
         const mlb = btn.getAttribute("data-mlb");
+        if (!mlb) return;
         await syncMlbs([mlb]);
       });
     });
@@ -267,19 +297,21 @@
     qsa(".btn-del-one", tbody).forEach((btn) => {
       btn.addEventListener("click", () => {
         const mlb = btn.getAttribute("data-mlb");
+        if (!mlb) return;
         openRemoveModal([mlb]);
       });
     });
+
+    updateBulkButtonsState();
   }
 
   function renderPagination() {
     if (!pagination) return;
+
     const { page, pages } = state.paging;
 
     const mk = (p, label, active = false, disabled = false) => `
-      <li class="page-item ${active ? "active" : ""} ${
-      disabled ? "disabled" : ""
-    }">
+      <li class="page-item ${active ? "active" : ""} ${disabled ? "disabled" : ""}">
         <a class="page-link" href="#" data-page="${p}">${label}</a>
       </li>
     `;
@@ -350,7 +382,6 @@
         method: "POST",
         body: JSON.stringify({ mode: "IMPORT_ALL" }),
       });
-      // após importar, volta pra primeira página
       state.page = 1;
       await fetchList();
     } catch (e) {
@@ -362,7 +393,6 @@
 
   function openRemoveModal(mlbs) {
     if (!confirmRemoveModal) {
-      // fallback sem modal
       if (!confirm(`Excluir ${mlbs.length} item(ns)?`)) return;
       (async () => {
         setLoading(true);
@@ -413,16 +443,7 @@
   }
 
   function exportCSV() {
-    const headers = [
-      "MLB",
-      "SKU",
-      "Título",
-      "Inventory ID",
-      "Preço",
-      "Qtd Full",
-      "Vendas",
-      "Status",
-    ];
+    const headers = ["MLB", "SKU", "Título", "Inventory ID", "Preço", "Qtd Full", "Vendas", "Status"];
     const rows = state.rows.map((r) => [
       r.mlb,
       r.sku || "",
@@ -517,9 +538,7 @@
     addProductError?.classList.add("d-none");
     addProductSuccess?.classList.add("d-none");
 
-    const mlb = String(mlbInput?.value || "")
-      .trim()
-      .toUpperCase();
+    const mlb = String(mlbInput?.value || "").trim().toUpperCase();
     if (!mlb.startsWith("MLB")) {
       if (addProductError) {
         addProductError.textContent = "MLB inválido.";
@@ -536,8 +555,7 @@
       });
 
       if (addProductSuccess) {
-        addProductSuccess.textContent =
-          "Produto adicionado/sincronizado com sucesso.";
+        addProductSuccess.textContent = "Produto adicionado/sincronizado com sucesso.";
         addProductSuccess.classList.remove("d-none");
       }
 
@@ -565,8 +583,9 @@
     }
   });
 
-  selectPageBtn?.addEventListener("click", selectAllOnPage);
-  clearSelectionBtn?.addEventListener("click", clearSelection);
+  // ✅ botões novos (se existirem)
+  selectPageBtn?.addEventListener("click", () => selectAllOnPage());
+  clearSelectionBtn?.addEventListener("click", () => clearSelection());
 
   // ✅ BOTÃO EXCLUIR (selecionados)
   deleteSelectedBtn?.addEventListener("click", () => {
@@ -581,5 +600,6 @@
   (async () => {
     await loadWhoAmI();
     await fetchList();
+    updateChips();
   })();
 })();

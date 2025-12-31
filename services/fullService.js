@@ -8,8 +8,13 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function clampInt(n, min, max, fallback) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(x)));
+}
+
 function getAccessToken(req, res) {
-  // ✅ ajuste se seu projeto guarda token em outro local
   const token =
     res?.locals?.mlCreds?.access_token ||
     res?.locals?.access_token ||
@@ -20,18 +25,9 @@ function getAccessToken(req, res) {
       "Token ML não disponível (middleware não injetou access_token)."
     );
     err.statusCode = 401;
-    err.details = { hint: "Verifique authMiddleware e res.locals.mlCreds" };
     throw err;
   }
   return token;
-}
-
-async function safeReadText(resp) {
-  try {
-    return (await resp.text()) || "";
-  } catch {
-    return "";
-  }
 }
 
 async function mlGET(path, token) {
@@ -44,8 +40,7 @@ async function mlGET(path, token) {
     },
   });
 
-  const text = await safeReadText(r);
-
+  const text = await r.text();
   let json = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -54,7 +49,6 @@ async function mlGET(path, token) {
   }
 
   if (!r.ok) {
-    // ✅ erro mais "debugável"
     const err = new Error(json?.message || `Erro ML ${r.status}`);
     err.statusCode = r.status;
     err.details = {
@@ -62,8 +56,7 @@ async function mlGET(path, token) {
       url,
       status: r.status,
       response: json,
-      raw_preview:
-        typeof text === "string" ? text.slice(0, 500) : String(text),
+      raw_preview: (text || "").slice(0, 600),
     };
     throw err;
   }
@@ -75,20 +68,16 @@ async function getMe(token) {
   return mlGET(`/users/me`, token);
 }
 
-async function listUserItems(
-  userId,
-  token,
-  { status = "active", limit = 50, max = 5000 } = {}
-) {
+/**
+ * Paginação tradicional com offset (boa para poucos itens)
+ */
+async function listUserItemsOffset(userId, token, { status, limit, max } = {}) {
   const out = [];
-
-  // ✅ blindagem: garante números válidos
-  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 50));
-  const safeMax = Math.max(1, Number(max) || 5000);
+  const safeLimit = clampInt(limit, 1, 50, 50);
+  const safeMax = clampInt(max, 1, 20000, 8000);
 
   let offset = 0;
 
-  // /users/{user_id}/items/search -> retorna ids
   while (true) {
     const qs = new URLSearchParams();
     qs.set("limit", String(safeLimit));
@@ -104,16 +93,95 @@ async function listUserItems(
     out.push(...ids);
 
     const total = Number(data?.paging?.total || 0);
-
-    // incrementa SEMPRE com número
-    offset = offset + safeLimit;
+    offset += safeLimit;
 
     if (!ids.length) break;
     if (offset >= total) break;
-    if (out.length >= safeMax) break; // proteção
+    if (out.length >= safeMax) break;
+
+    // proteção contra rate-limit
+    await sleep(40);
   }
 
-  return out;
+  return out.slice(0, safeMax);
+}
+
+/**
+ * Paginação por SCAN (scroll_id) — correta para "varrer tudo" sem limite de offset
+ */
+async function listUserItemsScan(userId, token, { status, limit, max } = {}) {
+  const out = [];
+  const safeLimit = clampInt(limit, 1, 50, 50);
+  const safeMax = clampInt(max, 1, 20000, 8000);
+
+  let scrollId = null;
+
+  while (true) {
+    const qs = new URLSearchParams();
+    qs.set("search_type", "scan");
+    qs.set("limit", String(safeLimit));
+    if (status && status !== "all") qs.set("status", status);
+    if (scrollId) qs.set("scroll_id", String(scrollId));
+
+    const data = await mlGET(
+      `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
+      token
+    );
+
+    const ids = Array.isArray(data?.results) ? data.results : [];
+    if (!ids.length) break;
+
+    out.push(...ids);
+
+    // o ML retorna scroll_id (precisa ser reutilizado nas próximas chamadas)
+    scrollId = data?.scroll_id || scrollId;
+
+    if (out.length >= safeMax) break;
+
+    await sleep(40);
+  }
+
+  return out.slice(0, safeMax);
+}
+
+/**
+ * Decide automaticamente entre offset e scan.
+ * Se der erro de offset inválido, faz fallback para scan.
+ */
+async function listUserItems(userId, token, { status = "active", limit = 50, max = 8000 } = {}) {
+  const safeLimit = clampInt(limit, 1, 50, 50);
+  const safeMax = clampInt(max, 1, 20000, 8000);
+
+  // tenta primeiro pegar a primeira página pra estimar total
+  try {
+    const qs = new URLSearchParams();
+    qs.set("limit", String(safeLimit));
+    qs.set("offset", "0");
+    if (status && status !== "all") qs.set("status", status);
+
+    const first = await mlGET(
+      `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
+      token
+    );
+
+    const total = Number(first?.paging?.total || 0);
+
+    // se total é grande, já vai direto pra SCAN (evita estourar offset depois)
+    if (total > 1000) {
+      return await listUserItemsScan(userId, token, { status, limit: safeLimit, max: safeMax });
+    }
+
+    // se é pequeno, offset é mais simples/rápido
+    return await listUserItemsOffset(userId, token, { status, limit: safeLimit, max: safeMax });
+  } catch (e) {
+    // fallback inteligente: se for erro clássico de offset/limit, vai de SCAN
+    const msg = String(e?.message || "");
+    const isOffsetErr = msg.includes("Invalid limit and offset values");
+    if (isOffsetErr) {
+      return await listUserItemsScan(userId, token, { status, limit: safeLimit, max: safeMax });
+    }
+    throw e;
+  }
 }
 
 function pickSkuFromItem(item) {
@@ -139,7 +207,6 @@ function pickImageUrl(item) {
 }
 
 function deriveUiStatus(item, stock) {
-  // status para o filtro da UI
   if (!item?.inventory_id) return "ineligible";
 
   const available = Number(stock?.available_quantity || 0);
@@ -204,7 +271,9 @@ async function upsertRow(data) {
 
 module.exports = {
   async list({ meli_conta_id, page, pageSize, q, status }) {
-    const offset = (page - 1) * pageSize;
+    const safePage = Math.max(1, Number(page || 1));
+    const safePageSize = Math.min(200, Math.max(10, Number(pageSize || 25)));
+    const offset = (safePage - 1) * safePageSize;
 
     const where = [];
     const params = [];
@@ -234,7 +303,7 @@ module.exports = {
     );
     const total = countR.rows[0]?.total || 0;
 
-    params.push(pageSize);
+    params.push(safePageSize);
     params.push(offset);
 
     const listQ = `
@@ -249,10 +318,10 @@ module.exports = {
 
     return {
       paging: {
-        page,
-        pageSize,
+        page: safePage,
+        pageSize: safePageSize,
         total,
-        pages: Math.max(1, Math.ceil(total / pageSize)),
+        pages: Math.max(1, Math.ceil(total / safePageSize)),
       },
       results: listR.rows,
     };
@@ -264,9 +333,9 @@ module.exports = {
     const item = await mlGET(`/items/${encodeURIComponent(mlb)}`, token);
     const inventory_id = item?.inventory_id || null;
 
-    // ✅ se for import de FULL, não queremos poluir a tabela com anúncios não-FULL
+    // se for import FULL, não polui com não-FULL
     if (!inventory_id && opts.onlyIfFull) {
-      return null; // "skipped"
+      return null;
     }
 
     let stock = null;
@@ -299,21 +368,19 @@ module.exports = {
   async sync({ req, res, meli_conta_id, mlbs, mode }) {
     const token = getAccessToken(req, res);
 
-    // ✅ IMPORTAR tudo do ML e popular DB (apenas FULL)
+    // ✅ IMPORT_ALL: varre inventário do vendedor e grava apenas os que são FULL
     if (String(mode || "").toUpperCase() === "IMPORT_ALL") {
       const me = await getMe(token);
       const userId = me?.id;
-
       if (!userId) {
         const err = new Error("Não foi possível obter /users/me para importar.");
         err.statusCode = 500;
-        err.details = { me };
         throw err;
       }
 
-      // busca itens do vendedor
+      // lista todos os anúncios do usuário (usa SCAN automaticamente se precisar)
       const itemIds = await listUserItems(userId, token, {
-        status: "active",
+        status: "active", // se quiser incluir pausados: "all"
         limit: 50,
         max: 8000,
       });
@@ -338,7 +405,7 @@ module.exports = {
           if (!row) skippedNotFull += 1;
           else importedFull += 1;
 
-          await sleep(80); // rate-limit friendly
+          await sleep(80);
         } catch (e) {
           fail.push({
             mlb,
@@ -359,8 +426,8 @@ module.exports = {
       };
     }
 
-    // ===== MODO SYNC (selecionados ou tudo do DB) =====
-    let targets = mlbs;
+    // ===== SYNC normal =====
+    let targets = Array.isArray(mlbs) ? mlbs : null;
 
     if (!targets) {
       const r = await db.query(
@@ -403,7 +470,7 @@ module.exports = {
   },
 
   async bulkDelete({ meli_conta_id, mlbs }) {
-    const clean = mlbs
+    const clean = (Array.isArray(mlbs) ? mlbs : [])
       .map((x) => String(x || "").trim().toUpperCase())
       .filter(Boolean);
 
