@@ -186,10 +186,12 @@
 
     <!-- Tabela -->
     <section class="card" style="cursor:default">
-      <div class="table-scroll" style="display:flex;gap:12px;align-items:center;justify-content:space-between">
-        <strong>Itens</strong>
-        <input id="fSearch" placeholder="Buscar por MLB, SKU ou título" class="input" style="max-width:320px">
-      </div>
+      <div class="table-head">
+    <strong>Itens</strong>
+    <input id="fSearch" placeholder="Buscar por MLB, SKU ou título" class="input">
+  </div>
+
+  <div class="table-scroll">
       <table id="grid">
 
 
@@ -214,7 +216,7 @@
   </thead>
   <tbody></tbody>
 </table>
-
+</div>
   <div id="pager" class="pager-wrap muted"></div>
 </section>
 
