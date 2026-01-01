@@ -8,30 +8,66 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function clampInt(n, min, max, fallback) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(x)));
+function asInt(v, def) {
+  const n = Number.parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) ? n : def;
 }
 
-function getAccessToken(req, res) {
-  const token =
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function isInvalidAccessToken(details) {
+  const msg = String(details?.response?.message || details?.response?.error || "")
+    .toLowerCase()
+    .trim();
+  const code = String(details?.response?.code || "").toLowerCase().trim();
+  return code === "unauthorized" || msg.includes("invalid access token");
+}
+
+/**
+ * Tenta obter token do middleware (res.locals) e, se faltar/ruim,
+ * cai no adapter injetado no app: app.get("getAccessTokenForAccount").
+ */
+async function getAccessToken(req, res, meli_conta_id) {
+  const tokenFromLocals =
     res?.locals?.mlCreds?.access_token ||
     res?.locals?.access_token ||
     res?.locals?.meli?.access_token;
 
-  if (!token) {
-    const err = new Error(
-      "Token ML não disponível (middleware não injetou access_token)."
-    );
-    err.statusCode = 401;
-    throw err;
+  if (tokenFromLocals && String(tokenFromLocals).trim()) {
+    return String(tokenFromLocals).trim();
   }
-  return token;
+
+  const adapter = req?.app?.get?.("getAccessTokenForAccount");
+  if (typeof adapter === "function" && meli_conta_id) {
+    const creds = await adapter(meli_conta_id);
+    const t =
+      typeof creds === "string"
+        ? creds
+        : creds?.access_token || creds?.token || null;
+
+    if (t && String(t).trim()) return String(t).trim();
+  }
+
+  const err = new Error(
+    "Token ML não disponível (middleware não injetou e adapter não retornou)."
+  );
+  err.statusCode = 401;
+  throw err;
 }
 
-async function mlGET(path, token) {
+async function mlGET(path, ctx, opts = {}) {
+  const { req, res, meli_conta_id } = ctx || {};
   const url = `${ML_BASE}${path}`;
+
+  const attempt = asInt(opts.attempt, 1);
+  const maxAttempts = asInt(opts.maxAttempts, 2);
+
+  const token =
+    opts.token ||
+    (await getAccessToken(req, res, meli_conta_id));
+
   const r = await fetch(url, {
     method: "GET",
     headers: {
@@ -40,148 +76,114 @@ async function mlGET(path, token) {
     },
   });
 
-  const text = await r.text();
+  const raw = await r.text();
   let json = null;
   try {
-    json = text ? JSON.parse(text) : null;
+    json = raw ? JSON.parse(raw) : null;
   } catch {
-    json = { raw: text };
+    json = { raw };
   }
 
-  if (!r.ok) {
-    const err = new Error(json?.message || `Erro ML ${r.status}`);
-    err.statusCode = r.status;
-    err.details = {
-      path,
-      url,
-      status: r.status,
-      response: json,
-      raw_preview: (text || "").slice(0, 600),
-    };
-    throw err;
+  if (r.ok) return json;
+
+  const details = {
+    path,
+    url,
+    status: r.status,
+    response: json,
+    raw_preview: String(raw || "").slice(0, 300),
+  };
+
+  // 429: rate limit / too many requests -> espera um pouco e tenta novamente
+  if (r.status === 429 && attempt < maxAttempts) {
+    await sleep(800 + attempt * 400);
+    return mlGET(path, ctx, {
+      ...opts,
+      token, // mantém token
+      attempt: attempt + 1,
+      maxAttempts,
+    });
   }
 
-  return json;
+  // 401: tenta buscar token fresco via adapter e retry 1x
+  if (r.status === 401 && attempt < maxAttempts && isInvalidAccessToken(details)) {
+    const adapter = req?.app?.get?.("getAccessTokenForAccount");
+    if (typeof adapter === "function" && meli_conta_id) {
+      // tentamos “forçar” refresh de forma defensiva (caso seu adapter aceite args)
+      let fresh = null;
+      try {
+        fresh = await adapter(meli_conta_id, { forceRefresh: true });
+      } catch {
+        fresh = await adapter(meli_conta_id);
+      }
+
+      const freshToken =
+        typeof fresh === "string"
+          ? fresh
+          : fresh?.access_token || fresh?.token || null;
+
+      if (freshToken && String(freshToken).trim() && String(freshToken) !== token) {
+        return mlGET(path, ctx, {
+          ...opts,
+          token: String(freshToken).trim(),
+          attempt: attempt + 1,
+          maxAttempts,
+        });
+      }
+    }
+  }
+
+  const err = new Error(json?.message || `Erro ML ${r.status}`);
+  err.statusCode = r.status;
+  err.details = details;
+  throw err;
 }
 
-async function getMe(token) {
-  return mlGET(`/users/me`, token);
+async function getMe(ctx) {
+  return mlGET(`/users/me`, ctx);
 }
 
 /**
- * Paginação tradicional com offset (boa para poucos itens)
+ * LISTAGEM DO SELLER (MUITOS ITENS):
+ * usa search_type=scan + scroll_id (cursor) para evitar estouro de offset.
  */
-async function listUserItemsOffset(userId, token, { status, limit, max } = {}) {
+async function listUserItemsScan(userId, ctx, { status = "active", limit = 50, max = 5000 } = {}) {
   const out = [];
-  const safeLimit = clampInt(limit, 1, 50, 50);
-  const safeMax = clampInt(max, 1, 20000, 8000);
 
-  let offset = 0;
+  const safeLimit = clamp(asInt(limit, 50), 1, 50);
+  const safeMax = Math.max(1, asInt(max, 5000));
 
-  while (true) {
-    const qs = new URLSearchParams();
-    qs.set("limit", String(safeLimit));
-    qs.set("offset", String(offset));
-    if (status && status !== "all") qs.set("status", status);
-
-    const data = await mlGET(
-      `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
-      token
-    );
-
-    const ids = Array.isArray(data?.results) ? data.results : [];
-    out.push(...ids);
-
-    const total = Number(data?.paging?.total || 0);
-    offset += safeLimit;
-
-    if (!ids.length) break;
-    if (offset >= total) break;
-    if (out.length >= safeMax) break;
-
-    // proteção contra rate-limit
-    await sleep(40);
-  }
-
-  return out.slice(0, safeMax);
-}
-
-/**
- * Paginação por SCAN (scroll_id) — correta para "varrer tudo" sem limite de offset
- */
-async function listUserItemsScan(userId, token, { status, limit, max } = {}) {
-  const out = [];
-  const safeLimit = clampInt(limit, 1, 50, 50);
-  const safeMax = clampInt(max, 1, 20000, 8000);
-
-  let scrollId = null;
+  let scroll_id = null;
+  let guard = 0;
 
   while (true) {
     const qs = new URLSearchParams();
     qs.set("search_type", "scan");
     qs.set("limit", String(safeLimit));
     if (status && status !== "all") qs.set("status", status);
-    if (scrollId) qs.set("scroll_id", String(scrollId));
+    if (scroll_id) qs.set("scroll_id", String(scroll_id));
 
     const data = await mlGET(
       `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
-      token
+      ctx
     );
 
     const ids = Array.isArray(data?.results) ? data.results : [];
-    if (!ids.length) break;
-
     out.push(...ids);
 
-    // o ML retorna scroll_id (precisa ser reutilizado nas próximas chamadas)
-    scrollId = data?.scroll_id || scrollId;
+    scroll_id = data?.scroll_id || data?.scrollId || null;
 
+    if (!ids.length) break;
     if (out.length >= safeMax) break;
 
-    await sleep(40);
+    // “guard rail” para não loopar infinito se API mudar comportamento
+    guard += 1;
+    if (guard > 10000) break;
+
+    await sleep(120);
   }
 
   return out.slice(0, safeMax);
-}
-
-/**
- * Decide automaticamente entre offset e scan.
- * Se der erro de offset inválido, faz fallback para scan.
- */
-async function listUserItems(userId, token, { status = "active", limit = 50, max = 8000 } = {}) {
-  const safeLimit = clampInt(limit, 1, 50, 50);
-  const safeMax = clampInt(max, 1, 20000, 8000);
-
-  // tenta primeiro pegar a primeira página pra estimar total
-  try {
-    const qs = new URLSearchParams();
-    qs.set("limit", String(safeLimit));
-    qs.set("offset", "0");
-    if (status && status !== "all") qs.set("status", status);
-
-    const first = await mlGET(
-      `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
-      token
-    );
-
-    const total = Number(first?.paging?.total || 0);
-
-    // se total é grande, já vai direto pra SCAN (evita estourar offset depois)
-    if (total > 1000) {
-      return await listUserItemsScan(userId, token, { status, limit: safeLimit, max: safeMax });
-    }
-
-    // se é pequeno, offset é mais simples/rápido
-    return await listUserItemsOffset(userId, token, { status, limit: safeLimit, max: safeMax });
-  } catch (e) {
-    // fallback inteligente: se for erro clássico de offset/limit, vai de SCAN
-    const msg = String(e?.message || "");
-    const isOffsetErr = msg.includes("Invalid limit and offset values");
-    if (isOffsetErr) {
-      return await listUserItemsScan(userId, token, { status, limit: safeLimit, max: safeMax });
-    }
-    throw e;
-  }
 }
 
 function pickSkuFromItem(item) {
@@ -271,8 +273,8 @@ async function upsertRow(data) {
 
 module.exports = {
   async list({ meli_conta_id, page, pageSize, q, status }) {
-    const safePage = Math.max(1, Number(page || 1));
-    const safePageSize = Math.min(200, Math.max(10, Number(pageSize || 25)));
+    const safePage = Math.max(1, asInt(page, 1));
+    const safePageSize = clamp(asInt(pageSize, 25), 10, 200);
     const offset = (safePage - 1) * safePageSize;
 
     const where = [];
@@ -328,25 +330,22 @@ module.exports = {
   },
 
   async addOrUpdateFromML({ req, res, meli_conta_id, mlb, opts = {} }) {
-    const token = getAccessToken(req, res);
+    const ctx = { req, res, meli_conta_id };
 
-    const item = await mlGET(`/items/${encodeURIComponent(mlb)}`, token);
+    const item = await mlGET(`/items/${encodeURIComponent(mlb)}`, ctx);
     const inventory_id = item?.inventory_id || null;
 
-    // se for import FULL, não polui com não-FULL
-    if (!inventory_id && opts.onlyIfFull) {
-      return null;
-    }
+    if (!inventory_id && opts.onlyIfFull) return null;
 
     let stock = null;
     if (inventory_id) {
       stock = await mlGET(
         `/inventories/${encodeURIComponent(inventory_id)}/stock/fulfillment`,
-        token
+        ctx
       );
     }
 
-    const row = await upsertRow({
+    return upsertRow({
       meli_conta_id,
       mlb,
       sku: pickSkuFromItem(item),
@@ -361,26 +360,25 @@ module.exports = {
       status: deriveUiStatus(item, stock),
       sales_series_40d: null,
     });
-
-    return row;
   },
 
   async sync({ req, res, meli_conta_id, mlbs, mode }) {
-    const token = getAccessToken(req, res);
+    const ctx = { req, res, meli_conta_id };
+    const upperMode = String(mode || "").toUpperCase();
 
-    // ✅ IMPORT_ALL: varre inventário do vendedor e grava apenas os que são FULL
-    if (String(mode || "").toUpperCase() === "IMPORT_ALL") {
-      const me = await getMe(token);
+    // ✅ IMPORTAR TUDO (somente FULL)
+    if (upperMode === "IMPORT_ALL") {
+      const me = await getMe(ctx);
       const userId = me?.id;
+
       if (!userId) {
         const err = new Error("Não foi possível obter /users/me para importar.");
         err.statusCode = 500;
         throw err;
       }
 
-      // lista todos os anúncios do usuário (usa SCAN automaticamente se precisar)
-      const itemIds = await listUserItems(userId, token, {
-        status: "active", // se quiser incluir pausados: "all"
+      const itemIds = await listUserItemsScan(userId, ctx, {
+        status: "active",
         limit: 50,
         max: 8000,
       });
@@ -426,7 +424,7 @@ module.exports = {
       };
     }
 
-    // ===== SYNC normal =====
+    // ✅ SYNC normal (selecionados ou DB todo)
     let targets = Array.isArray(mlbs) ? mlbs : null;
 
     if (!targets) {
@@ -441,12 +439,15 @@ module.exports = {
     const fail = [];
 
     for (const mlb of targets) {
+      const clean = String(mlb || "").trim().toUpperCase();
+      if (!clean) continue;
+
       try {
         const row = await this.addOrUpdateFromML({
           req,
           res,
           meli_conta_id,
-          mlb: String(mlb).trim().toUpperCase(),
+          mlb: clean,
         });
 
         if (row) {
@@ -458,7 +459,7 @@ module.exports = {
         }
       } catch (e) {
         fail.push({
-          mlb,
+          mlb: clean,
           message: e.message,
           statusCode: e.statusCode || 500,
           details: e.details || null,

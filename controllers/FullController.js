@@ -4,9 +4,19 @@ const FullService = require("../services/fullService");
 
 function pickContaId(req) {
   const raw = req.cookies?.meli_conta_id;
-  const meli_conta_id = Number(raw);
-  if (!meli_conta_id || Number.isNaN(meli_conta_id)) return null;
-  return meli_conta_id;
+  const id = Number(raw);
+  if (!id || Number.isNaN(id)) return null;
+  return id;
+}
+
+function httpError(res, error, fallbackMsg) {
+  const code = error?.statusCode || 500;
+  return res.status(code).json({
+    success: false,
+    error: fallbackMsg,
+    message: error?.message || "Erro",
+    details: error?.details || null,
+  });
 }
 
 module.exports = {
@@ -25,14 +35,17 @@ module.exports = {
       const q = String(req.query.q || "").trim();
       const status = String(req.query.status || "all");
 
-      const out = await FullService.list({ meli_conta_id, page, pageSize, q, status });
+      const out = await FullService.list({
+        meli_conta_id,
+        page,
+        pageSize,
+        q,
+        status,
+      });
+
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        error: "Erro ao listar FULL",
-        message: error.message,
-      });
+      return httpError(res, error, "Erro ao listar FULL");
     }
   },
 
@@ -51,16 +64,16 @@ module.exports = {
         return res.status(400).json({ success: false, error: "MLB inválido." });
       }
 
-      const row = await FullService.addOrUpdateFromML({ req, res, meli_conta_id, mlb });
+      const row = await FullService.addOrUpdateFromML({
+        req,
+        res,
+        meli_conta_id,
+        mlb,
+      });
+
       return res.json({ success: true, item: row });
     } catch (error) {
-      const code = error.statusCode || 500;
-      return res.status(code).json({
-        success: false,
-        error: "Erro ao adicionar FULL",
-        message: error.message,
-        details: error.details || null,
-      });
+      return httpError(res, error, "Erro ao adicionar FULL");
     }
   },
 
@@ -74,19 +87,20 @@ module.exports = {
         });
       }
 
-      const mode = String(req.body?.mode || "").toUpperCase() || null;
+      const mode = String(req.body?.mode || "").trim().toUpperCase();
       const mlbs = Array.isArray(req.body?.mlbs) ? req.body.mlbs : null;
 
-      const out = await FullService.sync({ req, res, meli_conta_id, mlbs, mode });
+      const out = await FullService.sync({
+        req,
+        res,
+        meli_conta_id,
+        mlbs,
+        mode,
+      });
+
       return res.json({ success: true, ...out });
     } catch (error) {
-      const code = error.statusCode || 500;
-      return res.status(code).json({
-        success: false,
-        error: "Erro ao sincronizar FULL",
-        message: error.message,
-        details: error.details || null,
-      });
+      return httpError(res, error, "Erro ao sincronizar FULL");
     }
   },
 
@@ -102,17 +116,16 @@ module.exports = {
 
       const mlbs = Array.isArray(req.body?.mlbs) ? req.body.mlbs : [];
       if (!mlbs.length) {
-        return res.status(400).json({ success: false, error: "Nenhum MLB informado." });
+        return res.status(400).json({
+          success: false,
+          error: "Nenhum MLB informado.",
+        });
       }
 
       const out = await FullService.bulkDelete({ meli_conta_id, mlbs });
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        error: "Erro ao remover em lote",
-        message: error.message,
-      });
+      return httpError(res, error, "Erro ao remover em lote");
     }
   },
 
@@ -127,14 +140,14 @@ module.exports = {
       }
 
       const mlb = String(req.params.mlb || "").trim().toUpperCase();
+      if (!mlb || !mlb.startsWith("MLB")) {
+        return res.status(400).json({ success: false, error: "MLB inválido." });
+      }
+
       const out = await FullService.bulkDelete({ meli_conta_id, mlbs: [mlb] });
       return res.json({ success: true, ...out });
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        error: "Erro ao remover",
-        message: error.message,
-      });
+      return httpError(res, error, "Erro ao remover");
     }
   },
 };
