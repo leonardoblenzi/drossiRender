@@ -233,3 +233,102 @@
   border-radius: 18px;
   border: 1px solid var(--line);
 }
+/* ============================
+   PATCH • melhorias visuais
+   (cole no final do full.css)
+   ============================ */
+
+/* 1) Corrige offsets do topo usando variáveis do dashboard.css (fallback seguro)
+   - seu full-wrap usa margin-top: 92px, mas seu topo real parece ~account-bar + nav.
+*/
+:root{
+  --top-offset: calc(var(--header-h, 88px) + var(--nav-h, 56px) + 16px);
+}
+
+.full-page{
+  /* em vez de depender de 140px fixo */
+  min-height: calc(100vh - (var(--header-h, 88px) + var(--nav-h, 56px)));
+}
+
+.full-wrap{
+  margin: var(--top-offset) auto 40px;
+}
+
+/* 2) Badge "modo seleção" começa escondido (compatível com seu JS)
+   - seu JS faz toggle de d-none; se não estiver oculto por padrão, fica sempre visível.
+*/
+#selectionModeBadge.d-none{
+  display: none !important;
+}
+
+/* 3) Botões com micro-interações (fica mais “premium”) */
+.card-panel .btn{
+  transition: transform .06s ease, box-shadow .16s ease, filter .16s ease;
+}
+
+.card-panel .btn:active{
+  transform: translateY(1px);
+}
+
+.card-panel .btn:disabled{
+  filter: grayscale(.15);
+  opacity: .72;
+}
+
+/* 4) Inputs: foco mais bonito */
+.input-group-premium .form-control:focus,
+.form-select-premium:focus{
+  box-shadow: 0 0 0 .2rem rgba(52,131,250,.18);
+  border-color: rgba(52,131,250,.45);
+}
+
+/* 5) Tabela: hover suave e melhor legibilidade */
+.full-table tbody tr{
+  transition: background-color .15s ease;
+}
+.full-table tbody tr:hover{
+  background: #fafcff;
+}
+
+.full-table tbody td{
+  color: #111827;
+}
+.full-table tbody td .text-muted{
+  color: #6b7280 !important;
+}
+
+/* 6) Ações: deixa os botões de linha mais compactos e alinhados */
+.col-actions .btn{
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+/* 7) Imagem: melhora placeholder (quando é <div class="product-img ...">) */
+.product-img{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 8) Responsivo: em telas pequenas, reduz densidade visual */
+@media (max-width: 576px){
+  .card-panel{ padding: 14px; }
+  .page-title{ font-size: 1.35rem; }
+  .page-subtitle{ font-size: .92rem; }
+
+  /* reduz widths fixos para caber melhor */
+  .col-actions{ width: 120px; }
+  .col-img{ width: 60px; }
+}
+
+/* 9) Se o loadingOverlay não estiver definido no dashboard.css, garante aqui */
+.loading-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(17,24,39,.55);
+  backdrop-filter: blur(2px);
+  z-index: 9999;
+  display: none; /* JS controla */
+  align-items: center;
+  justify-content: center;
+}

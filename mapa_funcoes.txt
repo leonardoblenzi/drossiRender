@@ -273,27 +273,84 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
    • usuarios(id, nome, email, senha_hash, nivel, criado_em, ultimo_login_em)
    • niveis: usuario | admin | admin_master (MASTER)
 
-FULL
+FULL • Produtos Fulfillment (ATUAL)
+
 / (raiz do projeto)
 ├─ index.js
-│  ├─ app.use('/api/full', fullRoutes)
-│  └─ GET /full -> views/full.html
-│     └─ carrega public/js/full.js + public/css/full.css
+│ ├─ app.use("/api/full", fullRoutes) ✅ (API FULL)
+│ ├─ app.use(htmlRoutes) ✅ (onde está o GET /full que abre a tela)
+│ ├─ Middlewares que impactam o FULL (ordem):
+│ │ • ensureAuth (JWT do app)
+│ │ • ensureAccount (exige meli_conta_id cookie)
+│ │ • authMiddleware (injeta token ML em res.locals.mlCreds)
+│ └─ GET /full → views/full.html (via htmlRoutes)
+│ └─ carrega /js/full.js + /css/full.css
 │
 ├─ routes/fullRoutes.js
-│  ├─ GET    /products              -> FullController.listProducts
-│  ├─ GET    /products/:mlb         -> FullController.getProductDetail
-│  ├─ POST   /products              -> addProduct (valida Full + salva no DB)
-│  ├─ DELETE /products              -> removeProducts (lote)
-│  ├─ PUT    /products/:mlb/sync    -> syncProduct (atualiza dados no DB)
-│  └─ GET    /stats                 -> getStats
+│ ├─ GET /anuncios → FullController.list
+│ ├─ POST /anuncios → FullController.add
+│ ├─ POST /anuncios/sync → FullController.sync
+│ │ • Body opcional: { mlbs: ["MLB..."] } → sincroniza selecionados
+│ │ • Body opcional: { mode: "IMPORT_ALL" } → importa tudo do ML (somente FULL)
+│ ├─ POST /anuncios/bulk-delete → FullController.bulkDelete
+│ └─ DELETE /anuncios/:mlb → FullController.removeOne
 │
 ├─ controllers/FullController.js
-│  ├─ usa DB Postgres: anuncios_full (por meli_conta_id)
-│  ├─ addProduct: /items/{mlb} -> pega title/image/price/inventory_id + valida fulfillment
-│  └─ syncProduct: refaz pull de dados do ML e atualiza estoque + (opcional) vendas 40d
+│ ├─ pickContaId() lê cookie meli_conta_id
+│ ├─ list
+│ │ • lê query: page, pageSize, q, status
+│ │ • chama FullService.list({ meli_conta_id, page, pageSize, q, status })
+│ ├─ add
+│ │ • valida mlb (começa com MLB)
+│ │ • chama FullService.addOrUpdateFromML({ req, res, meli_conta_id, mlb })
+│ ├─ sync
+│ │ • lê body: mode e mlbs
+│ │ • chama FullService.sync({ req, res, meli_conta_id, mlbs, mode })
+│ ├─ bulkDelete
+│ │ • remove lote por mlbs[]
+│ └─ removeOne
+│ • remove 1 (usa bulkDelete internamente)
+│
+├─ services/fullService.js
+│ ├─ DB: tabela anuncios_full (chave por meli_conta_id + mlb)
+│ ├─ list()
+│ │ • paginação via LIMIT/OFFSET no Postgres
+│ │ • filtros: texto (mlb/sku/title) + status
+│ ├─ addOrUpdateFromML()
+│ │ • ML: GET /items/{mlb} → pega title, price, pictures/thumbnail, inventory_id, sold_quantity, status
+│ │ • se tem inventory_id: GET /inventories/{inventory_id}/stock/fulfillment → pega available_quantity (+ detalhes)
+│ │ • calcula status da UI (active/no_stock/intransfer/ineligible)
+│ │ • upsert no DB
+│ ├─ sync()
+│ │ • mode = "IMPORT_ALL":
+│ │ │ - ML: GET /users/me → userId
+│ │ │ - ML: GET /users/{userId}/items/search?search_type=scan&limit=...&scroll_id=...
+│ │ │ - para cada MLB: chama addOrUpdateFromML(opts.onlyIfFull=true)
+│ │ │ - resultado: scanned/imported_full/skipped_not_full/fail[]
+│ │ • mode normal:
+│ │ - se mlbs vier: sincroniza só eles
+│ │ - senão: busca todos do DB e sincroniza
+│ └─ bulkDelete()
+│ • DELETE FROM anuncios_full WHERE meli_conta_id=$1 AND mlb = ANY($2)
+│
+├─ views/full.html
+│ ├─ Header (account-bar) + Tabs
+│ ├─ Card “Configuração e ações” (Buscar, pageSize, status)
+│ ├─ Ações: Adicionar, Sincronizar, Excluir selecionados, Selecionar página, Limpar seleção, badge modo seleção (opcional)
+│ └─ Tabela (checkbox/Imagem/MLB/SKU/QtdFull/Vendas/Preço/Status/Ações) + paginação
+│
+├─ public/js/full.js
+│ ├─ Monta query da listagem: /api/full/anuncios?page=&pageSize=&q=&status=
+│ ├─ sync chama: POST /api/full/anuncios/sync
+│ │ • se DB vazio → { mode: "IMPORT_ALL" }
+│ │ • se tem seleção → { mlbs: चयन }
+│ │ • sem seleção → sincroniza MLBs da página atual
+│ ├─ bulk delete chama: POST /api/full/anuncios/bulk-delete
+│ ├─ add chama: POST /api/full/anuncios
+│ └─ Controla seleção/paginação/render da tabela
 │
 └─ db/00X_create_anuncios_full.sql
+└─ Criação da tabela anuncios_full + índices/constraints (meli_conta_id, mlb)
 
 ✅ NOVO ARQUIVO (reutilizável)
 middleware/

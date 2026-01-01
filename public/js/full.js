@@ -46,6 +46,21 @@
   const removeProductError = qs("#removeProductError");
   const confirmRemoveBtn = qs("#confirmRemoveBtn");
 
+  // ✅ Última atualização (fallback: cria um span ao lado do itemsInfo se não existir no HTML)
+  const lastUpdateEl =
+    qs("#lastUpdateInfo") ||
+    qs("#lastSyncInfo") ||
+    qs("[data-last-update]") ||
+    (() => {
+      if (!itemsInfo) return null;
+      const span = document.createElement("span");
+      span.id = "lastUpdateInfo";
+      span.className = "ms-2 text-muted small";
+      span.textContent = ""; // preenchido depois
+      itemsInfo.parentNode?.insertBefore(span, itemsInfo.nextSibling);
+      return span;
+    })();
+
   // State
   let state = {
     page: 1,
@@ -55,6 +70,7 @@
     paging: { page: 1, pages: 1, total: 0, pageSize: 25 },
     rows: [],
     selected: new Set(), // mlbs
+    mlbIndex: new Set(), // cache leve de MLBS já vistos (para anti-duplicado no front)
   };
 
   function setLoading(on) {
@@ -66,6 +82,22 @@
     const n = Number(v);
     if (!Number.isFinite(n)) return "-";
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+
+  function fmtDateTime(ts) {
+    try {
+      const d = ts instanceof Date ? ts : new Date(ts);
+      if (!d || isNaN(d.getTime())) return "";
+      return d.toLocaleString("pt-BR", { hour12: false });
+    } catch {
+      return "";
+    }
+  }
+
+  function setLastUpdate(ts) {
+    if (!lastUpdateEl) return;
+    const label = fmtDateTime(ts);
+    lastUpdateEl.textContent = label ? `Última atualização em: ${label}` : "";
   }
 
   function badgeForStatus(s) {
@@ -100,14 +132,11 @@
     const body = await safeReadBody(r);
 
     // Se vier HTML (redirect silencioso pra /login ou /select-conta), estoura erro claro
-    const looksHtml =
-      body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
+    const looksHtml = body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
 
     if (!r.ok) {
       if (looksHtml) {
-        throw new Error(
-          `HTTP ${r.status} (HTML/redirect). Verifique login/conta/permissão.`
-        );
+        throw new Error(`HTTP ${r.status} (HTML/redirect). Verifique login/conta/permissão.`);
       }
       try {
         const data = ct.includes("application/json") ? JSON.parse(body) : {};
@@ -175,6 +204,23 @@
     return `/api/full/anuncios?${params.toString()}`;
   }
 
+  function extractLastUpdateFromListResponse(data) {
+    // tolerante a nomes diferentes no backend
+    return (
+      data?.last_sync_at ||
+      data?.lastSyncAt ||
+      data?.last_update_at ||
+      data?.lastUpdateAt ||
+      data?.meta?.last_sync_at ||
+      data?.meta?.lastSyncAt ||
+      data?.meta?.last_update_at ||
+      data?.meta?.lastUpdateAt ||
+      data?.paging?.last_sync_at ||
+      data?.paging?.lastSyncAt ||
+      null
+    );
+  }
+
   async function fetchList() {
     setLoading(true);
     try {
@@ -182,19 +228,13 @@
       state.rows = data.results || [];
       state.paging = data.paging || state.paging;
 
+      // cache leve de MLBS conhecidos (para bloquear duplicado no front)
+      state.rows.forEach((r) => r?.mlb && state.mlbIndex.add(String(r.mlb).toUpperCase()));
+
       if (itemsInfo) itemsInfo.textContent = `${state.paging.total || 0} itens`;
 
-      // ✅ remove da seleção itens que não existem mais (limpeza leve)
-      // (não remove seleção de outros itens fora da página; só garante que itens da página removidos não fiquem quebrados)
-      const currentSet = new Set(state.rows.map((r) => r.mlb));
-      for (const mlb of Array.from(state.selected)) {
-        // não mexe com seleção global, mas se o item estava na página e sumiu, remove
-        // (se você quiser manter seleção global sempre, remova esse bloco)
-        // Aqui a regra é: se o item selecionado não existe mais no DB na listagem atual, pode ficar — então não removemos.
-        // => mantendo assim: não faz nada.
-        void currentSet;
-        void mlb;
-      }
+      const last = extractLastUpdateFromListResponse(data);
+      if (last) setLastUpdate(last);
 
       renderTable();
       renderPagination();
@@ -210,7 +250,7 @@
     if (!state.rows.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="9" class="text-center py-5 text-muted">
+          <td colspan="11" class="text-center py-5 text-muted">
             <div class="mb-2"><i class="bi bi-inbox" style="font-size:32px;"></i></div>
             Nenhum produto encontrado
           </td>
@@ -231,23 +271,39 @@
           ? `<img class="product-img" src="${row.image_url}" alt="" loading="lazy">`
           : `<div class="product-img d-flex align-items-center justify-content-center"><i class="bi bi-image text-muted"></i></div>`;
 
+        const sold40 = row.sold_40d ?? row.sold40d ?? row.sold_total ?? 0;
+        const imp40 = row.impressions_40d ?? row.impressions40d ?? row.impressions ?? 0;
+        const clk40 = row.clicks_40d ?? row.clicks40d ?? row.clicks ?? 0;
+
         return `
         <tr data-mlb="${mlb}">
           <td class="col-check">
             <input type="checkbox" class="form-check-input row-check" data-mlb="${mlb}" ${checked}>
           </td>
+
           <td class="col-img">${img}</td>
+
           <td class="col-mlb">
             <div class="fw-bold">${mlb}</div>
             <div class="small text-muted text-truncate" style="max-width:360px;">${row.title || "-"}</div>
           </td>
+
           <td class="col-sku">${row.sku || "-"}</td>
-          <td class="col-qty"><span class="fw-bold">${row.stock_full ?? 0}</span></td>
-          <td class="col-sold">${row.sold_total ?? 0}</td>
+
           <td class="col-price">${fmtMoney(row.price)}</td>
+
+          <td class="col-qty"><span class="fw-bold">${row.stock_full ?? 0}</span></td>
+
+          <td class="col-sold">${sold40}</td>
+
+          <td class="col-impr">${imp40}</td>
+
+          <td class="col-clicks">${clk40}</td>
+
           <td class="col-status">
             <span class="badge-soft ${cls}">${label}</span>
           </td>
+
           <td class="col-actions">
             <div class="d-flex gap-2">
               <button class="btn btn-outline-primary btn-sm btn-pill btn-sync-one" data-mlb="${mlb}" title="Sincronizar item">
@@ -358,38 +414,70 @@
     renderTable();
   }
 
-  // ✅ 1) Sync de mlbs (modo normal)
-  async function syncMlbs(mlbs) {
-    setLoading(true);
+  // ✅ anti-duplicado no front (local + checagem leve no backend via list)
+  async function checkMlbAlreadyExists(mlb) {
+    const up = String(mlb || "").trim().toUpperCase();
+    if (!up) return false;
+
+    // 1) cache local (páginas já vistas)
+    if (state.mlbIndex.has(up)) return true;
+
+    // 2) página atual
+    if (state.rows.some((r) => String(r?.mlb || "").toUpperCase() === up)) {
+      state.mlbIndex.add(up);
+      return true;
+    }
+
+    // 3) checagem leve no backend (evita duplicar em outra página)
     try {
-      await getJSON("/api/full/anuncios/sync", {
-        method: "POST",
-        body: JSON.stringify({ mlbs }),
-      });
-      await fetchList();
-    } catch (e) {
-      alert(`Falha ao sincronizar: ${e.message}`);
-    } finally {
-      setLoading(false);
+      const params = new URLSearchParams();
+      params.set("page", "1");
+      params.set("pageSize", "1");
+      params.set("q", up);
+      params.set("status", "all");
+
+      const data = await getJSON(`/api/full/anuncios?${params.toString()}`);
+      const found = (data?.results || []).some(
+        (r) => String(r?.mlb || "").toUpperCase() === up
+      );
+
+      if (found) state.mlbIndex.add(up);
+      return found;
+    } catch {
+      // se falhar a checagem, deixa o backend decidir (unique constraint / 409)
+      return false;
     }
   }
 
-  // ✅ 2) Importar tudo do ML (quando banco está vazio)
-  async function importAllFromML() {
+  // ✅ Sync de mlbs (modo normal) | se mlbs for null/undefined -> sync geral (DB)
+ async function syncMlbs(mlbs) {
+  try {
     setLoading(true);
-    try {
-      await getJSON("/api/full/anuncios/sync", {
-        method: "POST",
-        body: JSON.stringify({ mode: "IMPORT_ALL" }),
-      });
-      state.page = 1;
-      await fetchList();
-    } catch (e) {
-      alert(`Falha ao importar do ML: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
+
+    const body = Array.isArray(mlbs) ? { mlbs } : {};
+    const data = await getJSON("/api/full/anuncios/sync", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+
+    const last =
+      data?.last_sync_at ||
+      data?.lastSyncAt ||
+      data?.meta?.last_sync_at ||
+      data?.meta?.lastSyncAt ||
+      null;
+    if (last) setLastUpdate(last);
+
+  } catch (e) {
+    alert(`Falha ao sincronizar: ${e.message}`);
+  } finally {
+    // ✅ aqui só desliga e chama fetchList SEM overlay
+    setLoading(false);
   }
+
+  await fetchList(); // deixa o fetchList lidar com overlay (ou você pode tirar overlay dele)
+}
+
 
   function openRemoveModal(mlbs) {
     if (!confirmRemoveModal) {
@@ -443,7 +531,19 @@
   }
 
   function exportCSV() {
-    const headers = ["MLB", "SKU", "Título", "Inventory ID", "Preço", "Qtd Full", "Vendas", "Status"];
+    const headers = [
+      "MLB",
+      "SKU",
+      "Título",
+      "Inventory ID",
+      "Preço",
+      "Qtd Full",
+      "Vendas 40d",
+      "Impressões 40d",
+      "Cliques 40d",
+      "Status",
+    ];
+
     const rows = state.rows.map((r) => [
       r.mlb,
       r.sku || "",
@@ -451,7 +551,9 @@
       r.inventory_id || "",
       r.price ?? "",
       r.stock_full ?? 0,
-      r.sold_total ?? 0,
+      r.sold_40d ?? r.sold40d ?? r.sold_total ?? 0,
+      r.impressions_40d ?? r.impressions40d ?? r.impressions ?? 0,
+      r.clicks_40d ?? r.clicks40d ?? r.clicks ?? 0,
       r.status || "",
     ]);
 
@@ -496,32 +598,15 @@
   });
 
   // ✅ BOTÃO PRINCIPAL: SINCRONIZAR
+  // Novo comportamento:
+  // - Se houver seleção -> sincroniza seleção
+  // - Sem seleção -> sincroniza TODOS do DB (backend)
   syncBtn?.addEventListener("click", async () => {
-    const total = Number(state.paging?.total || 0);
-
-    // 1) Se ainda não tem nada no banco -> IMPORTA DO ML
-    if (total === 0) {
-      const ok = confirm(
-        "Ainda não existe nenhum item FULL no banco.\n\nDeseja mapear o inventário FULL e importar tudo agora?"
-      );
-      if (!ok) return;
-      await importAllFromML();
-      return;
-    }
-
-    // 2) Se houver seleção -> sincroniza seleção
     if (state.selected.size) {
       await syncMlbs(Array.from(state.selected));
       return;
     }
-
-    // 3) Sem seleção -> sincroniza só a página atual (evita rate limit)
-    const mlbs = currentPageMlbs();
-    if (!mlbs.length) {
-      await fetchList();
-      return;
-    }
-    await syncMlbs(mlbs);
+    await syncMlbs(); // sem mlbs => sync geral (DB)
   });
 
   exportBtn?.addEventListener("click", exportCSV);
@@ -547,6 +632,16 @@
       return;
     }
 
+    // ✅ bloqueia duplicado no front (e ainda deixa o backend garantir)
+    const exists = await checkMlbAlreadyExists(mlb);
+    if (exists) {
+      if (addProductError) {
+        addProductError.textContent = "Esse MLB já está cadastrado na lista FULL.";
+        addProductError.classList.remove("d-none");
+      }
+      return;
+    }
+
     if (addProductSubmitBtn) addProductSubmitBtn.disabled = true;
     try {
       await getJSON("/api/full/anuncios", {
@@ -554,8 +649,11 @@
         body: JSON.stringify({ mlb }),
       });
 
+      // atualiza cache local
+      state.mlbIndex.add(mlb);
+
       if (addProductSuccess) {
-        addProductSuccess.textContent = "Produto adicionado/sincronizado com sucesso.";
+        addProductSuccess.textContent = "Produto adicionado com sucesso.";
         addProductSuccess.classList.remove("d-none");
       }
 

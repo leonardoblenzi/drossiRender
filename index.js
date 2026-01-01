@@ -642,7 +642,8 @@ try {
 // Full (API)
 try {
   const fullRoutes = require("./routes/fullRoutes");
-  app.use("/api/full", fullRoutes);
+  app.use("/api/full", ensureAccount, authMiddleware, fullRoutes);
+
   console.log("✅ FullRoutes carregado");
 } catch (error) {
   console.error("❌ Erro ao carregar FullRoutes:", error.message);

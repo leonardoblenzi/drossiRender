@@ -17,6 +17,10 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+function normalizeMlb(v) {
+  return String(v || "").trim().toUpperCase();
+}
+
 function isInvalidAccessToken(details) {
   const msg = String(details?.response?.message || details?.response?.error || "")
     .toLowerCase()
@@ -30,6 +34,13 @@ function isInvalidAccessToken(details) {
  * cai no adapter injetado no app: app.get("getAccessTokenForAccount").
  */
 async function getAccessToken(req, res, meli_conta_id) {
+  // ✅ 1) PRIORIDADE: token já validado pelo authMiddleware
+  const tokenFromReq = req?.ml?.accessToken;
+  if (tokenFromReq && String(tokenFromReq).trim()) {
+    return String(tokenFromReq).trim();
+  }
+
+  // ✅ 2) compat: casos antigos (locals)
   const tokenFromLocals =
     res?.locals?.mlCreds?.access_token ||
     res?.locals?.access_token ||
@@ -39,6 +50,7 @@ async function getAccessToken(req, res, meli_conta_id) {
     return String(tokenFromLocals).trim();
   }
 
+  // ✅ 3) fallback: adapter (ml-auth)
   const adapter = req?.app?.get?.("getAccessTokenForAccount");
   if (typeof adapter === "function" && meli_conta_id) {
     const creds = await adapter(meli_conta_id);
@@ -57,6 +69,7 @@ async function getAccessToken(req, res, meli_conta_id) {
   throw err;
 }
 
+
 async function mlGET(path, ctx, opts = {}) {
   const { req, res, meli_conta_id } = ctx || {};
   const url = `${ML_BASE}${path}`;
@@ -64,9 +77,7 @@ async function mlGET(path, ctx, opts = {}) {
   const attempt = asInt(opts.attempt, 1);
   const maxAttempts = asInt(opts.maxAttempts, 2);
 
-  const token =
-    opts.token ||
-    (await getAccessToken(req, res, meli_conta_id));
+  const token = opts.token || (await getAccessToken(req, res, meli_conta_id));
 
   const r = await fetch(url, {
     method: "GET",
@@ -147,7 +158,11 @@ async function getMe(ctx) {
  * LISTAGEM DO SELLER (MUITOS ITENS):
  * usa search_type=scan + scroll_id (cursor) para evitar estouro de offset.
  */
-async function listUserItemsScan(userId, ctx, { status = "active", limit = 50, max = 5000 } = {}) {
+async function listUserItemsScan(
+  userId,
+  ctx,
+  { status = "active", limit = 50, max = 5000 } = {}
+) {
   const out = [];
 
   const safeLimit = clamp(asInt(limit, 50), 1, 50);
@@ -271,6 +286,44 @@ async function upsertRow(data) {
   return r.rows[0];
 }
 
+async function insertManual({ meli_conta_id, mlb }) {
+  const clean = normalizeMlb(mlb);
+  if (!clean || !clean.startsWith("MLB")) {
+    const err = new Error("MLB inválido.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // bloqueio duplicado no backend (front já bloqueia, mas aqui garante)
+  const existsR = await db.query(
+    `SELECT 1 FROM anuncios_full WHERE meli_conta_id = $1 AND mlb = $2 LIMIT 1;`,
+    [meli_conta_id, clean]
+  );
+  if (existsR.rowCount > 0) {
+    const err = new Error("Esse MLB já está cadastrado na lista FULL.");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const q = `
+    INSERT INTO anuncios_full
+      (meli_conta_id, mlb, sku, title, image_url, inventory_id, price, stock_full, sold_total, sold_40d, listing_status, status, sales_series_40d, last_synced_at, created_at, updated_at)
+    VALUES
+      ($1,$2,NULL,NULL,NULL,NULL,NULL,0,0,0,NULL,'ineligible',NULL,NULL,NOW(),NOW())
+    RETURNING *;
+  `;
+  const r = await db.query(q, [meli_conta_id, clean]);
+  return r.rows[0];
+}
+
+async function getLastSyncAtForAccount(meli_conta_id) {
+  const r = await db.query(
+    `SELECT MAX(last_synced_at) AS last_sync_at FROM anuncios_full WHERE meli_conta_id = $1;`,
+    [meli_conta_id]
+  );
+  return r.rows?.[0]?.last_sync_at || null;
+}
+
 module.exports = {
   async list({ meli_conta_id, page, pageSize, q, status }) {
     const safePage = Math.max(1, asInt(page, 1));
@@ -318,7 +371,11 @@ module.exports = {
 
     const listR = await db.query(listQ, params);
 
+    // ✅ para o cabeçalho "Última atualização em:"
+    const last_sync_at = await getLastSyncAtForAccount(meli_conta_id);
+
     return {
+      last_sync_at,
       paging: {
         page: safePage,
         pageSize: safePageSize,
@@ -327,6 +384,11 @@ module.exports = {
       },
       results: listR.rows,
     };
+  },
+
+  // ✅ NOVO: Adicionar MLB manualmente (sem sync pesado)
+  async addManual({ meli_conta_id, mlb }) {
+    return insertManual({ meli_conta_id, mlb });
   },
 
   async addOrUpdateFromML({ req, res, meli_conta_id, mlb, opts = {} }) {
@@ -355,6 +417,7 @@ module.exports = {
       price: item?.price ?? item?.base_price ?? null,
       stock_full: Number(stock?.available_quantity || 0),
       sold_total: Number(item?.sold_quantity || 0),
+      // por enquanto mantém 0; quando você ligar métricas 40d no DB, atualizamos aqui
       sold_40d: 0,
       listing_status: item?.status || null,
       status: deriveUiStatus(item, stock),
@@ -363,65 +426,15 @@ module.exports = {
   },
 
   async sync({ req, res, meli_conta_id, mlbs, mode }) {
-    const ctx = { req, res, meli_conta_id };
     const upperMode = String(mode || "").toUpperCase();
 
-    // ✅ IMPORTAR TUDO (somente FULL)
+    // ✅ IMPORT_ALL desativado (novo comportamento)
     if (upperMode === "IMPORT_ALL") {
-      const me = await getMe(ctx);
-      const userId = me?.id;
-
-      if (!userId) {
-        const err = new Error("Não foi possível obter /users/me para importar.");
-        err.statusCode = 500;
-        throw err;
-      }
-
-      const itemIds = await listUserItemsScan(userId, ctx, {
-        status: "active",
-        limit: 50,
-        max: 8000,
-      });
-
-      let importedFull = 0;
-      let skippedNotFull = 0;
-      const fail = [];
-
-      for (const id of itemIds) {
-        const mlb = String(id || "").trim().toUpperCase();
-        if (!mlb) continue;
-
-        try {
-          const row = await this.addOrUpdateFromML({
-            req,
-            res,
-            meli_conta_id,
-            mlb,
-            opts: { onlyIfFull: true },
-          });
-
-          if (!row) skippedNotFull += 1;
-          else importedFull += 1;
-
-          await sleep(80);
-        } catch (e) {
-          fail.push({
-            mlb,
-            message: e.message,
-            statusCode: e.statusCode || 500,
-            details: e.details || null,
-          });
-        }
-      }
-
-      return {
-        mode: "IMPORT_ALL",
-        scanned: itemIds.length,
-        imported_full: importedFull,
-        skipped_not_full: skippedNotFull,
-        failed: fail.length,
-        fail,
-      };
+      const err = new Error(
+        'Modo "IMPORT_ALL" foi desativado. Adicione MLBs manualmente e use "Sincronizar" para atualizar as colunas.'
+      );
+      err.statusCode = 400;
+      throw err;
     }
 
     // ✅ SYNC normal (selecionados ou DB todo)
@@ -439,7 +452,7 @@ module.exports = {
     const fail = [];
 
     for (const mlb of targets) {
-      const clean = String(mlb || "").trim().toUpperCase();
+      const clean = normalizeMlb(mlb);
       if (!clean) continue;
 
       try {
@@ -467,12 +480,21 @@ module.exports = {
       }
     }
 
-    return { mode: "SYNC", updated: ok.length, failed: fail.length, ok, fail };
+    const last_sync_at = await getLastSyncAtForAccount(meli_conta_id);
+
+    return {
+      mode: "SYNC",
+      updated: ok.length,
+      failed: fail.length,
+      ok,
+      fail,
+      last_sync_at,
+    };
   },
 
   async bulkDelete({ meli_conta_id, mlbs }) {
     const clean = (Array.isArray(mlbs) ? mlbs : [])
-      .map((x) => String(x || "").trim().toUpperCase())
+      .map((x) => normalizeMlb(x))
       .filter(Boolean);
 
     const r = await db.query(

@@ -91,9 +91,10 @@
             <span class="chip" id="chipSelected">0 selecionados</span>
 
             <!-- Badge opcional (se quiser atualizar via JS depois) -->
-            <span class="badge text-bg-secondary" id="selectionModeBadge" title="Modo de seleção">
-              Modo: Página
-            </span>
+            <span class="badge text-bg-secondary d-none" id="selectionModeBadge" title="Modo de seleção">
+  Modo: Página
+</span>
+
           </div>
         </div>
 
@@ -134,12 +135,12 @@
             <div class="panel-mini-title">SELEÇÃO & AÇÕES</div>
 
             <div class="d-flex gap-2 flex-wrap mb-2">
-              <!-- Ações principais propostas -->
               <button class="btn btn-success" id="addProductBtn" type="button" title="Adicionar MLB manualmente">
                 <i class="bi bi-plus-circle"></i> Adicionar
               </button>
 
-              <button class="btn btn-primary" id="syncBtn" type="button" title="Sincronizar (se banco vazio: importar do ML; com seleção: selecionados; sem seleção: página atual)">
+              <!-- ✅ ajustado tooltip -->
+              <button class="btn btn-primary" id="syncBtn" type="button" title="Sincronizar: com seleção = selecionados; sem seleção = todos do banco">
                 <i class="bi bi-arrow-repeat"></i> Sincronizar
               </button>
 
@@ -148,7 +149,6 @@
               </button>
             </div>
 
-            <!-- Seleção: página / limpar -->
             <div class="d-flex gap-2 flex-wrap">
               <button class="btn btn-outline-secondary" id="selectPageBtn" type="button" title="Selecionar todos os itens da página atual">
                 <i class="bi bi-check2-square"></i> Selecionar página
@@ -159,8 +159,9 @@
               </button>
             </div>
 
+            <!-- ✅ ajustado texto -->
             <div class="mt-3 small text-muted">
-              Dica: sem seleção, o “Sincronizar” atualiza só a página atual (evita rate limit). Com seleção, sincroniza os selecionados.
+              Dica: sem seleção, o “Sincronizar” atualiza todos os itens cadastrados no banco. Com seleção, sincroniza só os selecionados.
             </div>
           </div>
         </div>
@@ -176,6 +177,8 @@
 
           <div class="right-tools">
             <span class="small text-muted" id="itemsInfo">0 itens</span>
+            <!-- ✅ novo: timestamp fixo no HTML -->
+            <span class="small text-muted ms-2" id="lastUpdateInfo"></span>
           </div>
         </div>
 
@@ -186,12 +189,18 @@
                 <th class="col-check">
                   <input type="checkbox" class="form-check-input" id="selectAllCheckbox" title="Selecionar todos da página">
                 </th>
+
                 <th class="col-img">Imagem</th>
                 <th class="col-mlb">MLB</th>
                 <th class="col-sku">SKU</th>
-                <th class="col-qty">Qtd. Full</th>
-                <th class="col-sold">Vendas</th>
+
+                <!-- ✅ nova ordem -->
                 <th class="col-price">Preço</th>
+                <th class="col-qty">Qtd. Full</th>
+                <th class="col-sold">Vendas 40d</th>
+                <th class="col-impr">Impressões 40d</th>
+                <th class="col-clicks">Cliques 40d</th>
+
                 <th class="col-status">Status</th>
                 <th class="col-actions">Ações</th>
               </tr>
@@ -223,7 +232,8 @@
             <div class="mb-2">
               <label for="mlbInput" class="form-label">Código MLB</label>
               <input type="text" class="form-control" id="mlbInput" placeholder="Ex: MLB1234567890" required>
-              <div class="form-text">Consulta /items/{MLB} e depois stock Fulfillment via inventory_id.</div>
+              <!-- ✅ ajustado texto -->
+              <div class="form-text">Adiciona o MLB na lista. Use “Sincronizar” para preencher/atualizar as colunas.</div>
             </div>
 
             <div id="addProductError" class="alert alert-danger d-none mt-3"></div>
