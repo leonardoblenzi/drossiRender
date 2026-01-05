@@ -90,11 +90,10 @@
             <span class="chip" id="chipTotal">0 itens</span>
             <span class="chip" id="chipSelected">0 selecionados</span>
 
-            <!-- Badge opcional (se quiser atualizar via JS depois) -->
+            <!-- Badge opcional -->
             <span class="badge text-bg-secondary d-none" id="selectionModeBadge" title="Modo de seleção">
-  Modo: Página
-</span>
-
+              Modo: Página
+            </span>
           </div>
         </div>
 
@@ -139,7 +138,6 @@
                 <i class="bi bi-plus-circle"></i> Adicionar
               </button>
 
-              <!-- ✅ ajustado tooltip -->
               <button class="btn btn-primary" id="syncBtn" type="button" title="Sincronizar: com seleção = selecionados; sem seleção = todos do banco">
                 <i class="bi bi-arrow-repeat"></i> Sincronizar
               </button>
@@ -159,7 +157,6 @@
               </button>
             </div>
 
-            <!-- ✅ ajustado texto -->
             <div class="mt-3 small text-muted">
               Dica: sem seleção, o “Sincronizar” atualiza todos os itens cadastrados no banco. Com seleção, sincroniza só os selecionados.
             </div>
@@ -177,7 +174,6 @@
 
           <div class="right-tools">
             <span class="small text-muted" id="itemsInfo">0 itens</span>
-            <!-- ✅ novo: timestamp fixo no HTML -->
             <span class="small text-muted ms-2" id="lastUpdateInfo"></span>
           </div>
         </div>
@@ -194,10 +190,12 @@
                 <th class="col-mlb">MLB</th>
                 <th class="col-sku">SKU</th>
 
-                <!-- ✅ nova ordem -->
                 <th class="col-price">Preço</th>
                 <th class="col-qty">Qtd. Full</th>
-                <th class="col-sold">Vendas 40d</th>
+
+                <th class="col-sold-total">Vendas (Total)</th>
+                <th class="col-sold-40d">Vendas 40d</th>
+
                 <th class="col-impr">Impressões 40d</th>
                 <th class="col-clicks">Cliques 40d</th>
 
@@ -232,7 +230,6 @@
             <div class="mb-2">
               <label for="mlbInput" class="form-label">Código MLB</label>
               <input type="text" class="form-control" id="mlbInput" placeholder="Ex: MLB1234567890" required>
-              <!-- ✅ ajustado texto -->
               <div class="form-text">Adiciona o MLB na lista. Use “Sincronizar” para preencher/atualizar as colunas.</div>
             </div>
 

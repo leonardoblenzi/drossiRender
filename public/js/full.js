@@ -24,16 +24,22 @@
 
   // ✅ NOVO (com fallback para não quebrar se ainda não alterou o HTML)
   const syncBtn = qs("#syncBtn") || qs("#reloadBtn");
-  const deleteSelectedBtn = qs("#deleteSelectedBtn") || qs("#removeSelectedBtn");
+  const deleteSelectedBtn =
+    qs("#deleteSelectedBtn") || qs("#removeSelectedBtn");
 
   const addProductBtn = qs("#addProductBtn");
   const exportBtn = qs("#exportBtn");
 
-  const currentAccountEls = [qs("#currentAccount"), qs("#account-current")].filter(Boolean);
+  const currentAccountEls = [
+    qs("#currentAccount"),
+    qs("#account-current"),
+  ].filter(Boolean);
 
   // Modals
   const addProductModalEl = qs("#addProductModal");
-  const addProductModal = addProductModalEl ? new bootstrap.Modal(addProductModalEl) : null;
+  const addProductModal = addProductModalEl
+    ? new bootstrap.Modal(addProductModalEl)
+    : null;
   const addProductForm = qs("#addProductForm");
   const mlbInput = qs("#mlbInput");
   const addProductError = qs("#addProductError");
@@ -41,7 +47,9 @@
   const addProductSubmitBtn = qs("#addProductSubmitBtn");
 
   const confirmRemoveModalEl = qs("#confirmRemoveModal");
-  const confirmRemoveModal = confirmRemoveModalEl ? new bootstrap.Modal(confirmRemoveModalEl) : null;
+  const confirmRemoveModal = confirmRemoveModalEl
+    ? new bootstrap.Modal(confirmRemoveModalEl)
+    : null;
   const removeCountEl = qs("#removeCount");
   const removeProductError = qs("#removeProductError");
   const confirmRemoveBtn = qs("#confirmRemoveBtn");
@@ -132,15 +140,20 @@
     const body = await safeReadBody(r);
 
     // Se vier HTML (redirect silencioso pra /login ou /select-conta), estoura erro claro
-    const looksHtml = body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
+    const looksHtml =
+      body.trim().startsWith("<!DOCTYPE") || body.trim().startsWith("<html");
 
     if (!r.ok) {
       if (looksHtml) {
-        throw new Error(`HTTP ${r.status} (HTML/redirect). Verifique login/conta/permissão.`);
+        throw new Error(
+          `HTTP ${r.status} (HTML/redirect). Verifique login/conta/permissão.`
+        );
       }
       try {
         const data = ct.includes("application/json") ? JSON.parse(body) : {};
-        throw new Error(data?.message || data?.error || `Erro HTTP ${r.status}`);
+        throw new Error(
+          data?.message || data?.error || `Erro HTTP ${r.status}`
+        );
       } catch {
         throw new Error(`Erro HTTP ${r.status}: ${body.slice(0, 200)}`.trim());
       }
@@ -161,7 +174,8 @@
   async function loadWhoAmI() {
     try {
       const data = await getJSON("/api/account/whoami");
-      const label = data?.accountLabel || data?.accountKey || "Conta selecionada";
+      const label =
+        data?.accountLabel || data?.accountKey || "Conta selecionada";
       currentAccountEls.forEach((el) => (el.textContent = label));
     } catch {
       currentAccountEls.forEach((el) => (el.textContent = "Nenhuma"));
@@ -191,7 +205,8 @@
 
   function updateChips() {
     if (chipTotal) chipTotal.textContent = `${state.paging.total || 0} itens`;
-    if (chipSelected) chipSelected.textContent = `${state.selected.size} selecionados`;
+    if (chipSelected)
+      chipSelected.textContent = `${state.selected.size} selecionados`;
     updateBulkButtonsState();
   }
 
@@ -229,7 +244,9 @@
       state.paging = data.paging || state.paging;
 
       // cache leve de MLBS conhecidos (para bloquear duplicado no front)
-      state.rows.forEach((r) => r?.mlb && state.mlbIndex.add(String(r.mlb).toUpperCase()));
+      state.rows.forEach(
+        (r) => r?.mlb && state.mlbIndex.add(String(r.mlb).toUpperCase())
+      );
 
       if (itemsInfo) itemsInfo.textContent = `${state.paging.total || 0} itens`;
 
@@ -248,9 +265,10 @@
     if (!tbody) return;
 
     if (!state.rows.length) {
+      // ✅ agora são 13 colunas no total (com Vendas Total + Vendas 40d)
       tbody.innerHTML = `
         <tr>
-          <td colspan="11" class="text-center py-5 text-muted">
+          <td colspan="13" class="text-center py-5 text-muted">
             <div class="mb-2"><i class="bi bi-inbox" style="font-size:32px;"></i></div>
             Nenhum produto encontrado
           </td>
@@ -271,8 +289,12 @@
           ? `<img class="product-img" src="${row.image_url}" alt="" loading="lazy">`
           : `<div class="product-img d-flex align-items-center justify-content-center"><i class="bi bi-image text-muted"></i></div>`;
 
-        const sold40 = row.sold_40d ?? row.sold40d ?? row.sold_total ?? 0;
-        const imp40 = row.impressions_40d ?? row.impressions40d ?? row.impressions ?? 0;
+        // ✅ Vendas (Total) e Vendas 40d separados
+        const soldTotal = row.sold_total ?? row.soldTotal ?? 0;
+        const sold40 = row.sold_40d ?? row.sold40d ?? 0;
+
+        const imp40 =
+          row.impressions_40d ?? row.impressions40d ?? row.impressions ?? 0;
         const clk40 = row.clicks_40d ?? row.clicks40d ?? row.clicks ?? 0;
 
         return `
@@ -285,16 +307,21 @@
 
           <td class="col-mlb">
             <div class="fw-bold">${mlb}</div>
-            <div class="small text-muted text-truncate" style="max-width:360px;">${row.title || "-"}</div>
+            <div class="small text-muted text-truncate" style="max-width:360px;">${
+              row.title || "-"
+            }</div>
           </td>
 
           <td class="col-sku">${row.sku || "-"}</td>
 
           <td class="col-price">${fmtMoney(row.price)}</td>
 
-          <td class="col-qty"><span class="fw-bold">${row.stock_full ?? 0}</span></td>
+          <td class="col-qty"><span class="fw-bold">${
+            row.stock_full ?? 0
+          }</span></td>
 
-          <td class="col-sold">${sold40}</td>
+          <td class="col-sold-total">${soldTotal}</td>
+          <td class="col-sold-40d">${sold40}</td>
 
           <td class="col-impr">${imp40}</td>
 
@@ -337,7 +364,9 @@
         updateChips();
 
         if (selectAllCheckbox) {
-          selectAllCheckbox.checked = state.rows.every((r) => state.selected.has(r.mlb));
+          selectAllCheckbox.checked = state.rows.every((r) =>
+            state.selected.has(r.mlb)
+          );
         }
       });
     });
@@ -367,7 +396,9 @@
     const { page, pages } = state.paging;
 
     const mk = (p, label, active = false, disabled = false) => `
-      <li class="page-item ${active ? "active" : ""} ${disabled ? "disabled" : ""}">
+      <li class="page-item ${active ? "active" : ""} ${
+      disabled ? "disabled" : ""
+    }">
         <a class="page-link" href="#" data-page="${p}">${label}</a>
       </li>
     `;
@@ -416,7 +447,9 @@
 
   // ✅ anti-duplicado no front (local + checagem leve no backend via list)
   async function checkMlbAlreadyExists(mlb) {
-    const up = String(mlb || "").trim().toUpperCase();
+    const up = String(mlb || "")
+      .trim()
+      .toUpperCase();
     if (!up) return false;
 
     // 1) cache local (páginas já vistas)
@@ -450,34 +483,32 @@
   }
 
   // ✅ Sync de mlbs (modo normal) | se mlbs for null/undefined -> sync geral (DB)
- async function syncMlbs(mlbs) {
-  try {
-    setLoading(true);
+  async function syncMlbs(mlbs) {
+    try {
+      setLoading(true);
 
-    const body = Array.isArray(mlbs) ? { mlbs } : {};
-    const data = await getJSON("/api/full/anuncios/sync", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+      const body = Array.isArray(mlbs) ? { mlbs } : {};
+      const data = await getJSON("/api/full/anuncios/sync", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
 
-    const last =
-      data?.last_sync_at ||
-      data?.lastSyncAt ||
-      data?.meta?.last_sync_at ||
-      data?.meta?.lastSyncAt ||
-      null;
-    if (last) setLastUpdate(last);
+      const last =
+        data?.last_sync_at ||
+        data?.lastSyncAt ||
+        data?.meta?.last_sync_at ||
+        data?.meta?.lastSyncAt ||
+        null;
+      if (last) setLastUpdate(last);
+    } catch (e) {
+      alert(`Falha ao sincronizar: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
 
-  } catch (e) {
-    alert(`Falha ao sincronizar: ${e.message}`);
-  } finally {
-    // ✅ aqui só desliga e chama fetchList SEM overlay
-    setLoading(false);
+    // Recarrega a lista (fetchList controla overlay)
+    await fetchList();
   }
-
-  await fetchList(); // deixa o fetchList lidar com overlay (ou você pode tirar overlay dele)
-}
-
 
   function openRemoveModal(mlbs) {
     if (!confirmRemoveModal) {
@@ -538,6 +569,7 @@
       "Inventory ID",
       "Preço",
       "Qtd Full",
+      "Vendas (Total)",
       "Vendas 40d",
       "Impressões 40d",
       "Cliques 40d",
@@ -551,7 +583,8 @@
       r.inventory_id || "",
       r.price ?? "",
       r.stock_full ?? 0,
-      r.sold_40d ?? r.sold40d ?? r.sold_total ?? 0,
+      r.sold_total ?? r.soldTotal ?? 0,
+      r.sold_40d ?? r.sold40d ?? 0,
       r.impressions_40d ?? r.impressions40d ?? r.impressions ?? 0,
       r.clicks_40d ?? r.clicks40d ?? r.clicks ?? 0,
       r.status || "",
@@ -598,7 +631,6 @@
   });
 
   // ✅ BOTÃO PRINCIPAL: SINCRONIZAR
-  // Novo comportamento:
   // - Se houver seleção -> sincroniza seleção
   // - Sem seleção -> sincroniza TODOS do DB (backend)
   syncBtn?.addEventListener("click", async () => {
@@ -623,7 +655,9 @@
     addProductError?.classList.add("d-none");
     addProductSuccess?.classList.add("d-none");
 
-    const mlb = String(mlbInput?.value || "").trim().toUpperCase();
+    const mlb = String(mlbInput?.value || "")
+      .trim()
+      .toUpperCase();
     if (!mlb.startsWith("MLB")) {
       if (addProductError) {
         addProductError.textContent = "MLB inválido.";
@@ -636,7 +670,8 @@
     const exists = await checkMlbAlreadyExists(mlb);
     if (exists) {
       if (addProductError) {
-        addProductError.textContent = "Esse MLB já está cadastrado na lista FULL.";
+        addProductError.textContent =
+          "Esse MLB já está cadastrado na lista FULL.";
         addProductError.classList.remove("d-none");
       }
       return;

@@ -18,14 +18,20 @@ function clamp(n, min, max) {
 }
 
 function normalizeMlb(v) {
-  return String(v || "").trim().toUpperCase();
+  return String(v || "")
+    .trim()
+    .toUpperCase();
 }
 
 function isInvalidAccessToken(details) {
-  const msg = String(details?.response?.message || details?.response?.error || "")
+  const msg = String(
+    details?.response?.message || details?.response?.error || ""
+  )
     .toLowerCase()
     .trim();
-  const code = String(details?.response?.code || "").toLowerCase().trim();
+  const code = String(details?.response?.code || "")
+    .toLowerCase()
+    .trim();
   return code === "unauthorized" || msg.includes("invalid access token");
 }
 
@@ -69,7 +75,6 @@ async function getAccessToken(req, res, meli_conta_id) {
   throw err;
 }
 
-
 async function mlGET(path, ctx, opts = {}) {
   const { req, res, meli_conta_id } = ctx || {};
   const url = `${ML_BASE}${path}`;
@@ -105,22 +110,25 @@ async function mlGET(path, ctx, opts = {}) {
     raw_preview: String(raw || "").slice(0, 300),
   };
 
-  // 429: rate limit / too many requests -> espera um pouco e tenta novamente
+  // 429: rate limit -> espera um pouco e tenta novamente
   if (r.status === 429 && attempt < maxAttempts) {
-    await sleep(800 + attempt * 400);
+    await sleep(900 + attempt * 500);
     return mlGET(path, ctx, {
       ...opts,
-      token, // mantém token
+      token,
       attempt: attempt + 1,
       maxAttempts,
     });
   }
 
   // 401: tenta buscar token fresco via adapter e retry 1x
-  if (r.status === 401 && attempt < maxAttempts && isInvalidAccessToken(details)) {
+  if (
+    r.status === 401 &&
+    attempt < maxAttempts &&
+    isInvalidAccessToken(details)
+  ) {
     const adapter = req?.app?.get?.("getAccessTokenForAccount");
     if (typeof adapter === "function" && meli_conta_id) {
-      // tentamos “forçar” refresh de forma defensiva (caso seu adapter aceite args)
       let fresh = null;
       try {
         fresh = await adapter(meli_conta_id, { forceRefresh: true });
@@ -133,7 +141,11 @@ async function mlGET(path, ctx, opts = {}) {
           ? fresh
           : fresh?.access_token || fresh?.token || null;
 
-      if (freshToken && String(freshToken).trim() && String(freshToken) !== token) {
+      if (
+        freshToken &&
+        String(freshToken).trim() &&
+        String(freshToken) !== token
+      ) {
         return mlGET(path, ctx, {
           ...opts,
           token: String(freshToken).trim(),
@@ -155,50 +167,82 @@ async function getMe(ctx) {
 }
 
 /**
- * LISTAGEM DO SELLER (MUITOS ITENS):
- * usa search_type=scan + scroll_id (cursor) para evitar estouro de offset.
+ * Busca VENDAS (40d) por orders:
+ * - seller = userId
+ * - item = MLB
+ * - janela: last 40 days
+ * - apenas pedidos pagos/confirmados
+ * Retorna { qty, series } (series opcional/NULL por enquanto)
  */
-async function listUserItemsScan(
-  userId,
-  ctx,
-  { status = "active", limit = 50, max = 5000 } = {}
-) {
-  const out = [];
+async function fetchSold40dByOrders({ ctx, userId, mlb, days = 40 }) {
+  const cleanMlb = normalizeMlb(mlb);
+  if (!userId || !cleanMlb) return { qty: 0, series: null };
 
-  const safeLimit = clamp(asInt(limit, 50), 1, 50);
-  const safeMax = Math.max(1, asInt(max, 5000));
+  // janela (UTC)
+  const now = new Date();
+  const from = new Date(now.getTime() - Number(days) * 24 * 60 * 60 * 1000);
+  const fromIso = from.toISOString();
 
-  let scroll_id = null;
+  // status aceitos (apenas pagos/confirmados)
+  const allowed = new Set(["paid", "confirmed"]);
+
+  let totalQty = 0;
+
+  // paginação offset/limit
+  const limit = 50;
+  let offset = 0;
   let guard = 0;
 
   while (true) {
     const qs = new URLSearchParams();
-    qs.set("search_type", "scan");
-    qs.set("limit", String(safeLimit));
-    if (status && status !== "all") qs.set("status", status);
-    if (scroll_id) qs.set("scroll_id", String(scroll_id));
+    qs.set("seller", String(userId));
+    qs.set("item", cleanMlb);
 
-    const data = await mlGET(
-      `/users/${encodeURIComponent(String(userId))}/items/search?${qs.toString()}`,
-      ctx
-    );
+    // filtro por data (orders search aceita range por date_created)
+    // formato: order.date_created.from=ISO
+    qs.set("order.date_created.from", fromIso);
 
-    const ids = Array.isArray(data?.results) ? data.results : [];
-    out.push(...ids);
+    // paginação
+    qs.set("limit", String(limit));
+    qs.set("offset", String(offset));
 
-    scroll_id = data?.scroll_id || data?.scrollId || null;
+    // ⚠️ Não colocamos status=paid aqui para não depender da semântica exata;
+    // filtramos localmente por segurança e compatibilidade.
+    const data = await mlGET(`/orders/search?${qs.toString()}`, ctx, {
+      maxAttempts: 3, // orders costuma rate-limit mais
+    });
 
-    if (!ids.length) break;
-    if (out.length >= safeMax) break;
+    const results = Array.isArray(data?.results) ? data.results : [];
+    if (!results.length) break;
 
-    // “guard rail” para não loopar infinito se API mudar comportamento
+    for (const o of results) {
+      const st = String(o?.status || "")
+        .toLowerCase()
+        .trim();
+      if (!allowed.has(st)) continue;
+
+      const items = Array.isArray(o?.order_items) ? o.order_items : [];
+      for (const it of items) {
+        const itemId = String(it?.item?.id || it?.item_id || "").toUpperCase();
+        if (itemId !== cleanMlb) continue;
+        totalQty += Number(it?.quantity || 0);
+      }
+    }
+
+    const paging = data?.paging || {};
+    const total = asInt(paging.total, 0);
+
+    offset += limit;
+    if (offset >= total) break;
+
+    // guard rail
     guard += 1;
-    if (guard > 10000) break;
+    if (guard > 400) break;
 
     await sleep(120);
   }
 
-  return out.slice(0, safeMax);
+  return { qty: Math.max(0, Math.trunc(totalQty)), series: null };
 }
 
 function pickSkuFromItem(item) {
@@ -294,7 +338,6 @@ async function insertManual({ meli_conta_id, mlb }) {
     throw err;
   }
 
-  // bloqueio duplicado no backend (front já bloqueia, mas aqui garante)
   const existsR = await db.query(
     `SELECT 1 FROM anuncios_full WHERE meli_conta_id = $1 AND mlb = $2 LIMIT 1;`,
     [meli_conta_id, clean]
@@ -322,6 +365,15 @@ async function getLastSyncAtForAccount(meli_conta_id) {
     [meli_conta_id]
   );
   return r.rows?.[0]?.last_sync_at || null;
+}
+
+// ✅ lê sold_40d atual do DB (para fallback quando Orders API não estiver disponível)
+async function getExistingSold40d({ meli_conta_id, mlb }) {
+  const r = await db.query(
+    `SELECT sold_40d FROM anuncios_full WHERE meli_conta_id = $1 AND mlb = $2 LIMIT 1;`,
+    [meli_conta_id, normalizeMlb(mlb)]
+  );
+  return Number(r.rows?.[0]?.sold_40d || 0);
 }
 
 module.exports = {
@@ -370,8 +422,6 @@ module.exports = {
     `;
 
     const listR = await db.query(listQ, params);
-
-    // ✅ para o cabeçalho "Última atualização em:"
     const last_sync_at = await getLastSyncAtForAccount(meli_conta_id);
 
     return {
@@ -386,7 +436,6 @@ module.exports = {
     };
   },
 
-  // ✅ NOVO: Adicionar MLB manualmente (sem sync pesado)
   async addManual({ meli_conta_id, mlb }) {
     return insertManual({ meli_conta_id, mlb });
   },
@@ -394,11 +443,15 @@ module.exports = {
   async addOrUpdateFromML({ req, res, meli_conta_id, mlb, opts = {} }) {
     const ctx = { req, res, meli_conta_id };
 
-    const item = await mlGET(`/items/${encodeURIComponent(mlb)}`, ctx);
+    const cleanMlb = normalizeMlb(mlb);
+
+    // 1) item básico
+    const item = await mlGET(`/items/${encodeURIComponent(cleanMlb)}`, ctx);
     const inventory_id = item?.inventory_id || null;
 
     if (!inventory_id && opts.onlyIfFull) return null;
 
+    // 2) stock fulfillment (se inventory_id)
     let stock = null;
     if (inventory_id) {
       stock = await mlGET(
@@ -407,28 +460,58 @@ module.exports = {
       );
     }
 
+    // 3) seller id (pra orders)
+    // preferimos pegar do item; se faltar, usamos /users/me
+    let sellerId = item?.seller_id || null;
+    if (!sellerId) {
+      const me = await getMe(ctx);
+      sellerId = me?.id || null;
+    }
+
+    // 4) sold_total sempre vem do item
+    const sold_total = Number(item?.sold_quantity || 0);
+
+    // 5) sold_40d REAL via Orders API (paid/confirmed)
+    // Se falhar por permissão/escopo, mantém valor atual no DB (fallback)
+    let sold_40d = 0;
+    let sales_series_40d = null;
+
+    try {
+      const out40 = await fetchSold40dByOrders({
+        ctx,
+        userId: sellerId,
+        mlb: cleanMlb,
+        days: 40,
+      });
+      sold_40d = Number(out40?.qty || 0);
+      sales_series_40d = out40?.series || null;
+    } catch (e) {
+      // fallback: não derruba o sync do item
+      // (normalmente 403: forbidden por falta de escopo de orders)
+      sold_40d = await getExistingSold40d({ meli_conta_id, mlb: cleanMlb });
+      sales_series_40d = null;
+    }
+
     return upsertRow({
       meli_conta_id,
-      mlb,
+      mlb: cleanMlb,
       sku: pickSkuFromItem(item),
       title: item?.title || null,
       image_url: pickImageUrl(item),
       inventory_id,
       price: item?.price ?? item?.base_price ?? null,
       stock_full: Number(stock?.available_quantity || 0),
-      sold_total: Number(item?.sold_quantity || 0),
-      // por enquanto mantém 0; quando você ligar métricas 40d no DB, atualizamos aqui
-      sold_40d: 0,
+      sold_total,
+      sold_40d,
       listing_status: item?.status || null,
       status: deriveUiStatus(item, stock),
-      sales_series_40d: null,
+      sales_series_40d,
     });
   },
 
   async sync({ req, res, meli_conta_id, mlbs, mode }) {
     const upperMode = String(mode || "").toUpperCase();
 
-    // ✅ IMPORT_ALL desativado (novo comportamento)
     if (upperMode === "IMPORT_ALL") {
       const err = new Error(
         'Modo "IMPORT_ALL" foi desativado. Adicione MLBs manualmente e use "Sincronizar" para atualizar as colunas.'
@@ -437,7 +520,6 @@ module.exports = {
       throw err;
     }
 
-    // ✅ SYNC normal (selecionados ou DB todo)
     let targets = Array.isArray(mlbs) ? mlbs : null;
 
     if (!targets) {
@@ -468,6 +550,8 @@ module.exports = {
             mlb: row.mlb,
             status: row.status,
             stock_full: row.stock_full,
+            sold_total: row.sold_total,
+            sold_40d: row.sold_40d,
           });
         }
       } catch (e) {
