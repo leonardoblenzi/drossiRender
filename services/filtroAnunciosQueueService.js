@@ -22,6 +22,7 @@ const upper = (v) =>
   String(v || "")
     .trim()
     .toUpperCase();
+
 const datePart = (iso) => String(iso || "").slice(0, 10); // YYYY-MM-DD
 
 async function httpGetJson(url, headers = {}, retries = 3) {
@@ -109,6 +110,7 @@ async function fetchAllItemIds({ token, sellerId, status }) {
 
       offset += limit;
       if (offset > 1000) break;
+
       const total = Number(j?.paging?.total || 0);
       if (!total || offset >= total) break;
     }
@@ -147,8 +149,9 @@ async function fetchItemsBatch({ token, ids }) {
 }
 
 /**
- * Vendas agregadas "por anúncio".
- * Se o order item vier num id "filho", e a gente souber o parent via itemToParent, agrega no pai.
+ * ✅ Vendas agregadas "por anúncio" NO PERÍODO.
+ * Regra correta para bater com o painel: usar order.date_closed (venda fechada/concluída/paga).
+ * Fallback: se date_closed não for aceito/retornar erro, usa date_created (para não quebrar).
  */
 async function fetchSalesMap({
   token,
@@ -157,64 +160,78 @@ async function fetchSalesMap({
   date_to,
   itemToParent = null,
 }) {
-  let offset = 0;
-  const limit = 50;
-  const out = new Map();
+  async function run(mode /* 'date_closed' | 'date_created' */) {
+    let offset = 0;
+    const limit = 50;
+    const out = new Map();
 
-  for (;;) {
-    const url = new URL("https://api.mercadolibre.com/orders/search");
-    url.searchParams.set("seller", String(sellerId));
-    url.searchParams.set("order.status", "paid");
-    url.searchParams.set(
-      "order.date_created.from",
-      `${date_from}T00:00:00.000-00:00`
-    );
-    url.searchParams.set(
-      "order.date_created.to",
-      `${date_to}T23:59:59.999-00:00`
-    );
-    url.searchParams.set("sort", "date_desc");
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("offset", String(offset));
+    for (;;) {
+      const url = new URL("https://api.mercadolibre.com/orders/search");
+      url.searchParams.set("seller", String(sellerId));
+      url.searchParams.set("order.status", "paid");
 
-    const j = await httpGetJson(
-      url.toString(),
-      { Authorization: `Bearer ${token}` },
-      3
-    );
-    const results = Array.isArray(j?.results) ? j.results : [];
+      url.searchParams.set(
+        `order.${mode}.from`,
+        `${date_from}T00:00:00.000-00:00`
+      );
+      url.searchParams.set(`order.${mode}.to`, `${date_to}T23:59:59.999-00:00`);
 
-    for (const order of results) {
-      for (const it of order.order_items || []) {
-        const rawId = upper(it?.item?.id);
-        if (!rawId) continue;
+      url.searchParams.set("sort", "date_desc");
+      url.searchParams.set("limit", String(limit));
+      url.searchParams.set("offset", String(offset));
 
-        const mlb = itemToParent?.get(rawId) || rawId; // <- agrupa no pai quando existir
+      const j = await httpGetJson(
+        url.toString(),
+        { Authorization: `Bearer ${token}` },
+        3
+      );
 
-        const qty = Number(it?.quantity || 0);
-        const unit = Number(it?.unit_price || 0);
-        const revenue = unit * qty;
+      const results = Array.isArray(j?.results) ? j.results : [];
 
-        const prev = out.get(mlb) || { units: 0, revenue_cents: 0 };
-        prev.units += qty;
-        prev.revenue_cents += Math.round(revenue * 100);
-        out.set(mlb, prev);
+      for (const order of results) {
+        for (const it of order.order_items || []) {
+          const rawId = upper(it?.item?.id);
+          if (!rawId) continue;
+
+          const mlb = itemToParent?.get(rawId) || rawId; // agrupa no pai quando existir
+          const qty = Number(it?.quantity || 0);
+          const unit = Number(it?.unit_price || 0);
+          const revenue = unit * qty;
+
+          const prev = out.get(mlb) || { units: 0, revenue_cents: 0 };
+          prev.units += qty;
+          prev.revenue_cents += Math.round(revenue * 100);
+          out.set(mlb, prev);
+        }
       }
+
+      offset += limit;
+      const total = Number(j?.paging?.total || 0);
+      if (!total || offset >= total) break;
+
+      // ✅ cede o event loop (ajuda a não "travar" o web server)
+      await sleep(0);
     }
 
-    offset += limit;
-    const total = Number(j?.paging?.total || 0);
-    if (!total || offset >= total) break;
-
-    // ✅ cede o event loop (ajuda a não "travar" o web server)
-    await sleep(0);
+    return out;
   }
 
-  return out;
+  try {
+    return await run("date_closed");
+  } catch (e) {
+    console.warn(
+      "[fetchSalesMap] date_closed falhou, fallback date_created:",
+      e?.message || e
+    );
+    return await run("date_created");
+  }
 }
 
-// ✅ NOVO: vendas após o período (date_to -> HOJE) agregadas no pai.
-// - usado SOMENTE quando sales_no_sales_after=true
+/**
+ * ✅ NOVO: vendas após o período (date_to -> HOJE) agregadas no pai.
+ * - usado SOMENTE quando sales_no_sales_after=true
+ * - preferência: order.date_closed (fallback: order.date_created)
+ */
 async function fetchSalesAfterMap({
   token,
   sellerId,
@@ -222,67 +239,82 @@ async function fetchSalesAfterMap({
   itemToParent = null,
 }) {
   const out = new Map();
-  const from = String(date_to || "").trim();
-  if (!from) return out;
+  const toDate = String(date_to || "").trim();
+  if (!toDate) return out;
 
   const today = new Date().toISOString().slice(0, 10);
-  if (from >= today) return out;
 
-  let offset = 0;
-  const limit = 50;
+  // se date_to já for hoje/futuro, janela não faz sentido (zero por definição)
+  if (toDate >= today) return out;
 
-  for (;;) {
-    const url = new URL("https://api.mercadolibre.com/orders/search");
-    url.searchParams.set("seller", String(sellerId));
-    url.searchParams.set("order.status", "paid");
+  // do dia seguinte ao date_to até hoje
+  const fromDt = new Date(`${toDate}T00:00:00.000Z`);
+  fromDt.setUTCDate(fromDt.getUTCDate() + 1);
+  const fromIso = fromDt.toISOString().slice(0, 10);
 
-    // do dia seguinte ao date_to até hoje
-    const fromDt = new Date(`${from}T00:00:00.000Z`);
-    fromDt.setUTCDate(fromDt.getUTCDate() + 1);
-    const fromIso = fromDt.toISOString().slice(0, 10);
+  async function run(mode /* 'date_closed' | 'date_created' */) {
+    let offset = 0;
+    const limit = 50;
 
-    url.searchParams.set(
-      "order.date_created.from",
-      `${fromIso}T00:00:00.000-00:00`
-    );
-    url.searchParams.set(
-      "order.date_created.to",
-      `${today}T23:59:59.999-00:00`
-    );
-    url.searchParams.set("sort", "date_desc");
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("offset", String(offset));
+    for (;;) {
+      const url = new URL("https://api.mercadolibre.com/orders/search");
+      url.searchParams.set("seller", String(sellerId));
+      url.searchParams.set("order.status", "paid");
 
-    const j = await httpGetJson(
-      url.toString(),
-      { Authorization: `Bearer ${token}` },
-      3
-    );
-    const results = Array.isArray(j?.results) ? j.results : [];
+      url.searchParams.set(
+        `order.${mode}.from`,
+        `${fromIso}T00:00:00.000-00:00`
+      );
+      url.searchParams.set(`order.${mode}.to`, `${today}T23:59:59.999-00:00`);
 
-    for (const order of results) {
-      for (const it of order.order_items || []) {
-        const rawId = upper(it?.item?.id);
-        if (!rawId) continue;
+      url.searchParams.set("sort", "date_desc");
+      url.searchParams.set("limit", String(limit));
+      url.searchParams.set("offset", String(offset));
 
-        const mlb = itemToParent?.get(rawId) || rawId;
+      const j = await httpGetJson(
+        url.toString(),
+        { Authorization: `Bearer ${token}` },
+        3
+      );
 
-        const qty = Number(it?.quantity || 0);
-        const unit = Number(it?.unit_price || 0);
-        const revenue = unit * qty;
+      const results = Array.isArray(j?.results) ? j.results : [];
 
-        const prev = out.get(mlb) || { units: 0, revenue_cents: 0 };
-        prev.units += qty;
-        prev.revenue_cents += Math.round(revenue * 100);
-        out.set(mlb, prev);
+      for (const order of results) {
+        for (const it of order.order_items || []) {
+          const rawId = upper(it?.item?.id);
+          if (!rawId) continue;
+
+          const mlb = itemToParent?.get(rawId) || rawId;
+
+          const qty = Number(it?.quantity || 0);
+          const unit = Number(it?.unit_price || 0);
+          const revenue = unit * qty;
+
+          const prev = out.get(mlb) || { units: 0, revenue_cents: 0 };
+          prev.units += qty;
+          prev.revenue_cents += Math.round(revenue * 100);
+          out.set(mlb, prev);
+        }
       }
+
+      offset += limit;
+      const total = Number(j?.paging?.total || 0);
+      if (!total || offset >= total) break;
+
+      await sleep(0);
     }
+  }
 
-    offset += limit;
-    const total = Number(j?.paging?.total || 0);
-    if (!total || offset >= total) break;
-
-    await sleep(0);
+  try {
+    await run("date_closed");
+  } catch (e) {
+    console.warn(
+      "[fetchSalesAfterMap] date_closed falhou, fallback date_created:",
+      e?.message || e
+    );
+    // limpa o que eventualmente acumulou (se falhou no meio)
+    out.clear();
+    await run("date_created");
   }
 
   return out;
@@ -430,9 +462,7 @@ class FiltroAnunciosQueueService {
             const created = datePart(it?.date_created); // YYYY-MM-DD
 
             // ✅ REGRA: incluir apenas anúncios criados até date_to
-            if (dateTo && created && created > dateTo) {
-              continue;
-            }
+            if (dateTo && created && created > dateTo) continue;
 
             const row = {
               mlb: parentId,
@@ -455,7 +485,7 @@ class FiltroAnunciosQueueService {
               sold_value_cents: 0,
               visits: null,
 
-              // ✅ usado se checkbox ativo
+              // usado se checkbox ativo
               sales_after_units: 0,
               sales_after_value_cents: 0,
             };
@@ -484,7 +514,6 @@ class FiltroAnunciosQueueService {
           const pct = 15 + Math.round(((i + 1) / batches.length) * 20);
           job.progress(Math.min(pct, 35));
 
-          // pequena pausa pra não esmagar o process / event loop
           await sleep(45);
         }
 
@@ -521,7 +550,7 @@ class FiltroAnunciosQueueService {
 
         job.progress(42);
 
-        // 4) vendas no período
+        // 4) ✅ vendas no período (AGORA por date_closed com fallback)
         const needSales =
           (filters.sales_op && filters.sales_op !== "all") ||
           filters.sort_by === "sold_value" ||
