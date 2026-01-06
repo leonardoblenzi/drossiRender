@@ -23,10 +23,37 @@
     .future-disabled .help {
       opacity: .9;
     }
+
+    /* ✅ NOVO: checkbox “sem vendas após o período” */
+    .sales-extra {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px solid rgba(148,163,184,.35);
+      border-radius: 10px;
+      background: rgba(248,250,252,.75);
+    }
+    .sales-extra input[type="checkbox"]{
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      accent-color: #2563eb;
+      cursor: pointer;
+    }
+    .sales-extra label{
+      cursor: pointer;
+      line-height: 1.25;
+    }
+    .sales-extra .muted{
+      display:block;
+      margin-top: 4px;
+      font-size: .82rem;
+      opacity: .9;
+    }
   </style>
 </head>
-
-
 
 <body class="filtro-anuncios">
   <header class="account-bar">
@@ -53,22 +80,20 @@
     </div>
   </header>
 
-
-<!-- navegacao com abas-->
-<nav class="main-nav">
-  <div class="tabs">
-    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
-    <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
-    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
-  </div>
-</nav>
-
+  <!-- navegacao com abas-->
+  <nav class="main-nav">
+    <div class="tabs">
+      <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+      <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+      <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+    </div>
+  </nav>
 
   <div class="page-header">
     <h1>Filtro Avançado de Anúncios</h1>
@@ -106,6 +131,15 @@
             <input id="fSalesVal" type="number" class="input" placeholder="Qtd." min="0" step="1" />
           </div>
           <small class="muted help">Quantidade de vendas no período.</small>
+
+          <!-- ✅ NOVO: checkbox condicional (JS controla exibição) -->
+          <div id="fSalesNoSalesAfterWrap" class="sales-extra" style="display:none;">
+            <input id="fSalesNoSalesAfter" type="checkbox" />
+            <label for="fSalesNoSalesAfter">
+              <b>e também sem vendas após o período (até hoje)</b>
+              <span class="muted">Remove anúncios que venderam depois do período, mesmo que tenham 0 vendas dentro do período.</span>
+            </label>
+          </div>
         </div>
 
         <div class="form-group">
@@ -244,7 +278,6 @@
         </ul>
 
         <div class="export-actions bottom">
-          <!-- ✅ Corrigido: NÃO começa travado. O JS já impede exportar sem job_id. -->
           <button class="btn" id="btnExportCsv" title="Exportar CSV do último job (faça uma busca antes)" type="button">CSV</button>
           <button class="btn" title="Exportar Excel (em breve)" type="button" disabled>Excel</button>
         </div>
