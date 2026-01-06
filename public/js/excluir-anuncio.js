@@ -2,21 +2,25 @@
 (() => {
   const $ = (s) => document.querySelector(s);
 
+  // ✅ Prefixo correto da feature (roteado em index.js via app.use('/api/excluir-anuncio', ...))
+  const API_BASE = "/api/excluir-anuncio";
+  const api = (p) => API_BASE + (p.startsWith("/") ? p : "/" + p);
+
   // Campos e botões
-  const inputSingle = $('#mlb-id');
-  const inputLote = $('#mlb-list');
-  const btnExcluir = $('#btn-excluir');
-  const btnLote = $('#btn-excluir-lote');
-  const btnLimpar = $('#btn-limpar');
-  const painel = $('#result-panel');
-  const pre = $('#result-json');
+  const inputSingle = $("#mlb-id");
+  const inputLote = $("#mlb-list");
+  const btnExcluir = $("#btn-excluir");
+  const btnLote = $("#btn-excluir-lote");
+  const btnLimpar = $("#btn-limpar");
+  const painel = $("#result-panel");
+  const pre = $("#result-json");
 
   // Modal de confirmação
-  const modalConfirm = $('#modal-confirm-exclusao');
-  const confirmText = $('#confirm-excluir-text');
-  const btnConfirmSim = $('#confirm-excluir-sim');
-  const btnConfirmNao = $('#confirm-excluir-nao');
-  const btnConfirmClose = $('#confirm-excluir-close');
+  const modalConfirm = $("#modal-confirm-exclusao");
+  const confirmText = $("#confirm-excluir-text");
+  const btnConfirmSim = $("#confirm-excluir-sim");
+  const btnConfirmNao = $("#confirm-excluir-nao");
+  const btnConfirmClose = $("#confirm-excluir-close");
 
   // Qual ação está pendente de confirmação? 'single' | 'lote' | null
   let pendingAction = null;
@@ -25,15 +29,15 @@
   function showResult(data) {
     if (!painel || !pre) return;
     pre.textContent = JSON.stringify(data, null, 2);
-    painel.classList.remove('hidden');
+    painel.classList.remove("hidden");
   }
 
   function limparTudo() {
-    if (inputSingle) inputSingle.value = '';
-    if (inputLote) inputLote.value = '';
+    if (inputSingle) inputSingle.value = "";
+    if (inputLote) inputLote.value = "";
     if (painel && pre) {
-      painel.classList.add('hidden');
-      pre.textContent = '{}';
+      painel.classList.add("hidden");
+      pre.textContent = "{}";
     }
   }
 
@@ -44,57 +48,56 @@
     pendingCount = extra.count || 0;
 
     if (confirmText) {
-      if (tipo === 'single') {
+      if (tipo === "single") {
         confirmText.textContent =
-          'Tem certeza que deseja iniciar o processo de exclusão deste anúncio?';
-      } else if (tipo === 'lote') {
+          "Tem certeza que deseja iniciar o processo de exclusão deste anúncio?";
+      } else if (tipo === "lote") {
         if (pendingCount > 0) {
-          confirmText.textContent =
-            `Tem certeza que deseja iniciar o processo de exclusão de ${pendingCount} anúncios?`;
+          confirmText.textContent = `Tem certeza que deseja iniciar o processo de exclusão de ${pendingCount} anúncios?`;
         } else {
           confirmText.textContent =
-            'Tem certeza que deseja iniciar o processo de exclusão de anúncios?';
+            "Tem certeza que deseja iniciar o processo de exclusão de anúncios?";
         }
       } else {
         confirmText.textContent =
-          'Tem certeza que deseja iniciar o processo de exclusão de anúncios?';
+          "Tem certeza que deseja iniciar o processo de exclusão de anúncios?";
       }
     }
 
     if (modalConfirm) {
-      modalConfirm.style.display = 'block';
+      modalConfirm.style.display = "block";
     }
   }
 
   function fecharModalConfirmacao() {
     if (modalConfirm) {
-      modalConfirm.style.display = 'none';
+      modalConfirm.style.display = "none";
     }
     pendingAction = null;
     pendingCount = 0;
   }
 
   // Clique em "Sim"
-  btnConfirmSim?.addEventListener('click', () => {
+  btnConfirmSim?.addEventListener("click", () => {
     const action = pendingAction;
     fecharModalConfirmacao();
 
-    if (action === 'single') {
+    if (action === "single") {
       excluirUnico();
-    } else if (action === 'lote') {
+    } else if (action === "lote") {
       excluirLote();
     }
   });
 
   // Clique em "Não" ou no X
   [btnConfirmNao, btnConfirmClose].forEach((btn) => {
-    btn?.addEventListener('click', () => {
+    btn?.addEventListener("click", () => {
       fecharModalConfirmacao();
     });
   });
 
   // Fechar clicando fora do modal
-  window.addEventListener('click', (ev) => {
+  window.addEventListener("click", (ev) => {
     if (ev.target === modalConfirm) {
       fecharModalConfirmacao();
     }
@@ -103,36 +106,53 @@
   // ========= AÇÕES PRINCIPAIS =========
 
   async function excluirUnico() {
-    const mlb = (inputSingle?.value || '').trim().toUpperCase();
+    const mlb = (inputSingle?.value || "").trim().toUpperCase();
     if (!mlb || !/^MLB\d{5,}$/.test(mlb)) {
-      alert('Informe um código MLB válido');
+      alert("Informe um código MLB válido");
       return;
     }
 
     try {
-      const resp = await fetch(`/anuncios/excluir/${mlb}`, { method: 'DELETE' });
-      const json = await resp.json();
+      // ✅ Endpoint correto + cookies/headers (rota protegida por ADMIN|MASTER)
+      const resp = await fetch(
+        api(`/anuncios/excluir/${encodeURIComponent(mlb)}`),
+        {
+          method: "DELETE",
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        }
+      );
+
+      const json = await resp.json().catch(() => ({}));
+
+      // Se quiser, você pode opcionalmente tratar resp.ok aqui,
+      // mas como o backend provavelmente já retorna {success:false,...}, só exibimos.
       showResult(json);
     } catch (err) {
-      showResult({ error: true, message: err.message });
+      showResult({ error: true, message: err?.message || String(err) });
     }
   }
 
   async function excluirLote() {
-    const lista = (inputLote?.value || '')
+    const lista = (inputLote?.value || "")
       .split(/\r?\n/)
       .map((s) => s.trim().toUpperCase())
       .filter(Boolean);
 
     if (!lista.length) {
-      alert('Cole ao menos 1 MLB para excluir');
+      alert("Cole ao menos 1 MLB para excluir");
       return;
     }
 
     try {
-      // Usa o orquestrador de fila da exclusão
-      if (!window.ExclusaoBulk || typeof window.ExclusaoBulk.enqueue !== 'function') {
-        throw new Error('Exclusão em lote (ExclusaoBulk) não está disponível nesta página.');
+      // Usa o orquestrador de fila da exclusão (exclusao-bulk.js)
+      if (
+        !window.ExclusaoBulk ||
+        typeof window.ExclusaoBulk.enqueue !== "function"
+      ) {
+        throw new Error(
+          "Exclusão em lote (ExclusaoBulk) não está disponível nesta página."
+        );
       }
 
       await window.ExclusaoBulk.enqueue({
@@ -144,11 +164,11 @@
       showResult({
         ok: true,
         message:
-          'Enviado para processamento em segundo plano. Acompanhe o progresso no painel de processos (canto inferior direito).',
+          "Enviado para processamento em segundo plano. Acompanhe o progresso no painel de processos (canto inferior direito).",
         total_ids: lista.length,
       });
     } catch (err) {
-      showResult({ error: true, message: err.message });
+      showResult({ error: true, message: err?.message || String(err) });
     }
   }
 
@@ -157,31 +177,31 @@
   // Agora os botões NÃO chamam direto as funções;
   // primeiro perguntam no modal de confirmação.
 
-  btnExcluir?.addEventListener('click', (ev) => {
+  btnExcluir?.addEventListener("click", (ev) => {
     ev.preventDefault();
-    const mlb = (inputSingle?.value || '').trim().toUpperCase();
+    const mlb = (inputSingle?.value || "").trim().toUpperCase();
     if (!mlb || !/^MLB\d{5,}$/.test(mlb)) {
-      alert('Informe um código MLB válido');
+      alert("Informe um código MLB válido");
       return;
     }
-    abrirModalConfirmacao('single');
+    abrirModalConfirmacao("single");
   });
 
-  btnLote?.addEventListener('click', (ev) => {
+  btnLote?.addEventListener("click", (ev) => {
     ev.preventDefault();
-    const lista = (inputLote?.value || '')
+    const lista = (inputLote?.value || "")
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
 
     if (!lista.length) {
-      alert('Cole ao menos 1 MLB para excluir');
+      alert("Cole ao menos 1 MLB para excluir");
       return;
     }
-    abrirModalConfirmacao('lote', { count: lista.length });
+    abrirModalConfirmacao("lote", { count: lista.length });
   });
 
-  btnLimpar?.addEventListener('click', (ev) => {
+  btnLimpar?.addEventListener("click", (ev) => {
     ev.preventDefault();
     limparTudo();
   });
