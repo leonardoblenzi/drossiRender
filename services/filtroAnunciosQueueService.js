@@ -50,9 +50,7 @@ async function httpGetJson(url, headers = {}, retries = 3) {
 async function getSellerId(token) {
   const j = await httpGetJson(
     "https://api.mercadolibre.com/users/me",
-    {
-      Authorization: `Bearer ${token}`,
-    },
+    { Authorization: `Bearer ${token}` },
     3
   );
   return j.id;
@@ -207,6 +205,9 @@ async function fetchSalesMap({
     offset += limit;
     const total = Number(j?.paging?.total || 0);
     if (!total || offset >= total) break;
+
+    // ✅ cede o event loop (ajuda a não "travar" o web server)
+    await sleep(0);
   }
 
   return out;
@@ -227,11 +228,6 @@ async function fetchSalesAfterMap({
   const today = new Date().toISOString().slice(0, 10);
   if (from >= today) return out;
 
-  // ✅ calcula uma vez só
-  const fromDt = new Date(`${from}T00:00:00.000Z`);
-  fromDt.setUTCDate(fromDt.getUTCDate() + 1);
-  const fromIso = fromDt.toISOString().slice(0, 10);
-
   let offset = 0;
   const limit = 50;
 
@@ -239,6 +235,12 @@ async function fetchSalesAfterMap({
     const url = new URL("https://api.mercadolibre.com/orders/search");
     url.searchParams.set("seller", String(sellerId));
     url.searchParams.set("order.status", "paid");
+
+    // do dia seguinte ao date_to até hoje
+    const fromDt = new Date(`${from}T00:00:00.000Z`);
+    fromDt.setUTCDate(fromDt.getUTCDate() + 1);
+    const fromIso = fromDt.toISOString().slice(0, 10);
+
     url.searchParams.set(
       "order.date_created.from",
       `${fromIso}T00:00:00.000-00:00`
@@ -279,6 +281,8 @@ async function fetchSalesAfterMap({
     offset += limit;
     const total = Number(j?.paging?.total || 0);
     if (!total || offset >= total) break;
+
+    await sleep(0);
   }
 
   return out;
@@ -399,94 +403,89 @@ class FiltroAnunciosQueueService {
         allIds = Array.from(new Set(allIds));
         job.progress(15);
 
-        // 2) detalhes do item (barato)
-        const items = [];
-        const batches = chunk(allIds, 20);
-        for (let i = 0; i < batches.length; i++) {
-          const part = await fetchItemsBatch({ token, ids: batches[i] });
-          items.push(...part);
-          const pct = 15 + Math.round(((i + 1) / batches.length) * 20);
-          job.progress(Math.min(pct, 35));
-          await sleep(60);
-        }
-
-        // Map item_id -> parent_id (se existir). Isso permite agregar VENDAS no pai.
+        // =========================================================
+        // ✅ OTIMIZAÇÃO CRÍTICA (para evitar 502/OOM no Render):
+        //    NÃO guardar "items" (todos os bodies) em memória.
+        //    Processa batch por batch e monta byMlb + itemToParent.
+        // =========================================================
         const itemToParent = new Map();
-        for (const it of items) {
-          const itemId = upper(it?.id);
-          if (!itemId) continue;
-          const parentId = upper(it?.parent_item_id) || itemId;
-          itemToParent.set(itemId, parentId);
-          // também garante que pai aponta pra ele mesmo
-          if (!itemToParent.has(parentId)) itemToParent.set(parentId, parentId);
-        }
-
-        // normaliza estrutura base "por anúncio (pai)"
-        // - mlb = parentId (quando existir)
-        // - dedup por mlb (se vierem itens "filhos")
         const byMlb = new Map();
         const dateTo = String(filters.date_to || "").trim(); // YYYY-MM-DD
 
-        for (const it of items) {
-          const itemId = upper(it?.id);
-          if (!itemId) continue;
+        const batches = chunk(allIds, 20);
+        for (let i = 0; i < batches.length; i++) {
+          const part = await fetchItemsBatch({ token, ids: batches[i] });
 
-          const parentId = upper(it?.parent_item_id) || itemId;
-          const created = datePart(it?.date_created); // YYYY-MM-DD
+          for (const it of part) {
+            const itemId = upper(it?.id);
+            if (!itemId) continue;
 
-          // ✅ REGRA: incluir apenas anúncios criados até date_to
-          // comparação por "YYYY-MM-DD" (sem dor com timezone)
-          if (dateTo && created && created > dateTo) {
-            continue;
+            const parentId = upper(it?.parent_item_id) || itemId;
+
+            // sempre guarda mapeamento (mesmo se depois filtrarmos por created)
+            itemToParent.set(itemId, parentId);
+            if (!itemToParent.has(parentId))
+              itemToParent.set(parentId, parentId);
+
+            const created = datePart(it?.date_created); // YYYY-MM-DD
+
+            // ✅ REGRA: incluir apenas anúncios criados até date_to
+            if (dateTo && created && created > dateTo) {
+              continue;
+            }
+
+            const row = {
+              mlb: parentId,
+              item_id: itemId,
+              parent_item_id: parentId !== itemId ? parentId : null,
+
+              date_created: created || null,
+              status: it?.status || null,
+
+              sku: it?.seller_custom_field || it?.seller_sku || null,
+              title: it?.title || "",
+              listing_type_id: it?.listing_type_id || null,
+              tipo: mapTipo(it?.listing_type_id),
+              catalog_listing: !!it?.catalog_listing,
+              detalhes: mapDetalhes(it),
+              shipping_free: !!it?.shipping?.free_shipping,
+              envio: mapEnvio(it?.shipping),
+
+              sales_units: 0,
+              sold_value_cents: 0,
+              visits: null,
+
+              // ✅ usado se checkbox ativo
+              sales_after_units: 0,
+              sales_after_value_cents: 0,
+            };
+
+            const cur = byMlb.get(parentId);
+            if (!cur) {
+              byMlb.set(parentId, row);
+            } else {
+              // merge leve: mantém o melhor/mais antigo date_created
+              if (!cur.date_created && row.date_created)
+                cur.date_created = row.date_created;
+              if (
+                cur.date_created &&
+                row.date_created &&
+                row.date_created < cur.date_created
+              ) {
+                cur.date_created = row.date_created;
+              }
+
+              if (!cur.title && row.title) cur.title = row.title;
+              if (!cur.sku && row.sku) cur.sku = row.sku;
+              if (!cur.status && row.status) cur.status = row.status;
+            }
           }
 
-          const row = {
-            mlb: parentId, // <- anúncio (pai)
-            item_id: itemId, // <- id original (debug/futuro)
-            parent_item_id: parentId !== itemId ? parentId : null,
+          const pct = 15 + Math.round(((i + 1) / batches.length) * 20);
+          job.progress(Math.min(pct, 35));
 
-            date_created: created || null,
-            status: it?.status || null,
-
-            sku: it?.seller_custom_field || it?.seller_sku || null,
-            title: it?.title || "",
-            listing_type_id: it?.listing_type_id || null,
-            tipo: mapTipo(it?.listing_type_id),
-            catalog_listing: !!it?.catalog_listing,
-            detalhes: mapDetalhes(it),
-            shipping_free: !!it?.shipping?.free_shipping,
-            envio: mapEnvio(it?.shipping),
-
-            sales_units: 0,
-            sold_value_cents: 0,
-            visits: null, // <- null pra UI mostrar "-"
-
-            // ✅ NOVO (só preenche se checkbox ativo)
-            sales_after_units: 0,
-            sales_after_value_cents: 0,
-          };
-
-          const cur = byMlb.get(parentId);
-          if (!cur) {
-            byMlb.set(parentId, row);
-          } else {
-            // merge leve: mantém o melhor/mais antigo date_created
-            if (!cur.date_created && row.date_created)
-              cur.date_created = row.date_created;
-            if (
-              cur.date_created &&
-              row.date_created &&
-              row.date_created < cur.date_created
-            )
-              cur.date_created = row.date_created;
-
-            // mantém title/sku se faltando
-            if (!cur.title && row.title) cur.title = row.title;
-            if (!cur.sku && row.sku) cur.sku = row.sku;
-
-            // status: se não tiver, pega
-            if (!cur.status && row.status) cur.status = row.status;
-          }
+          // pequena pausa pra não esmagar o process / event loop
+          await sleep(45);
         }
 
         let rows = Array.from(byMlb.values()).filter((r) => r.mlb);
@@ -510,7 +509,6 @@ class FiltroAnunciosQueueService {
           });
         }
 
-        // ⚠️ detalhes você pode manter mesmo sem exibir coluna; filtro continua útil
         if (filters.detalhes && filters.detalhes !== "all") {
           rows = rows.filter((r) => {
             if (filters.detalhes === "catalog")
@@ -523,7 +521,7 @@ class FiltroAnunciosQueueService {
 
         job.progress(42);
 
-        // 4) vendas agregadas "por anúncio (pai)"
+        // 4) vendas no período
         const needSales =
           (filters.sales_op && filters.sales_op !== "all") ||
           filters.sort_by === "sold_value" ||
@@ -554,13 +552,12 @@ class FiltroAnunciosQueueService {
           });
         }
 
-        // ✅ NOVO: quando checkbox ativo, exige 0 vendas após o período (até hoje)
-        // Observação: isso resolve exatamente o caso "0 no período mas vendeu em junho".
+        // ✅ checkbox: “e também sem vendas após o período (até hoje)”
         if (filters.sales_no_sales_after) {
-          // reforço extra (mesmo que já validou no router)
           const v = Number(filters.sales_value || 0);
           const op = String(filters.sales_op || "all");
           const ok = (op === "lt" && v === 1) || v === 0;
+
           if (ok) {
             job.progress(74);
 
@@ -571,7 +568,6 @@ class FiltroAnunciosQueueService {
               itemToParent,
             });
 
-            // marca e filtra
             rows = rows.filter((r) => {
               const s = afterMap.get(r.mlb) || { units: 0, revenue_cents: 0 };
               r.sales_after_units = s.units;
@@ -587,7 +583,7 @@ class FiltroAnunciosQueueService {
         const needVisits = filters.visits_op && filters.visits_op !== "all";
 
         if (needVisits) {
-          const ids = rows.map((r) => r.mlb); // pai
+          const ids = rows.map((r) => r.mlb);
           const visitsMap = await fetchVisitsMap({
             token,
             ids,
@@ -656,11 +652,7 @@ class FiltroAnunciosQueueService {
     const job = await this.queue.add(
       "export",
       { token, filters },
-      {
-        attempts: 1,
-        removeOnComplete: 50,
-        removeOnFail: 50,
-      }
+      { attempts: 1, removeOnComplete: 50, removeOnFail: 50 }
     );
     return String(job.id);
   }
