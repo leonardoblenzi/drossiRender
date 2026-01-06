@@ -32,27 +32,30 @@ function toNum(v, def = 0) {
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
-
-// ✅ NOVO: parse seguro de boolean (aceita true/false, "true"/"false", "1"/"0", "on")
 function toBool(v, def = false) {
-  if (v === true) return true;
-  if (v === false) return false;
-
+  if (v === true || v === false) return v;
   const s = String(v ?? "")
     .trim()
     .toLowerCase();
   if (!s) return def;
-
-  if (["1", "true", "on", "yes", "sim"].includes(s)) return true;
-  if (["0", "false", "off", "no", "nao", "não"].includes(s)) return false;
-
-  return def;
+  return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
+/**
+ * ✅ Atualizado:
+ * - Prioriza padrões novos do seu app (meli_conta_id)
+ * - Mantém compatibilidade com antigos (ml_account)
+ */
 function pickAccountKey(req) {
   return (
+    // query (compat + novo)
     req.query.account ||
-    (req.cookies && req.cookies.ml_account) ||
+    req.query.accountKey ||
+    req.query.meli_conta_id ||
+    // cookies (novo padrão + compat)
+    (req.cookies && (req.cookies.meli_conta_id || req.cookies.ml_account)) ||
+    // headers (novo + compat)
+    req.headers["x-meli-conta-id"] ||
     req.headers["x-ml-account"] ||
     null
   );
@@ -124,9 +127,15 @@ function parseFiltersFromReq(req) {
   const sales_op = String(src.sales_op || "all").trim();
   const sales_value = toNum(src.sales_value ?? src.sales_val ?? 0, 0);
 
-  // ✅ NOVO: “e também sem vendas após o período (até hoje)”
-  // frontend manda boolean; compat: também aceita "true"/"1"/"on"
-  const sales_no_sales_after = toBool(src.sales_no_sales_after, false);
+  // ✅ NOVO: checkbox “e também sem vendas após o período (até hoje)”
+  let sales_no_sales_after = toBool(src.sales_no_sales_after, false);
+
+  // trava de segurança: só faz sentido para (< 1) ou (=0)
+  // (se vier true fora disso, ignoramos para evitar custo desnecessário)
+  const okNoAfter =
+    (sales_op === "lt" && Number(sales_value) === 1) ||
+    Number(sales_value) === 0;
+  if (!okNoAfter) sales_no_sales_after = false;
 
   const visits_op = String(src.visits_op || "all").trim();
   const visits_value = toNum(src.visits_value ?? src.visits_val ?? 0, 0);
@@ -307,7 +316,7 @@ router.post(
         return res.status(400).json({
           ok: false,
           error:
-            "Conta não informada. Use cookie ml_account, header x-ml-account ou ?account=....",
+            "Conta não informada. Use cookie meli_conta_id (novo padrão), cookie ml_account (legado), header x-meli-conta-id/x-ml-account ou ?account=....",
         });
       }
 
@@ -439,7 +448,7 @@ router.get("/filtro-anuncios", async (req, res) => {
       return res.status(400).json({
         ok: false,
         error:
-          "Conta não informada. Use cookie ml_account, header x-ml-account ou ?account=....",
+          "Conta não informada. Use cookie meli_conta_id (novo padrão), cookie ml_account (legado), header x-meli-conta-id/x-ml-account ou ?account=....",
       });
     }
 
