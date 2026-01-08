@@ -480,6 +480,15 @@ console.log("✅ AuthMiddleware aplicado (token ML válido)");
 const adAnalysisRoutes = require("./routes/adAnalysisRoutes");
 app.use("/api/analise-anuncios", adAnalysisRoutes);
 
+// ✅ Editar Anúncio (Edição oficial + Premium)
+try {
+  const editarAnuncioRoutes = require("./routes/editarAnuncioRoutes");
+  app.use("/api/editar-anuncio", editarAnuncioRoutes);
+  console.log("✅ EditarAnuncioRoutes carregado em /api/editar-anuncio");
+} catch (error) {
+  console.error("❌ Erro ao carregar EditarAnuncioRoutes:", error.message);
+}
+
 // Token
 try {
   const tokenRoutes = require("./routes/tokenRoutes");

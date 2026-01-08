@@ -101,6 +101,21 @@ router.get(
 );
 
 /* ================================
+ * ✅ NOVO: Página Editar Anúncio (HTML) — ADMIN|MASTER
+ *  - Por padrão deixei protegido, porque "editar anúncio" costuma ser ação sensível.
+ *  - Se você quiser liberar para usuário padrão, é só remover o requireAdmin().
+ * ================================ */
+router.get(
+  "/editar-anuncio",
+  noCache,
+  ensurePermission.requireAdmin(), // ✅ mantém padrão de ação sensível
+  (_req, res) => {
+    // ✅ como você pediu: html/editar-anuncio.html
+    res.sendFile(path.join(__dirname, "..", "views", "editar-anuncio.html"));
+  }
+);
+
+/* ================================
  * NOVO: Página Filtro Avançado de Anúncios (HTML)
  * ================================ */
 router.get("/filtro-anuncios", noCache, (_req, res) => {
