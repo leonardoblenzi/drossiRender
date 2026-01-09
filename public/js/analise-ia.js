@@ -163,10 +163,12 @@
     setText(el.sumRep, repTxt);
 
     const thumb =
-      s.thumbnail ||
+      s.pictures?.[0] || // ✅ capa grande primeiro
+      s.thumbnail || // fallback
       s.picture ||
-      data?.pictures?.[0] ||
+      data?.pictures?.[0]?.secure_url ||
       data?.pictures?.[0]?.url ||
+      data?.pictures?.[0] ||
       "";
 
     if (el.thumb) {

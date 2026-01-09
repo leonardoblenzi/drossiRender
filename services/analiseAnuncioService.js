@@ -29,12 +29,11 @@ function cleanZip(zip) {
 
 function inferPremium(listing_type_id) {
   const id = String(listing_type_id || "").toLowerCase();
-  // BR comum: gold_pro = Premium; gold_special = Clássico
+  // Brasil normalmente: gold_pro = Premium; gold_special = Clássico
   return id === "gold_pro" || id === "gold_premium";
 }
 
 function pickSellerLocation(user) {
-  // tenta montar algo humano sem quebrar se campos mudarem
   const city =
     user?.address?.city || user?.address?.city_name || user?.city_name || null;
 
@@ -77,13 +76,12 @@ async function mlGet(path, accessToken, qs = {}, retries = 3) {
         : await r.text().catch(() => "");
 
       if (!r.ok) {
-        const msg =
+        const err = new Error(
           (body && (body.message || body.error || body.cause)) ||
-          `HTTP ${r.status} em ${path}`;
-        const err = new Error(msg);
+            `HTTP ${r.status} em ${path}`
+        );
         err.statusCode = r.status;
 
-        // retry em rate limit / instabilidades
         if (r.status === 429 || r.status >= 500) {
           lastErr = err;
           await sleep(250 * (i + 1));
@@ -95,7 +93,6 @@ async function mlGet(path, accessToken, qs = {}, retries = 3) {
       return body;
     } catch (e) {
       lastErr = e;
-      // retry em erro de rede
       if (i < retries - 1) {
         await sleep(250 * (i + 1));
         continue;
@@ -108,7 +105,6 @@ async function mlGet(path, accessToken, qs = {}, retries = 3) {
 }
 
 async function getVisits({ mlb, accessToken, dateFrom, dateTo }) {
-  // Existem variações desse endpoint; tentamos algumas.
   const attempts = [
     () =>
       mlGet(
@@ -131,13 +127,10 @@ async function getVisits({ mlb, accessToken, dateFrom, dateTo }) {
     try {
       const v = await fn();
 
-      // formatos:
-      // { total_visits: 123 }
       if (v && typeof v.total_visits === "number") {
         return { total: v.total_visits, raw: v };
       }
 
-      // { "MLB123": 123 } ou { "MLB123": { total_visits: 123 } }
       if (v && typeof v === "object" && v[mlb] != null) {
         const vv = v[mlb];
         if (typeof vv === "number") return { total: vv, raw: v };
@@ -145,7 +138,6 @@ async function getVisits({ mlb, accessToken, dateFrom, dateTo }) {
           return { total: vv.total_visits, raw: v };
       }
 
-      // array de objetos
       if (Array.isArray(v)) {
         const row = v.find((x) => x && (x.id === mlb || x.item_id === mlb));
         if (row) {
@@ -154,11 +146,8 @@ async function getVisits({ mlb, accessToken, dateFrom, dateTo }) {
         }
       }
 
-      // fallback: veio algo, mas formato desconhecido
       return { total: null, raw: v };
-    } catch (_e) {
-      // tenta a próxima variação
-    }
+    } catch (_e) {}
   }
 
   return { total: null, raw: null };
@@ -166,7 +155,6 @@ async function getVisits({ mlb, accessToken, dateFrom, dateTo }) {
 
 async function getShipping({ mlb, accessToken, zip_code, item }) {
   const cleaned = cleanZip(zip_code);
-
   const base = {
     zip_code: cleaned,
     free_shipping: item?.shipping?.free_shipping ?? null,
@@ -178,7 +166,6 @@ async function getShipping({ mlb, accessToken, zip_code, item }) {
 
   if (!cleaned) return base;
 
-  // endpoints comuns para simular frete por CEP (pode variar por site/conta)
   const attempts = [
     () =>
       mlGet(
@@ -201,7 +188,6 @@ async function getShipping({ mlb, accessToken, zip_code, item }) {
       const sh = await fn();
       base.raw = sh;
 
-      // formatos possíveis:
       const options =
         sh?.options ||
         sh?.shipping_options ||
@@ -209,7 +195,6 @@ async function getShipping({ mlb, accessToken, zip_code, item }) {
         null;
 
       if (Array.isArray(options) && options.length) {
-        // pega o menor custo numérico
         const costs = options
           .map((o) => Number(o?.cost ?? o?.list_cost ?? o?.base_cost))
           .filter((n) => Number.isFinite(n));
@@ -222,9 +207,7 @@ async function getShipping({ mlb, accessToken, zip_code, item }) {
       }
 
       return base;
-    } catch (_e) {
-      // tenta o próximo
-    }
+    } catch (_e) {}
   }
 
   return base;
@@ -232,11 +215,9 @@ async function getShipping({ mlb, accessToken, zip_code, item }) {
 
 module.exports = {
   async getOverview({ mlb, accessToken, days = 30, zip_code = null }) {
-    const safeDays = Math.max(1, Math.min(365, Number(days) || 30));
-
     const now = new Date();
     const dateTo = datePart(now);
-    const from = new Date(now.getTime() - safeDays * 24 * 60 * 60 * 1000);
+    const from = new Date(now.getTime() - Number(days) * 24 * 60 * 60 * 1000);
     const dateFrom = datePart(from);
 
     // 1) Item (principal)
@@ -246,6 +227,12 @@ module.exports = {
       {},
       3
     );
+
+    // ✅ IMAGENS GRANDES (pra não ficar borrado)
+    // pictures costuma vir com secure_url grande
+    const pictures = Array.isArray(item?.pictures)
+      ? item.pictures.map((p) => p?.secure_url || p?.url).filter(Boolean)
+      : [];
 
     // 2) Seller
     const sellerId = item?.seller_id;
@@ -266,20 +253,15 @@ module.exports = {
     // 4) Shipping (se tiver CEP)
     const shipping = await getShipping({ mlb, accessToken, zip_code, item });
 
-    // Imagens
-    const pictures = Array.isArray(item?.pictures)
-      ? item.pictures.map((p) => p?.secure_url || p?.url).filter(Boolean)
-      : [];
-
-    // Resumo (formato que teu analise-ia.js já renderiza)
+    // Resumo no formato que seu analise-ia.js renderiza
     const summary = {
-      id: item?.id ?? null,
-      title: item?.title ?? null,
-      status: item?.status ?? null,
-      permalink: item?.permalink ?? null,
-      category_id: item?.category_id ?? null,
-      condition: item?.condition ?? null,
-      currency_id: item?.currency_id ?? null,
+      id: item?.id,
+      title: item?.title,
+      status: item?.status,
+      permalink: item?.permalink,
+      category_id: item?.category_id,
+      condition: item?.condition,
+      currency_id: item?.currency_id,
 
       price: item?.price ?? null,
       available_quantity: item?.available_quantity ?? null,
@@ -292,10 +274,9 @@ module.exports = {
       date_created: item?.date_created ?? null,
       last_updated: item?.last_updated ?? null,
 
-      // thumbnails
+      // ✅ prioridade pra imagem grande
       thumbnail:
-        item?.secure_thumbnail || item?.thumbnail || pictures[0] || null,
-
+        pictures[0] || item?.thumbnail || item?.secure_thumbnail || null,
       pictures,
     };
 
@@ -305,26 +286,17 @@ module.exports = {
           nickname: seller?.nickname ?? null,
           location: pickSellerLocation(seller),
         }
-      : {
-          seller_id: sellerId ?? null,
-          nickname: null,
-          location: null,
-        };
+      : { seller_id: sellerId ?? null, nickname: null, location: null };
 
     const sellerRep = seller?.seller_reputation || null;
 
     return {
       summary,
-
-      // ✅ ajuda teu front (ele tem fallback em data.pictures[0])
-      pictures: summary.pictures,
-
       visits: {
         total: visits.total,
         date_from: dateFrom,
         date_to: dateTo,
       },
-
       shipping: {
         zip_code: shipping.zip_code,
         free_shipping: shipping.free_shipping,
@@ -332,14 +304,11 @@ module.exports = {
         logistic_type: shipping.logistic_type,
         mode: shipping.mode,
       },
-
       seller: sellerOut,
       seller_reputation: sellerRep,
-
       meta: {
         fetched_at: new Date().toISOString(),
       },
-
       raw: {
         item,
         seller,
