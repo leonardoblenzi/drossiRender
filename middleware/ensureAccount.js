@@ -20,27 +20,24 @@ const LEGACY_ENV_COMPAT = String(process.env.LEGACY_ENV_COMPAT || "") === "1";
 const ENSURE_ACCOUNT_DEBUG =
   String(process.env.ENSURE_ACCOUNT_DEBUG || "") === "1";
 
-// ====== Rotas abertas (não exigem conta selecionada) ======
+// ====== Rotas abertas (NÃO exigem conta selecionada) ======
+// ⚠️ IMPORTANTE: isso NÃO é “público sem login”.
+// No seu index.js, ensureAuth roda ANTES, então aqui é apenas “não exigir conta”.
 const OPEN_PREFIXES = [
-  // home / públicos
-  "/api/account",
-  "/",
-  "/selecao-plataforma",
-  "/login",
-  "/cadastro",
-  "/nao-autorizado",
-
-  // auth do app
+  // auth do app (login/cadastro)
   "/api/auth",
 
-  // seleção/vinculação (podem abrir sem conta selecionada)
+  // páginas necessárias pra escolher/vincular conta
   "/select-conta",
   "/vincular-conta",
 
   // OAuth ML (start/callback/contas/selecionar/limpar)
   "/api/meli",
 
-  // system/health/debug
+  // API de conta (whoami/listar contas etc.)
+  "/api/account",
+
+  // utilitários/health (se quiser exigir conta até aqui, remova)
   "/api/system/health",
   "/api/system/stats",
   "/api/health",
@@ -70,6 +67,8 @@ function getReqPath(req) {
 function isOpen(req) {
   if (SKIP_METHODS.has(req.method)) return true;
   const p = getReqPath(req);
+
+  // ✅ removeu "/" daqui de propósito: ter "/" aqui abre o app inteiro.
   return OPEN_PREFIXES.some((base) => p === base || p.startsWith(base + "/"));
 }
 
@@ -86,10 +85,9 @@ function wantsHtml(req) {
   const accept = String(req.headers?.accept || "").toLowerCase();
   if (!accept) return false;
 
-  if (accept.includes("text/html") || accept.includes("application/xhtml+xml"))
-    return true;
-
-  return false;
+  return (
+    accept.includes("text/html") || accept.includes("application/xhtml+xml")
+  );
 }
 
 function deny(
@@ -134,7 +132,7 @@ function truthy(v) {
 function isMaster(req) {
   // cobre formatos comuns:
   // - req.user.is_master
-  // - req.user.flags.is_master (bem comum)
+  // - req.user.flags.is_master
   // - req.user.isMaster
   // - req.user.nivel === admin_master
   // - req.user.role === admin_master
@@ -148,6 +146,24 @@ function isMaster(req) {
     truthy(req.user?.isMaster) ||
     truthy(req.user?.flags?.is_master)
   );
+}
+
+// ====== Helpers DB ======
+async function withClient(fn) {
+  // Compat: alguns projetos têm db.withClient; outros usam pool diretamente.
+  if (typeof db.withClient === "function") return db.withClient(fn);
+
+  // fallback: tenta usar db.connect() se existir (pg.Pool)
+  if (typeof db.connect === "function") {
+    const client = await db.connect();
+    try {
+      return await fn(client);
+    } finally {
+      client.release?.();
+    }
+  }
+
+  throw new Error("db.withClient/db.connect não disponíveis em ../db/db");
 }
 
 // ====== Helpers OAuth (banco) ======
@@ -168,7 +184,7 @@ async function getEmpresaDoUsuario(client, usuarioId) {
  * Usuário comum/admin: valida que a conta pertence à empresa do usuário.
  */
 async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
-  return db.withClient(async (client) => {
+  return withClient(async (client) => {
     const emp = await getEmpresaDoUsuario(client, usuarioId);
     if (!emp) return null;
 
@@ -217,7 +233,7 @@ async function getOAuthCredsForUserAndContaId(usuarioId, meliContaId) {
  * Retorna empresa_nome da conta selecionada (pra UI/header).
  */
 async function getOAuthCredsForMasterAndContaId(meliContaId) {
-  return db.withClient(async (client) => {
+  return withClient(async (client) => {
     const c = await client.query(
       `select mc.id,
               mc.empresa_id,
@@ -338,7 +354,6 @@ async function ensureAccount(req, res, next) {
       meli_user_id: pack.conta.meli_user_id,
       site_id: pack.conta.site_id || "MLB",
       status: pack.conta.status,
-      // ajuda a UI master
       empresa_id: pack.empresa_id,
       empresa_nome: pack.empresa_nome,
     };
@@ -380,8 +395,6 @@ async function ensureAccount(req, res, next) {
 
     // ✅ IMPORTANTÍSSIMO:
     // Não escrever token em process.env por padrão (evita vazar token entre contas/usuários).
-    // Se você ainda tiver serviços antigos que dependem disso, ligue:
-    //   LEGACY_ENV_COMPAT=1
     if (LEGACY_ENV_COMPAT) {
       if (creds.access_token)
         process.env.ACCESS_TOKEN = String(creds.access_token);

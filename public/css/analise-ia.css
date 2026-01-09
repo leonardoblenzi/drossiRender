@@ -1,0 +1,319 @@
+/* ===== IA • Análise de Anúncio — MESMO PADRÃO do editar-anuncio ===== */
+
+/* ===== Página (mesmo do editar) ===== */
+.editar-page{
+  padding: 18px 0 28px;
+}
+.editar-wrap{
+  max-width: 1400px;
+}
+
+/* ===== Top Header (mesmo do editar) ===== */
+.page-top{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.page-title{
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 800;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.page-subtitle{
+  margin: 6px 0 0 0;
+  color: rgba(0,0,0,.6);
+}
+
+/* ===== Card Panel (mesmo do editar) ===== */
+.card-panel{
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0,0,0,.06);
+  overflow: hidden;
+}
+.card-panel__header{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+}
+.card-panel__title{
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.card-panel__hint{
+  margin: 4px 0 0 0;
+  color: rgba(0,0,0,.6);
+  font-size: .92rem;
+}
+.card-panel__grid{
+  display: grid;
+  grid-template-columns: 1.05fr .95fr;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+
+@media (max-width: 992px){
+  .page-top{
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .card-panel__grid{
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Inputs premium (mesmo do editar) ===== */
+.label-sm{
+  font-size: .82rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: inline-block;
+  color: rgba(0,0,0,.65);
+}
+.input-group-premium .input-group-text{
+  background: rgba(0,0,0,.03);
+  border-color: rgba(0,0,0,.12);
+}
+.input-group-premium .form-control{
+  border-color: rgba(0,0,0,.12);
+}
+.form-select-premium{
+  border-color: rgba(0,0,0,.12);
+  border-radius: 12px;
+}
+.form-control-premium{
+  border-color: rgba(0,0,0,.12);
+  border-radius: 12px;
+}
+.btn-pill{
+  border-radius: 999px !important;
+}
+
+/* ===== Chips (mesmo do editar) ===== */
+.chips .chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: .85rem;
+  border: 1px solid rgba(0,0,0,.12);
+}
+.chip-soft{
+  background: rgba(0,0,0,.03);
+}
+
+/* ===== Panel blocks (mesmo do editar) ===== */
+.panel-block{ padding: 0; }
+
+.panel-block--soft{
+  background: rgba(0,0,0,.02);
+  border: 1px dashed rgba(0,0,0,.14);
+  border-radius: 14px;
+  padding: 12px 12px 14px;
+}
+.panel-mini-title{
+  font-size: .75rem;
+  letter-spacing: .08em;
+  font-weight: 900;
+  color: rgba(0,0,0,.5);
+  margin-bottom: 10px;
+}
+
+/* ===== Grid do topo (igual editar) ===== */
+.aa-grid{
+  grid-template-columns: 1.05fr .95fr;
+}
+@media (max-width: 992px){
+  .aa-grid{ grid-template-columns: 1fr; }
+}
+
+/* ===== Linha de filtros (ficar alinhado) ===== */
+.filters-row{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 520px){
+  .filters-row{ grid-template-columns: 1fr; }
+}
+
+/* ===== Summary cards (no feeling do mini-kpi) ===== */
+.aa-summary-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.aa-summary-card{
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  padding: 10px 10px;
+  min-height: 62px;
+}
+.aa-summary-card--wide{ grid-column: span 2; }
+
+.aa-summary-card .k{
+  font-size: .78rem;
+  color: rgba(0,0,0,.55);
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.aa-summary-card .v{
+  font-weight: 800;
+  font-size: .95rem;
+  line-height: 1.2;
+  word-break: break-word;
+  color: rgba(0,0,0,.86);
+}
+
+.aa-hint{
+  font-size: .9rem;
+  color: rgba(0,0,0,.55);
+  margin-top: 6px;
+}
+
+/* ===== Tabs internas (iguais do editar) ===== */
+.editar-inner-tabs{
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+  background: rgba(0,0,0,.015);
+  flex-wrap: wrap;
+}
+.inner-tab{
+  border: 1px solid rgba(0,0,0,.12);
+  background: #fff;
+  color: rgba(0,0,0,.8);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 800;
+  font-size: .9rem;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.inner-tab.active{
+  background: rgba(0,0,0,.06);
+}
+.editar-panes{
+  padding: 14px 16px 16px;
+}
+.pane{ display: none; }
+.pane.active{ display: block; }
+
+/* ===== Details boxes (no padrão do editar) ===== */
+.aa-details-grid{
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 14px;
+}
+@media (max-width: 992px){
+  .aa-details-grid{ grid-template-columns: 1fr; }
+}
+
+.aa-box{
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+.aa-box__title{
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+  background: rgba(0,0,0,.02);
+  font-weight: 900;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ===== Imagem ===== */
+.aa-img{
+  padding: 12px;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.aa-img img{
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(0,0,0,.02);
+  display: none; /* você liga via JS quando tiver src */
+}
+
+/* ===== Info list (grid no padrão) ===== */
+.aa-kv{
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.aa-kv .row{
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+.aa-kv .k{
+  font-weight: 900;
+  color: rgba(0,0,0,.6);
+  font-size: .85rem;
+}
+.aa-kv .v{
+  font-weight: 700;
+  word-break: break-word;
+}
+@media (max-width: 520px){
+  .aa-kv .row{
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Diagnóstico ===== */
+.aa-diag{
+  padding: 12px;
+  color: rgba(0,0,0,.85);
+  font-weight: 700;
+  font-size: .92rem;
+  line-height: 1.35;
+}
+
+/* ===== JSON (mesmo padrão do editar) ===== */
+.json-toolbar{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.json-pre{
+  margin: 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(0,0,0,.02);
+  max-height: 520px;
+  overflow: auto;
+  font-size: .85rem;
+  line-height: 1.35;
+}
+
+/* ===== Alerts alinhados ===== */
+.aa-alerts .alert{
+  border-radius: 14px;
+}

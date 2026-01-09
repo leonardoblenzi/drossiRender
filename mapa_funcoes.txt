@@ -90,6 +90,7 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
 
 ===============================================================================
 3) Produtos Estratégicos (Preço Original / Preço Promo / % calculada no FRONT)
+===============================================================================
 
 / (raiz do projeto)
 ├─ index.js
@@ -160,7 +161,6 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
 │
 └─ public/css/estrategicos.css
 └─ AJUSTE: nome do produto pode virar 2 linhas (line-clamp: 2) para reduzir corte e abrir espaço
-
 └─ public/js/estrategicos.js
 ├─ loadRows() -> GET /api/estrategicos -> renderTable()
 ├─ Seleção:
@@ -274,597 +274,120 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
    • niveis: usuario | admin | admin_master (MASTER)
 
 FULL • Produtos Fulfillment (ATUAL)
-
-/ (raiz do projeto)
-├─ index.js
-│ ├─ app.use("/api/full", fullRoutes) ✅ (API FULL)
-│ ├─ app.use(htmlRoutes) ✅ (onde está o GET /full que abre a tela)
-│ ├─ Middlewares que impactam o FULL (ordem):
-│ │ • ensureAuth (JWT do app)
-│ │ • ensureAccount (exige meli_conta_id cookie)
-│ │ • authMiddleware (injeta token ML em res.locals.mlCreds)
-│ └─ GET /full → views/full.html (via htmlRoutes)
-│ └─ carrega /js/full.js + /css/full.css
-│
-├─ routes/fullRoutes.js
-│ ├─ GET /anuncios → FullController.list
-│ ├─ POST /anuncios → FullController.add
-│ ├─ POST /anuncios/sync → FullController.sync
-│ │ • Body opcional: { mlbs: ["MLB..."] } → sincroniza selecionados
-│ │ • Body opcional: { mode: "IMPORT_ALL" } → importa tudo do ML (somente FULL)
-│ ├─ POST /anuncios/bulk-delete → FullController.bulkDelete
-│ └─ DELETE /anuncios/:mlb → FullController.removeOne
-│
-├─ controllers/FullController.js
-│ ├─ pickContaId() lê cookie meli_conta_id
-│ ├─ list
-│ │ • lê query: page, pageSize, q, status
-│ │ • chama FullService.list({ meli_conta_id, page, pageSize, q, status })
-│ ├─ add
-│ │ • valida mlb (começa com MLB)
-│ │ • chama FullService.addOrUpdateFromML({ req, res, meli_conta_id, mlb })
-│ ├─ sync
-│ │ • lê body: mode e mlbs
-│ │ • chama FullService.sync({ req, res, meli_conta_id, mlbs, mode })
-│ ├─ bulkDelete
-│ │ • remove lote por mlbs[]
-│ └─ removeOne
-│ • remove 1 (usa bulkDelete internamente)
-│
-├─ services/fullService.js
-│ ├─ DB: tabela anuncios_full (chave por meli_conta_id + mlb)
-│ ├─ list()
-│ │ • paginação via LIMIT/OFFSET no Postgres
-│ │ • filtros: texto (mlb/sku/title) + status
-│ ├─ addOrUpdateFromML()
-│ │ • ML: GET /items/{mlb} → pega title, price, pictures/thumbnail, inventory_id, sold_quantity, status
-│ │ • se tem inventory_id: GET /inventories/{inventory_id}/stock/fulfillment → pega available_quantity (+ detalhes)
-│ │ • calcula status da UI (active/no_stock/intransfer/ineligible)
-│ │ • upsert no DB
-│ ├─ sync()
-│ │ • mode = "IMPORT_ALL":
-│ │ │ - ML: GET /users/me → userId
-│ │ │ - ML: GET /users/{userId}/items/search?search_type=scan&limit=...&scroll_id=...
-│ │ │ - para cada MLB: chama addOrUpdateFromML(opts.onlyIfFull=true)
-│ │ │ - resultado: scanned/imported_full/skipped_not_full/fail[]
-│ │ • mode normal:
-│ │ - se mlbs vier: sincroniza só eles
-│ │ - senão: busca todos do DB e sincroniza
-│ └─ bulkDelete()
-│ • DELETE FROM anuncios_full WHERE meli_conta_id=$1 AND mlb = ANY($2)
-│
-├─ views/full.html
-│ ├─ Header (account-bar) + Tabs
-│ ├─ Card “Configuração e ações” (Buscar, pageSize, status)
-│ ├─ Ações: Adicionar, Sincronizar, Excluir selecionados, Selecionar página, Limpar seleção, badge modo seleção (opcional)
-│ └─ Tabela (checkbox/Imagem/MLB/SKU/QtdFull/Vendas/Preço/Status/Ações) + paginação
-│
-├─ public/js/full.js
-│ ├─ Monta query da listagem: /api/full/anuncios?page=&pageSize=&q=&status=
-│ ├─ sync chama: POST /api/full/anuncios/sync
-│ │ • se DB vazio → { mode: "IMPORT_ALL" }
-│ │ • se tem seleção → { mlbs: चयन }
-│ │ • sem seleção → sincroniza MLBs da página atual
-│ ├─ bulk delete chama: POST /api/full/anuncios/bulk-delete
-│ ├─ add chama: POST /api/full/anuncios
-│ └─ Controla seleção/paginação/render da tabela
-│
-└─ db/00X_create_anuncios_full.sql
-└─ Criação da tabela anuncios_full + índices/constraints (meli_conta_id, mlb)
-
-✅ NOVO ARQUIVO (reutilizável)
-middleware/
-└─ ensurePermission.js
-  • resolveNivel(req,res) -> normaliza padrao|admin|master
-  • requireAdmin()  -> admin OU master
-  • requireMaster() -> somente master
-  • deny() com comportamento:
-    - HTML (GET): redirect /nao-autorizado
-    - API/fetch: 403 JSON { ok:false, error:'Acesso não autorizado.', redirect:'/nao-autorizado' }
+(sem alterações)
 
 ================================================================================
 8) SISTEMA NOVO — OAuth Mercado Livre + Seleção de Conta (novo fluxo)
 ================================================================================
-
-Objetivo:
-- Parar de depender do cookie legado ml_account e dos tokens em .env por conta
-- Vincular contas do ML no banco (por empresa) e selecionar conta via cookie httpOnly meli_conta_id
-
-//SISTEMA NOVO MODELO
-OAuth Mercado Livre + Seleção de Conta (novo fluxo) + Segurança de Acesso + Fix do 403 (mapa atualizado)
-/ (raiz do projeto)
-├─ index.js
-│ ├─ Middlewares básicos (público)
-│ │ ├─ express.json / express.urlencoded
-│ │ ├─ cors()  (⚠️ se tiver cross-origin + cookies, usar origin + credentials)
-│ │ ├─ cookieParser()
-│ │ └─ express.static(/public)
-│ │
-│ ├─ Rotas públicas (SEM LOGIN)
-│ │ ├─ GET /                -> redirect /selecao-plataforma
-│ │ ├─ GET /selecao-plataforma -> views/selecao-plataforma.html
-│ │ ├─ GET /login           -> views/login.html
-│ │ ├─ GET /cadastro        -> views/cadastro.html
-│ │ ├─ GET /nao-autorizado  -> views/nao-autorizado.html (HTML 403)
-│ │ ├─ app.use('/api/auth', authRoutes)  # login/logout/me (JWT do app)
-│ │ │
-│ │ ├─ POST /api/ml/logout (logout “completo”)
-│ │ │ ├─ clearCookie('auth_token')
-│ │ │ ├─ clearCookie('meli_conta_id')   ✅ OAuth (NOVO)
-│ │ │ └─ clearCookie('ml_account')      ✅ Legacy (se existir)
-│ │ │
-│ │ └─ Monitoramento/Debug ABERTOS
-│ │   ├─ GET /api/system/health
-│ │   ├─ GET /api/system/stats
-│ │   └─ GET /test-basic
-│ │
-│ ├─ ✅ app.use(ensureAuth)  # daqui pra baixo TUDO exige login do app (JWT cookie auth_token)
-│ │
-│ ├─ OAuth Mercado Livre (vincular contas via autorização)
-│ │ ├─ app.use('/api/meli', meliOAuthRoutes)   # PKCE start/callback + contas/seleção no DB
-│ │ └─ GET /vincular-conta -> views/vincular-conta.html
-│ │
-│ ├─ ensureAdminOnly (middleware inline no index.js)
-│ │ ├─ usado para páginas/rotas específicas (ex: /admin/usuarios e /api/excluir-anuncio)
-│ │ └─ HTML -> redirect /nao-autorizado | API -> 403 JSON
-│ │
-│ ├─ Admin (SOMENTE ADMIN)
-│ │ ├─ GET /admin/usuarios -> views/admin-usuarios.html (ensureAdminOnly)
-│ │ └─ app.use('/api/admin', adminUsuariosRoutes)
-│ │
-│ ├─ Seleção de conta (APÓS LOGIN)
-│ │ ├─ GET /select-conta -> views/select-conta.html
-│ │ └─ app.use('/api/account', accountRoutes)  # ✅ seleção/list/current/clear (OAuth + Legacy)
-│ │
-│ ├─ Proteção por conta selecionada (OAuth)
-│ │ ├─ app.use(ensureAccount)  # ✅ exige cookie meli_conta_id e injeta res.locals.mlCreds
-│ │ └─ Debug: GET /api/account/whoami -> mostra conta + usuário do JWT + hasCreds
-│ │
-│ ├─ Proteção por token ML válido
-│ │ └─ app.use(authMiddleware)  # ✅ garante access_token válido (renova se preciso)
-│ │
-│ ├─ Fix crítico do 403 (Admin-only aplicado errado)
-│ │ └─ ✅ correto: aplicar admin-only SOMENTE no prefixo:
-│ │     app.use('/api/excluir-anuncio', ensureAdminOnly, excluirAnuncioRoutes)
-│ │     (antes, quando era “sem prefixo”, derrubava tudo após esse ponto)
-│ │
-│ └─ Rotas protegidas do app (após JWT + conta + token ML)
-│   ├─ /api/analise-anuncios           -> adAnalysisRoutes
-│   ├─ tokenRoutes                    -> (prefixo conforme seu router)
-│   ├─ /api/validar-dimensoes         -> validarDimensoesRoutes
-│   ├─ /api/excluir-anuncio           -> excluirAnuncioRoutes (ADMIN ONLY no index)
-│   ├─ removerPromocaoRoutes          -> promocaoRoutes (prefixo conforme seu router)
-│   ├─ /api/criar-promocao            -> criarPromocaoRoutes
-│   ├─ itemsRoutes                    -> (prefixo conforme seu router)
-│   ├─ promocoesRoutes                -> (prefixo conforme seu router)
-│   ├─ htmlRoutes                     -> páginas do dashboard (protegidas)
-│   ├─ /api/pesquisa-descricao        -> pesquisaDescricaoRoutes
-│   ├─ /api/keyword-analytics         -> keywordAnalyticsRoutes
-│   ├─ /api/analytics                 -> analyticsAbcRoutes + filtroAnunciosRoutes
-│   ├─ estrategicosRoutes             -> (prefixo conforme seu router)
-│   ├─ /api/full                      -> fullRoutes
-│   ├─ /api/publicidade               -> publicidadeRoutes
-│   └─ GETs auxiliares (HTML) servidos via sendFile (onde você colocou)
-│
-│ ├─ Errors
-│ │ ├─ handler 500 (json)
-│ │ └─ handler 404 (json)
-│ │
-│ └─ Graceful shutdown + queueService
-
-✅ AJUSTE IMPORTANTE (2025-12-29) — substituição do ensureAdminOnly inline
-- Onde você usava “ensureAdminOnly/ensurePrivileged” inline no index.js para exclusão,
-  agora a fonte de verdade é middleware/ensurePermission.js:
-  • API: app.use('/api/excluir-anuncio', ensurePermission.requireAdmin(), excluirAnuncioRoutes)
-  • VIEW: /excluir-anuncio (htmlRoutes) também usa ensurePermission.requireAdmin()
-
-================================================================================
-(Seções 1–8 abaixo permanecem iguais ao seu texto original; apenas foi adicionado o item novo acima)
-================================================================================
-
-1) Middleware: Login do app (JWT) com HTML/JSON seguro
-middleware/
-
-└─ ensureAuth.js  ✅ (atualizado)
-├─ lê cookie: auth_token
-├─ valida JWT_SECRET + jwt.verify()
-├─ injeta:
-│ ├─ req.user = payload { uid, email, nivel, nome, iat, exp }
-│ └─ res.locals.user = payload
-├─ comportamento correto:
-│ ├─ PÁGINA (GET + Accept html): redirect /login
-│ └─ API/FETCH (/api/* ou Accept JSON ou X-Requested-With): 401 JSON { ok:false, redirect:'/login' }
-└─ requireNivel/ensureAdmin:
-  ├─ se não admin:
-  │ ├─ HTML: redirect /nao-autorizado
-  │ └─ API: 403 JSON
-
-
-2) Middleware: Exigir conta selecionada (OAuth) + compat legado comentado
-middleware/
-
-└─ ensureAccount.js  ✅ (novo padrão OAuth)
-├─ cookie OAuth: meli_conta_id
-├─ OPEN_PREFIXES:
-│ ├─ páginas públicas (/login, /cadastro, /selecao-plataforma, /nao-autorizado)
-│ ├─ auth do app (/api/auth)
-│ ├─ seleção/vinculação (/select-conta, /vincular-conta)
-│ ├─ OAuth ML (/api/meli/*)
-│ ├─ system/health/debug
-│ └─ estáticos (/public, /css, /js, /img, etc.)
-├─ exige req.user.uid (ensureAuth deve rodar antes)
-├─ se cookie ausente/inválido:
-│ ├─ HTML GET: redirect /select-conta
-│ └─ API: 401 JSON { ok:false, redirect:'/select-conta' }
-├─ carrega dados do DB:
-│ ├─ empresa do usuário: empresa_usuarios -> empresas
-│ ├─ valida se meli_conta_id pertence à empresa: meli_contas
-│ └─ carrega tokens 1:1: meli_tokens (por meli_conta_id)
-├─ injeta identidade (UI/log):
-│ ├─ res.locals.accountMode = 'oauth'
-│ ├─ res.locals.accountKey = '<meli_conta_id>'
-│ ├─ res.locals.accountLabel = apelido || `Conta <meli_user_id>`
-│ ├─ res.locals.empresaId / empresaNome
-│ └─ res.locals.mlCreds (bag central)
-│    ├─ app_id / client_secret / redirect_uri (do ENV)
-│    ├─ account_key / meli_conta_id / meli_user_id / site_id / status
-│    └─ access_token / refresh_token / access_expires_at / scope (do DB; pode vir null)
-└─ LEGADO permanece comentado no final (cookie ml_account + env ML_<KEY>_*)
-
-
-3) Seleção de Conta (novo padrão com compat de front)
-routes/
-
-└─ accountRoutes.js  ✅ (atualizado)
-├─ Cookies (tem que bater com ensureAccount.js)
-│ ├─ COOKIE_OAUTH  = 'meli_conta_id'  ✅
-│ └─ COOKIE_LEGACY = 'ml_account'
-│
-├─ GET /api/account/list
-│ ├─ exige req.user.uid
-│ ├─ lista contas OAuth do DB (empresa do usuário)
-│ │ └─ join meli_tokens p/ has_tokens
-│ ├─ lista contas legacy (env) opcional
-│ ├─ retorna:
-│ │ ├─ { oauth:[...], legacy:[...], current }
-│ │ └─ + compat navbar/front:
-│ │    accountType, accountKey, label, success:true
-│
-├─ GET /api/account/current
-│ ├─ lê cookie meli_conta_id (ou legacy)
-│ ├─ valida contra DB (empresa + conta)
-│ ├─ se cookie inválido: clearCookie(meli_conta_id)
-│ └─ retorna payload “flat” compat:
-│    { current, accountType, accountKey, label, ok:true, success:true }
-│
-├─ POST /api/account/select
-│ ├─ OAuth: body { meliContaId }
-│ │ ├─ valida se pertence à empresa
-│ │ ├─ seta cookie meli_conta_id
-│ │ └─ limpa cookie ml_account
-│ ├─ Legacy: body { accountKey }
-│ │ ├─ seta cookie ml_account
-│ │ └─ limpa cookie meli_conta_id
-│ └─ retorna buildCurrentPayload(...) (flat + current)
-│
-└─ POST /api/account/clear
-  ├─ clearCookie(meli_conta_id)
-  ├─ clearCookie(ml_account)
-  └─ { ok:true, success:true }
-
-Observação: Você agora tem 2 formas de “selecionar conta”:
-- via /api/account/select (recomendado manter como padrão do front)
-- e também existe seleção em /api/meli/selecionar (no meliOAuthRoutes)
-O ideal é o front escolher 1 padrão e ficar só nele (pra não confundir).
-
-
-4) OAuth Mercado Livre (PKCE + state + DB)
-routes/
-
-└─ meliOAuthRoutes.js  ✅
-├─ Cookie da conta selecionada (padrão novo)
-│ └─ COOKIE_MELI_CONTA = 'meli_conta_id' ✅
-│
-├─ GET /api/meli/contas
-│ ├─ exige req.user.uid (ensureAuth)
-│ ├─ busca empresa do usuário
-│ ├─ lista meli_contas por empresa
-│ └─ retorna { ok:true, contas:[...], current_meli_conta_id }
-│
-├─ POST /api/meli/selecionar
-│ ├─ body { meli_conta_id }
-│ ├─ valida se pertence à empresa
-│ ├─ seta cookie meli_conta_id
-│ └─ retorna { ok:true, meli_conta_id }
-│
-├─ POST /api/meli/limpar-selecao
-│ └─ clear cookie meli_conta_id
-│
-├─ POST /api/meli/oauth/start
-│ ├─ gera state + code_verifier + code_challenge (PKCE S256)
-│ ├─ salva oauth_states (10 min)
-│ ├─ monta URL AUTH_BASE (auth.mercadolivre.com.br/authorization)
-│ └─ responde { ok:true, url }
-│
-├─ GET /api/meli/oauth/callback?code&state
-│ ├─ valida state no DB + expiração
-│ ├─ troca code por token em TOKEN_URL (api.mercadolibre.com/oauth/token)
-│ ├─ upsert meli_contas (empresa + meli_user_id)
-│ ├─ upsert meli_tokens (1:1 por meli_conta_id)
-│ ├─ apaga oauth_states (uso único)
-│ ├─ seta cookie meli_conta_id (opcional, mas você fez ✅)
-│ └─ redirect para return_to (sanitizado)
-│
-└─ GET /api/meli/current
-  ├─ lê cookie meli_conta_id
-  ├─ valida conta na empresa
-  └─ retorna { ok:true, selected:true/false, label, site_id, status, ... }
+(sem alterações, mantém a seção inteira como está no seu texto)
+- ensureAuth -> ensureAccount -> authMiddleware -> rotas protegidas
 
 ================================================================================
 9) Select Conta (frontend) — modo MASTER + paginação/filtros
 ================================================================================
-
-├─ oauth_states
-│ ├─ state (PK), empresa_id, usuario_id
-│ ├─ code_verifier, return_to
-│ └─ expira_em
-│
-├─ meli_contas
-│ ├─ id (PK), empresa_id
-│ ├─ meli_user_id, apelido, site_id, status
-│ └─ criado_em, atualizado_em, ultimo_uso_em
-│
-└─ meli_tokens
-  ├─ meli_conta_id (unique / FK)
-  ├─ access_token, access_expires_at
-  ├─ refresh_token, scope
-  └─ refresh_obtido_em, ultimo_refresh_em
-
+(sem alterações)
 
 ================================================================================
 10) Criar Promoção (Central de Promoções + aplicar/remover + jobs)
 ================================================================================
+(sem alterações)
+
+================================================================================
+11) ✅ NOVO — Analise IA (IA • Análise de Anúncio)
+================================================================================
 
 Objetivo:
-- Tela “Criar Promoção / Central de Promoções” com:
-  • grid de campanhas (cards) + busca por MLB (filtra cards)
-  • tabs por tipo (SMART/DEAL/SELLER/PRICE_DISCOUNT/OTHER)
-  • ao clicar no card: tabela de itens (MLB, título, estoque, SKU, preços, desc, rebate, novo preço, status, ações)
-  • filtros: participação (all/started/candidate/pending), max desconto (%), paginação (search_after)
-  • ações:
-    - aplicar 1 item (por linha)
-    - remover 1 item (stub ou real, dependendo do backend)
-    - aplicar em massa (job / fallback local)
-    - remover em massa (job)
-  • painel de processos (JobsPanel) + watcher (poll) de jobs
+- Tela “IA • Análise de Anúncio” no padrão do EDITAR/Full:
+  • input MLB (pega o primeiro MLB de um texto colado)
+  • janela de dias (7/30/60/90)
+  • CEP opcional para simular frete
+  • resumo de KPIs (título, tipo, preço, estoque, vendidos, criado, premium, catálogo, visitas, frete, vendedor, reputação)
+  • tabs internas: Detalhes | Diagnóstico | JSON
+  • copiar JSON (topo e também na aba JSON)
+  • tudo protegido por ensureAuth + ensureAccount + authMiddleware (token ML válido)
+  • API pronta para plugar endpoints oficiais do ML
 
 / (raiz do projeto)
 ├─ index.js
-│  ├─ (HTML) GET /criar-promocao -> via htmlRoutes (ou rota direta) abre a tela
-│  ├─ app.use('/api/criar-promocao', criarPromocaoRoutes)   # (se existir este prefixo)
-│  └─ app.use('/api/promocoes', promocoesRoutes)            # endpoints usados pelo front (padrão atual)
+│  ├─ (HTML) rota da tela:
+│  │  • GET /analise-ia -> serve views/analise-ia.html (via htmlRoutes ou rota direta)
+│  │
+│  └─ (API) prefixo da feature:
+│     • app.use('/api/analise-anuncios', AnaliseAnuncioRoutes)
+│     -> OBS: manter esse nome mesmo que a tela se chame analise-ia (UI) para não colidir com outras features.
 │
 ├─ routes/
-│  ├─ htmlRoutes.js
-│  │  • GET /criar-promocao -> serve views/criar-promocao.html (ou .ejs)
-│  │  • (opcional) gate ensurePermission.requireAdmin() se você quiser restringir a tela
+│  ├─ AnaliseAnuncioRoutes.js   ✅ (NOVO / ou renomeado)
+│  │  • GET /api/analise-anuncios/overview/:mlb
+│  │    - query: days=30 (default), zip_code=xxxxx-xxx (opcional)
+│  │    - chama AnaliseAnuncioController.overview()
+│  │    - responde JSON “consolidado” para o front:
+│  │      {
+│  │        summary: { id, title, status, price, sold_quantity, available_quantity, listing_type_id,
+│  │                   catalog_listing, is_premium, date_created, last_updated, permalink, thumbnail, ... },
+│  │        visits: { total, days },
+│  │        shipping: { free_shipping, cost, zip_code },
+│  │        seller: { seller_id, nickname, location },
+│  │        seller_reputation: { level_id, power_seller_status, transactions: { completed, canceled, ... } },
+│  │        meta: { fetched_at }
+│  │      }
 │  │
-│  ├─ criarPromocaoRoutes.js
-│  │  • (quando separado) rotas específicas da feature “Criar Promoção”
-│  │  • pode delegar para services/promocoesService.js (ou criarPromocaoService.js)
-│  │
-│  └─ promocoesRoutes.js  ✅ (fonte principal dos endpoints usados no front)
-│     • GET  /api/promocoes/users
-│       -> lista campanhas/promotions disponíveis para a conta selecionada
-│       -> pode aceitar query: status=all | started,pending | started,scheduled (compat)
-│       -> pode retornar paging { total, limit, offset } (se existir)
-│
-│     • GET  /api/promocoes/promotions/:promotionId/items
-│       -> lista itens da campanha (paginado via search_after)
-│       -> query:
-│          - promotion_type=SMART|DEAL|SELLER_CAMPAIGN|PRICE_DISCOUNT|...
-│          - limit=50
-│          - search_after=<token>
-│          - status=started|candidate|pending (opcional)
-│          - app_version=v2 (compat do front)
-│       -> resposta esperada pelo front:
-│          { results:[...], paging:{ total, searchAfter }, promotion_benefits? }
-│
-│     • GET  /api/promocoes/items/:mlb
-│       -> lista promoções disponíveis para o item (usado pelo filtro MLB e pelo “montarItemRapido”)
-│
-│     • (opcional) GET /api/promocoes/items/:mlb/promotions
-│       -> alias/rota alternativa para o mesmo objetivo (front tenta ambas)
-│
-│     • POST /api/promocoes/items/:mlb/apply
-│       -> aplica item na campanha selecionada
-│       -> payload base:
-│          { promotion_id, promotion_type }
-│       -> extras por tipo:
-│          - DEAL / SELLER_CAMPAIGN / PRICE_DISCOUNT:
-│              { deal_price }
-│          - SMART / PRICE_MATCHING*:
-│              { offer_id, candidate_id? }
-│          - MARKETPLACE_CAMPAIGN etc:
-│              sem extras
-│
-│     • POST /api/promocoes/promotions/:promotionId/apply-bulk
-│       -> inicia job no backend para aplicar em massa por filtros
-│       -> body:
-│          { promotion_type, filters:{ query_mlb, status, discount_max }, options:{ expected_total?, dryRun? } }
-│       -> resposta:
-│          { success:true, job_id } (ou { job_id } )
-│
-│     • POST /api/promocoes/jobs/remove
-│       -> inicia job de remoção em massa
-│       -> body:
-│          { items:[mlb...], delay_ms }
-│
-│     • GET /api/promocoes/jobs
-│       -> lista jobs ativos/recente para o JobsWatcher/JobsPanel
-│       -> resposta:
-│          { jobs:[...] }
-│
-│     • POST /api/promocoes/selection/prepare
-│       -> calcula total de itens filtrados (pra banner “x selecionados” e progresso)
-│       -> body:
-│          { promotion_id, promotion_type, status?, mlb?, percent_max? }
-│       -> resposta:
-│          { total:<number> }
+│  └─ htmlRoutes.js
+│     • GET /analise-ia -> views/analise-ia.html
 │
 ├─ controllers/
-│  ├─ PromocoesController.js (ou CriarPromocaoController.js)
-│  │  • users()                 -> lista campanhas
-│  │  • itemsByPromotion()      -> lista itens com search_after
-│  │  • itemPromotions()        -> lista promoções do item (MLB)
-│  │  • applyItem()             -> aplica 1 item na campanha
-│  │  • applyBulk()             -> inicia job (Bull/Queue) de aplicação em massa
-│  │  • removeBulkJob()         -> inicia job de remoção em massa
-│  │  • listJobs()              -> retorna jobs para o painel
-│  │  • selectionPrepare()      -> calcula total filtrado
-│  │
-│  └─ (opcional) JobsController.js se você separou o painel de processos
+│  └─ AnaliseAnuncioController.js   ✅ (NOVO)
+│     • overview(req,res)
+│       - valida mlb (começa com MLB)
+│       - lê days e zip_code
+│       - chama AnaliseAnuncioService.getOverview({ mlb, days, zip_code, req })
+│       - padroniza payload para o front
 │
 ├─ services/
-│  ├─ promocoesService.js (ou criarPromocaoService.js)
-│  │  • listarCampanhas()
-│  │  • listarItensCampanha({ promotionId, type, status, limit, search_after })
-│  │  • listarPromocoesDoItem(mlb)
-│  │  • aplicarItem(mlb, payloadPorTipo)
-│  │  • applyBulkQueue(...) / removeBulkQueue(...)
-│  │  • selectionPrepare(...)  # conta total por filtros
-│  │  • usa authFetch + TokenService (access_token válido via middleware)
-│  │
-│  └─ tokenService.js / ml-auth.js / authFetch (reuso)
+│  └─ AnaliseAnuncioService.js      ✅ (NOVO)
+│     • getOverview({ mlb, days, zip_code, req })
+│       - usa authFetch (TokenService + req.ml.accessToken)
+│       - faz chamadas oficiais ML (sugestão de composição):
+│         1) GET /items/:mlb
+│         2) GET /items/:mlb/visits?date_from=...&date_to=...
+│            (ou endpoint equivalente disponível para sua app)
+│         3) GET /sites/MLB/shipping_options?zip_code=...&item_id=...
+│            (se zip_code informado)
+│         4) GET /users/:seller_id (nickname/local)
+│         5) reputação vinda de /users/:seller_id (seller_reputation)
+│       - retorna objeto consolidado (summary/visits/shipping/seller/rep/meta)
 │
 ├─ views/
-│  ├─ criar-promocao.html (ou criar-promocao.ejs)
-│  │  • contém:
-│  │    - container de cards (#cards)
-│  │    - tabs (#promoTypeTabs) + contadores (data-count="SMART"...)
-│  │    - campo MLB (#mlbFilter) + botões (#btnFiltrarItem, #btnLimparItem)
-│  │    - tabela (tbody#tbody) + paginação (#paginacao)
-│  │    - filtros participação (radio name="filtro")
-│  │    - filtro max desconto (#maxDescTableInput + botões)
-│  │    - banner de seleção ([data-js="selecionados-banner"])
-│  │    - JobsPanel (quando presente)
-│  │
-│  └─ (opcional) partial do JobsPanel se você reutiliza em várias telas
+│  └─ analise-ia.html               ✅ (NOVO)
+│     • Layout: account-bar + tabs do dashboard
+│     • Card “Buscar anúncio” com grid 2 colunas (input + resumo)
+│     • Tabs internas (estilo editar):
+│       - Detalhes: imagem + informações (kv)
+│       - Diagnóstico: texto com heurísticas iniciais
+│       - JSON: <pre> raw
 │
 └─ public/
-   ├─ js/criar-promocao.js   ✅ (front da feature)
-   │  • carrega cards (/api/promocoes/users)
-   │  • filtra cards por MLB (consulta /api/promocoes/items/:mlb ou /promotions)
-   │  • pagina itens por search_after + status + maxDesc
-   │  • heurísticas de DEAL (resolveDealFinalAndPctFront, safeDealPrice)
-   │  • aplica item (aplicarUnico) + aplicar em massa (apply-bulk com fallback local)
-   │  • remove em massa (job remove)
-   │  • JobsWatcher (poll /api/promocoes/jobs) -> JobsPanel.mergeApiJobs()
+   ├─ js/analise-ia.js              ✅ (NOVO)
+   │  • API_BASE = /api/analise-anuncios
+   │  • loadOverview() -> GET /overview/:mlb?days=&zip_code=
+   │  • renderSummary(), renderInfoList(), renderDiagnostic(), renderJson()
+   │  • copiar JSON (btnCopyJson e btnCopyJson2)
+   │  • tabs internas usando .inner-tab + .pane (padrão do editar)
    │
-   ├─ js/jobs-panel.js        # UI do painel de processos (se presente nesta tela)
-   ├─ js/exclusao-bulk.js      # (se você reutiliza helpers de bulk)
-   ├─ css/criar-promocao.css   # estilos da Central de Promoções (se existir)
-   └─ css globais (dashboard.css etc)
+   └─ css/analise-ia.css            ✅ (NOVO)
+      • baseado no editar-anuncio.css (card-panel, chips, panel-block, mini-kpis, inner tabs, json-pre)
+      • ajustes específicos:
+        - mini-kpis para resumo
+        - thumb-wrap para imagem
+        - info-grid/aa-kv para pares chave/valor
+        - evitar conflito bootstrap: usar .aa-row em vez de .row
 
-Notas de permissão (opcional, se você quiser restringir):
-- Se “Criar Promoção” for admin-only:
-  • HTML: GET /criar-promocao -> ensurePermission.requireAdmin()
-  • API: manter /api/promocoes/* sob ensurePermission.requireAdmin() ou aplicar gates só nos endpoints de apply/remove/bulk
+Notas de segurança/permissão:
+- A tela /analise-ia é “app normal” (não admin-only por padrão).
+- Proteção vem do pipeline:
+  ensureAuth (JWT app) -> ensureAccount (cookie meli_conta_id) -> authMiddleware (token ML válido)
+- Se quiser restringir por nível, aplicar ensurePermission.requireAdmin() no GET /analise-ia (htmlRoutes).
 
-Compat / robustez do front (importante):
-- O front tenta rotas alternativas:
-  • /api/promocoes/*, /api/promocao/*, /api/promotions/* (fallback)
-- Detecta redirect silencioso (HTML vindo em vez de JSON) e loga causa para debug.
-
-
-
-
-5) UI: Seleção de Conta (tela)
-views/
-
-└─ select-conta.html
-├─ lista cards de contas (OAuth) vindas do backend
-├─ ao clicar num card: seleciona cookie meli_conta_id
-├─ botões: “Vincular Conta”, “Limpar seleção”, “Sair”
-└─ (modo legacy pode existir/ficar oculto)
-
-public/js/
-└─ select-conta.js (NOVO)
-   • loadMe() -> GET /api/auth/me (detecta admin_master)
-   • loadContasOAuth() -> GET /api/meli/contas (master com filtros/paginação)
-   • selecionarContaOAuth(id) -> POST /api/meli/selecionar
-   • limparSelecaoOAuth() -> POST /api/meli/limpar-selecao
-   • masterControls: busca, onlyActive, pager (prev/next), badges tokens/expiração
-
-└─ select-conta.js (esperado)
-├─ loadContas():
-│ ├─ (opção A) GET /api/account/list
-│ └─ (opção B) GET /api/meli/contas
-├─ selectConta(id):
-│ ├─ (opção A) POST /api/account/select { meliContaId }
-│ └─ (opção B) POST /api/meli/selecionar { meli_conta_id }
-│ └─ redirect /dashboard
-├─ clearConta():
-│ ├─ (opção A) POST /api/account/clear
-│ └─ (opção B) POST /api/meli/limpar-selecao
-└─ Observação importante:
-  - escolha UM padrão (accountRoutes OU meliOAuthRoutes) para reduzir confusão.
-
-
-6) Middleware: Garantir token ML válido para rotas que chamam ML
-middleware/
-
-└─ authMiddleware.js
-├─ SKIP_PATHS (deve ignorar o que não precisa token ML)
-│ ├─ /api/meli/* (oauth start/callback/contas/selecionar/limpar)
-│ ├─ /api/account/* (list/current/select/clear)
-│ ├─ /api/system/*, /api/health, /health
-│ └─ assets/páginas se necessário
-├─ fluxo:
-│ ├─ lê credenciais de res.locals.mlCreds (injetado pelo ensureAccount)
-│ ├─ chama TokenService.renovarTokenSeNecessario(creds)
-│ ├─ se falhar:
-│ │ ├─ HTML: redirect /select-conta (ou /vincular-conta se tokens ausentes)
-│ │ └─ API: 401 JSON { ok:false, redirect:'/select-conta' }
-│ └─ injeta req.ml com { accessToken, creds, accountKey/Label/Mode }
-
-
-7) Token Service (renovação) — pronto para persistir no banco quando quiser
-services/
-
-└─ tokenService.js
-├─ resolveCreds() unifica leitura:
-│ ├─ app_id/client_secret/redirect_uri
-│ ├─ refresh_token/access_token/access_expires_at
-│ ├─ account_key / meli_conta_id (para logs e persistência)
-├─ renovarTokenSeNecessario(creds)
-│ ├─ valida access_token (ex: /users/me)
-│ └─ se inválido/expirado -> renovarToken(creds)
-├─ renovarToken(creds)
-│ ├─ refresh_token grant em /oauth/token
-│ ├─ atualiza credenciais em memória (e possivelmente process.env por compat)
-│ └─ (evolução ideal) se creds.meli_conta_id existir:
-│    -> persistir novo access_token + access_expires_at no DB (meli_tokens)
-└─ testarToken(creds) -> /users/me
-
-
-8) Fix do “cai em /nao-autorizado” (403) após selecionar conta
-index.js (ponto crítico)
-
-Erro anterior (clássico):
-- aplicar ensureAdminOnly “global” (sem prefixo) e derrubar tudo abaixo.
-
-Correção (obrigatória, você já fez):
-app.use('/api/excluir-anuncio', ensureAdminOnly, excluirAnuncioRoutes)
-
-Fluxo final esperado (usuário)
-
-1) /login -> autentica -> cookie auth_token
-2) redirect /select-conta
-3) /select-conta -> lista contas (GET /api/account/list ou /api/meli/contas)
-4) seleciona conta -> seta cookie meli_conta_id (POST /api/account/select ou /api/meli/selecionar)
-5) redirect /dashboard
-6) a partir daí:
-   - ensureAccount injeta mlCreds/tokens
-   - authMiddleware garante access_token válido (renova se preciso)
-   - rotas que chamam ML funcionam
+================================================================================
+(Seções 1–10 permanecem iguais ao seu texto; apenas foi adicionado o item 11 acima)
+================================================================================

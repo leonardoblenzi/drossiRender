@@ -11,18 +11,18 @@
   <header class="account-bar">
 
     <div class="account-bar__left">
-    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
-      <img
-        src="/img/davantti.png"
-        alt="DAVANTTI"
-        class="brand__logo"
-        width="170"
-        height="42"
-        decoding="async"
-        loading="eager"
-      />
-    </a>
-  </div>
+      <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+        <img
+          src="/img/davantti.png"
+          alt="DAVANTTI"
+          class="brand__logo"
+          width="170"
+          height="42"
+          decoding="async"
+          loading="eager"
+        />
+      </a>
+    </div>
 
     <div class="account-bar__right">
       <div class="account-bar__current">
@@ -73,7 +73,7 @@
 
           <div class="endpoint processos">
             <h3>
-              ⚙️ Processos em Execução 
+              ⚙️ Processos em Execução
               <span class="status active">Ativo</span>
               <span id="process-counter" class="process-counter" style="display:none;">
                 <span id="counter-number">0</span> ativos
@@ -100,11 +100,11 @@
       </div>
     </section>
 
-    <!-- ✅ ANÚNCIOS (NOVO) -->
+    <!-- ✅ ANÚNCIOS -->
     <section id="tab-anuncios" class="tab-page">
       <div class="container">
         <h1>🧾 Anúncios</h1>
-        <p class="subtitle">Ferramentas focadas em edição e diagnóstico avançado de anúncios.</p>
+        <p class="subtitle">Ferramentas focadas em diagnóstico e análise de anúncios.</p>
 
         <div class="endpoints">
           <div class="endpoint">
@@ -116,12 +116,14 @@
             <a href="/editar-anuncio">✏️ Acessar Editor</a>
           </div>
 
+          <!-- ✅ AGORA FUNCIONA: aponta pro /analise-ia -->
           <div class="endpoint">
-            <h3>📊 Análise de Anúncio <span class="status warning">Em breve</span></h3>
+            <h3>📊 Análise de Anúncio (IA) <span class="status active">Ativo</span></h3>
             <p>
-              Em breve: score de qualidade, catálogo vs item, variações, SEO, imagens e recomendações automáticas.
+              Pesquise um MLB e veja os dados no estilo “página do ML”: vendidos, estoque, visitas (janela),
+              premium, catálogo, frete (CEP), vendedor e reputação.
             </p>
-            <div class="placeholder">Sem conteúdo por enquanto.</div>
+            <a href="/analise-ia">📊 Abrir Análise (IA)</a>
           </div>
         </div>
       </div>
@@ -184,18 +186,16 @@
     <section id="tab-ia" class="tab-page">
       <div class="container">
         <h1>🤖 IA & Analytics</h1>
-        <p class="subtitle">Ferramentas de análise de anúncios e pesquisa.</p>
+        <p class="subtitle">Ferramentas de análise e pesquisa.</p>
         <div class="endpoints">
-          <div class="endpoint analysis">
-            <h3>📈 Análise de Anúncios <span class="status active">Ativo</span></h3>
-            <p>Consulte MLB(s), veja tipo (Clássico/Premium), data de criação e tempo desde a última venda. Exporte XLSX.</p>
-            <a href="/analise-anuncios">📈 Acessar Análise</a>
-          </div>
+
+
           <div class="endpoint search">
             <h3>🔎 Pesquisa em Descrições <span class="status active">Ativo</span></h3>
             <p>Busque texto específico nas descrições de múltiplos MLBs.</p>
             <a href="/pesquisa-descricao">🔍 Iniciar Pesquisa</a>
           </div>
+
           <div class="endpoint keyword-analytics">
             <h3>🧠 Palavras-chave & Tendências <span class="status active">Ativo</span></h3>
             <p>Descubra palavras relacionadas e tendências (simulado).</p>
@@ -649,7 +649,7 @@
 `📊 Detalhes do Processo: ${jobId}
 
 Status: ${job.status ?? '—'}
-Progresso: ${progresso}% 
+Progresso: ${progresso}%
 Total MLBs: ${total}
 Processados: ${processados}
 Sucessos: ${concluidos}

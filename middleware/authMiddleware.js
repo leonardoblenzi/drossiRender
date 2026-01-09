@@ -1,4 +1,3 @@
-// middleware/authMiddleware.js
 "use strict";
 
 const TokenService = require("../services/tokenService");
@@ -10,7 +9,7 @@ const SKIP_PATHS = [
   /^\/api\/meli(?:\/|$)/i,
   /^\/api\/account(?:\/|$)/i,
 
-  // health checks
+  // health checks (se você quiser PROTEGER esses também, remova daqui)
   /^\/api\/health(?:\/|$)/i,
   /^\/health(?:\/|$)/i,
   /^\/api\/system\/health(?:\/|$)/i,
@@ -77,8 +76,7 @@ function wantsHtml(req) {
 /**
  * Decide para onde redirecionar quando falhar token.
  * - Se não há conta selecionada -> /select-conta
- * - Se há conta, mas falta refresh_token (não vinculou ainda) -> /vincular-conta
- * - Default -> /select-conta
+ * - Se há conta, mas falta refresh_token -> /vincular-conta
  */
 function computeRedirectForTokenFailure(res) {
   const creds = res?.locals?.mlCreds || {};

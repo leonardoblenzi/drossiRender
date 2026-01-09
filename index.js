@@ -30,7 +30,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
 app.use(cookieParser());
+
+// ✅ Static fica ANTES do gate pra login ter CSS/JS/IMG
 app.use(express.static(path.join(__dirname, "public")));
+
+// ✅ FIX: evita 401 no favicon quando não existe arquivo em /public
+app.get("/favicon.ico", (_req, res) => res.status(204).end());
 
 console.log("🔍 Carregando módulos...");
 
@@ -63,7 +68,7 @@ function noCache(_req, res, next) {
 }
 
 // ==================================================
-// ✅ Auth (JWT do APP) - rotas públicas
+// ✅ Auth (JWT do APP) - rotas públicas (precisam existir)
 // ==================================================
 try {
   if (!process.env.JWT_SECRET) {
@@ -78,11 +83,72 @@ try {
   console.error("❌ Erro ao carregar AuthRoutes:", e.message);
 }
 
-// ==========================================
-// ✅ Páginas públicas (SEM LOGIN)
-// ==========================================
-app.get("/", (req, res) => res.redirect("/selecao-plataforma"));
+/**
+ * ==========================================
+ * ✅ GATE GLOBAL: TUDO EXIGE LOGIN
+ * ==========================================
+ * A única exceção é um allowlist mínimo para conseguir:
+ * - abrir a tela /login
+ * - chamar /api/auth/login
+ * - carregar CSS/JS/IMG do login
+ *
+ * Se você quiser “travar até os assets”, você precisa separar
+ * assets do login em uma pasta pública específica (ex: /public-auth)
+ * e mover o resto pra trás do gate.
+ */
+function isPublicPath(req) {
+  const p = req.path || "";
 
+  // 1) rotas públicas mínimas (tela e auth api)
+  if (p === "/login") return true;
+  if (p === "/cadastro") return true;
+
+  // se você NÃO quer essa tela, pode remover
+  if (p === "/selecao-plataforma") return true;
+
+  // API de auth precisa ser pública (senão ninguém loga)
+  if (p.startsWith("/api/auth")) return true;
+
+  // 2) assets estáticos para a tela de login/cadastro funcionar
+  // (se você quiser ser ultra-restrito, crie /public-auth e só libere ele)
+  if (
+    p.startsWith("/css/") ||
+    p.startsWith("/js/") ||
+    p.startsWith("/img/") ||
+    p.startsWith("/fonts/") ||
+    p.startsWith("/vendor/")
+  ) {
+    return true;
+  }
+
+  // favicon já tratado acima, mas deixa safe
+  if (p === "/favicon.ico") return true;
+
+  return false;
+}
+
+function authGate(req, res, next) {
+  if (isPublicPath(req)) return next();
+  return ensureAuth(req, res, next);
+}
+
+app.use(authGate);
+console.log("✅ AuthGate aplicado (tudo protegido; allowlist mínimo liberado)");
+
+// ==========================================
+// ✅ Rotas públicas de página (só login/cadastro)
+// ==========================================
+
+// Raiz: se tiver cookie tenta ir pro dashboard; se não, vai pro login
+app.get("/", noCache, (req, res, next) => {
+  // se tiver auth_token, deixa o ensureAuth validar e redireciona
+  if (req.cookies?.auth_token) {
+    return ensureAuth(req, res, () => res.redirect("/dashboard"));
+  }
+  return res.redirect("/login");
+});
+
+// (Opcional) você pode até remover essa tela e mandar sempre pro login
 app.get("/selecao-plataforma", noCache, (req, res) => {
   return res.sendFile(path.join(__dirname, "views", "selecao-plataforma.html"));
 });
@@ -100,14 +166,6 @@ app.get("/nao-autorizado", noCache, (req, res) => {
   return res
     .status(403)
     .sendFile(path.join(__dirname, "views", "nao-autorizado.html"));
-});
-
-// Logout "completo" (limpa JWT + conta selecionada)
-app.post("/api/ml/logout", noCache, (req, res) => {
-  res.clearCookie("auth_token", { path: "/" });
-  res.clearCookie("ml_account", { path: "/" }); // legacy (ainda existe no código antigo)
-  res.clearCookie("meli_conta_id", { path: "/" }); // oauth
-  return res.json({ ok: true });
 });
 
 // ==========================================
@@ -131,7 +189,19 @@ try {
 }
 
 // ==========================================
-// Monitoramento/Debug (ABERTAS / SEM LOGIN)
+// ✅ DAQUI PRA BAIXO: já está tudo sob authGate/ensureAuth
+// ==========================================
+
+// Logout "completo" (agora protegido)
+app.post("/api/ml/logout", noCache, (req, res) => {
+  res.clearCookie("auth_token", { path: "/" });
+  res.clearCookie("ml_account", { path: "/" }); // legacy
+  res.clearCookie("meli_conta_id", { path: "/" }); // oauth
+  return res.json({ ok: true });
+});
+
+// ==========================================
+// Monitoramento/Debug (AGORA PROTEGIDAS)
 // ==========================================
 app.get("/api/system/health", (req, res) => {
   try {
@@ -221,12 +291,6 @@ app.get("/test-basic", (req, res) => {
 });
 
 // ==========================================
-// ✅ DAQUI PRA BAIXO: TUDO EXIGE LOGIN (JWT auth_token)
-// ==========================================
-app.use(ensureAuth);
-console.log("✅ ensureAuth aplicado (JWT do app)");
-
-// ==========================================
 // ✅ OAuth Mercado Livre (vincular contas via autorização)
 // ==========================================
 try {
@@ -245,7 +309,6 @@ app.get("/vincular-conta", noCache, (req, res) => {
 // ✅ Admin Panel (SOMENTE MASTER)
 // ==========================================
 
-// HTML do painel
 app.get(
   "/admin/usuarios",
   noCache,
@@ -255,7 +318,6 @@ app.get(
   }
 );
 
-// HTML: Empresas
 app.get(
   "/admin/empresas",
   noCache,
@@ -265,7 +327,6 @@ app.get(
   }
 );
 
-// API: Empresas
 try {
   const adminEmpresasRoutes = require("./routes/adminEmpresasRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminEmpresasRoutes);
@@ -276,7 +337,6 @@ try {
   console.error("❌ Erro ao carregar AdminEmpresasRoutes:", e.message);
 }
 
-// HTML Vínculos
 app.get(
   "/admin/vinculos",
   noCache,
@@ -286,7 +346,6 @@ app.get(
   }
 );
 
-// API Vínculos
 try {
   const adminVinculosRoutes = require("./routes/adminVinculosRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminVinculosRoutes);
@@ -297,7 +356,6 @@ try {
   console.error("❌ Erro ao carregar AdminVinculosRoutes:", e.message);
 }
 
-// HTML Contas ML
 app.get(
   "/admin/contas-ml",
   noCache,
@@ -309,7 +367,6 @@ app.get(
   }
 );
 
-// API Contas ML
 try {
   const adminMeliContasRoutes = require("./routes/adminMeliContasRoutes");
   app.use(
@@ -324,7 +381,6 @@ try {
   console.error("❌ Erro ao carregar AdminMeliContasRoutes:", e.message);
 }
 
-// HTML Tokens ML
 app.get(
   "/admin/tokens-ml",
   noCache,
@@ -336,7 +392,6 @@ app.get(
   }
 );
 
-// API Tokens ML
 try {
   const adminMeliTokensRoutes = require("./routes/adminMeliTokensRoutes");
   app.use(
@@ -351,7 +406,6 @@ try {
   console.error("❌ Erro ao carregar AdminMeliTokensRoutes:", e.message);
 }
 
-// HTML OAuth States
 app.get(
   "/admin/oauth-states",
   noCache,
@@ -363,7 +417,6 @@ app.get(
   }
 );
 
-// API OAuth States
 try {
   const adminOAuthStatesRoutes = require("./routes/adminOAuthStatesRoutes");
   app.use(
@@ -397,7 +450,6 @@ try {
   console.error("❌ Erro ao carregar AdminMigracoesRoutes:", e.message);
 }
 
-// HTML Backup (SOMENTE MASTER)
 app.get(
   "/admin/backup",
   noCache,
@@ -417,7 +469,6 @@ try {
   console.error("❌ Erro ao carregar AdminBackupRoutes:", e.message);
 }
 
-// APIs do painel (aplica o gate no index.js)
 try {
   const adminUsuariosRoutes = require("./routes/adminUsuariosRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminUsuariosRoutes);
@@ -429,7 +480,7 @@ try {
 }
 
 // ==========================================
-// Seleção de conta (protegida por ensureAuth)
+// Seleção de conta (já protegido)
 // ==========================================
 try {
   app.get("/select-conta", noCache, (req, res) => {
@@ -445,7 +496,7 @@ try {
 }
 
 // ==========================================
-// PROTEÇÃO: exigir conta selecionada (após login + seleção)
+// Exigir conta selecionada (após login + seleção)
 // ==========================================
 try {
   app.use(ensureAccount);
@@ -455,7 +506,6 @@ try {
   console.warn("⚠️ Continuação sem exigir conta selecionada (temporário)");
 }
 
-// Debug helper (DEPOIS do ensureAccount)
 app.get("/api/account/whoami", (req, res) => {
   res.json({
     ok: true,
@@ -476,9 +526,14 @@ console.log("✅ AuthMiddleware aplicado (token ML válido)");
 // Rotas PROTEGIDAS do app
 // ==========================================
 
-// Análise de anúncios (usa ML)
-const adAnalysisRoutes = require("./routes/adAnalysisRoutes");
-app.use("/api/analise-anuncios", adAnalysisRoutes);
+// ✅ IA • Análise de Anúncio (API)
+try {
+  const analiseAnuncioRoutes = require("./routes/AnaliseAnuncioRoutes");
+  app.use("/api/analise-anuncios", analiseAnuncioRoutes);
+  console.log("✅ AnaliseAnuncioRoutes carregado em /api/analise-anuncios");
+} catch (error) {
+  console.error("❌ Erro ao carregar AnaliseAnuncioRoutes:", error.message);
+}
 
 // ✅ Editar Anúncio (Edição oficial + Premium)
 try {
@@ -506,11 +561,9 @@ try {
   console.error("❌ Erro ao carregar ValidarDimensoesRoutes:", error.message);
 }
 
-// ✅ Exclusão de anúncios (ADMIN|MASTER) — AGORA via ensurePermission
+// ✅ Exclusão de anúncios (ADMIN|MASTER)
 try {
   const excluirAnuncioRoutes = require("./routes/excluirAnuncioRoutes");
-
-  // 🔒 gate: admin ou master
   app.use(
     "/api/excluir-anuncio",
     ensurePermission.requireAdmin(),
@@ -577,7 +630,7 @@ try {
   console.error("❌ Erro ao carregar PesquisaDescricaoRoutes:", error.message);
 }
 
-// Interfaces HTML auxiliares
+// Interfaces HTML auxiliares (se quiser, pode remover e deixar só via htmlRoutes)
 try {
   app.get("/pesquisa-descricao", (req, res) => {
     res.sendFile(path.join(__dirname, "views", "pesquisa-descricao.html"));
@@ -587,7 +640,6 @@ try {
   console.error("❌ Erro ao carregar interface de pesquisa:", error.message);
 }
 
-// Interface Validar Dimensões
 try {
   app.get("/validar-dimensoes", (req, res) => {
     res.sendFile(path.join(__dirname, "views", "validar-dimensoes.html"));
@@ -652,7 +704,6 @@ try {
 try {
   const fullRoutes = require("./routes/fullRoutes");
   app.use("/api/full", ensureAccount, authMiddleware, fullRoutes);
-
   console.log("✅ FullRoutes carregado");
 } catch (error) {
   console.error("❌ Erro ao carregar FullRoutes:", error.message);
@@ -706,37 +757,8 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 ================================");
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log("🚀 ================================");
-
-  console.log("📋 Interfaces Web:");
-  console.log(
-    `    • http://localhost:${PORT}/selecao-plataforma - Seleção de plataforma`
-  );
-  console.log(`    • http://localhost:${PORT}/login - Login`);
-  console.log(
-    `    • http://localhost:${PORT}/select-conta - Selecionar conta (após login)`
-  );
-  console.log(`    • http://localhost:${PORT}/nao-autorizado - Acesso negado`);
-  console.log("🚀 ================================");
-
-  console.log("📊 APIs Auth:");
-  console.log(
-    `    • POST http://localhost:${PORT}/api/auth/login - Login (gera JWT cookie)`
-  );
-  console.log(
-    `    • GET  http://localhost:${PORT}/api/auth/me - Quem sou eu (JWT)`
-  );
-  console.log(
-    `    • POST http://localhost:${PORT}/api/auth/logout - Logout (limpa JWT)`
-  );
-  console.log(
-    `    • POST http://localhost:${PORT}/api/ml/logout - Logout completo (JWT + conta)`
-  );
-  console.log("🚀 ================================");
 });
 
-// ==========================================
-// GRACEFUL SHUTDOWN
-// ==========================================
 async function gracefulShutdown(signal) {
   console.log(`🛑 Recebido ${signal}, encerrando servidor...`);
   if (queueService) {

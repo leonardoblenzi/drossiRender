@@ -62,7 +62,6 @@ router.get("/dashboard", noCache, HtmlController.servirDashboard);
 
 // Páginas existentes
 router.get("/remover-promocao", noCache, HtmlController.servirRemoverPromocao);
-router.get("/analise-anuncios", noCache, HtmlController.servirAnaliseAnuncios);
 router.get("/criar-promocao", noCache, HtmlController.criarPromocao);
 
 // Utilitários de geração/diagnóstico
@@ -114,6 +113,10 @@ router.get(
     res.sendFile(path.join(__dirname, "..", "views", "editar-anuncio.html"));
   }
 );
+
+router.get("/analise-ia", noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "views", "analise-ia.html"));
+});
 
 /* ================================
  * NOVO: Página Filtro Avançado de Anúncios (HTML)
