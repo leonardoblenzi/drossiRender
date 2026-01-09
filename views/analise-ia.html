@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>IA • Análise de Anúncio</title>
 
-  <!-- ✅ Favicon explícito (evita request automático em /favicon.ico em muitos casos) -->
-  <link rel="icon" type="image/png" href="/img/davantti.png">
-  <link rel="apple-touch-icon" href="/img/davantti.png">
-
   <!-- Bootstrap (padrão do FULL) -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
@@ -92,12 +88,12 @@
         </div>
       </div>
 
-      <!-- CARD “área verde” -->
+      <!-- BLOCO: BUSCA + FOTO (unificado) -->
       <section class="card-panel">
         <div class="card-panel__header">
           <div>
             <h3 class="card-panel__title">Buscar anúncio</h3>
-            <p class="card-panel__hint">Digite o MLB e carregue os dados. Depois você pode copiar o JSON para debug.</p>
+            <p class="card-panel__hint">Digite o MLB e carregue os dados. A foto aparece ao lado.</p>
           </div>
 
           <div class="chips d-flex align-items-center gap-2 flex-wrap">
@@ -107,14 +103,22 @@
           </div>
         </div>
 
-        <div class="card-panel__grid aa-grid">
-          <!-- LEFT -->
-          <div class="panel-block">
+        <div class="card-panel__grid aa-search-grid">
+          <!-- ESQUERDA: BUSCA -->
+          <div class="panel-block aa-search-block">
             <label class="label-sm">MLB</label>
-            <div class="input-group input-group-premium">
-              <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
-              <input id="mlbInput" type="text" class="form-control" placeholder="Ex: MLB1234567890" autocomplete="off">
+
+            <div class="aa-searchbar">
+              <div class="input-group input-group-premium aa-searchbar__input">
+                <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
+                <input id="mlbInput" type="text" class="form-control" placeholder="Ex: MLB1234567890" autocomplete="off">
+              </div>
+
+              <button class="btn btn-primary btn-pill aa-searchbar__btn" id="btnLoad" type="button">
+                <i class="bi bi-search"></i> Carregar
+              </button>
             </div>
+
             <div class="form-text mt-1">
               Dica: pode colar texto/lote — esta tela pega o primeiro MLB encontrado.
             </div>
@@ -137,10 +141,6 @@
             </div>
 
             <div class="mt-3 d-flex gap-2 flex-wrap">
-              <button class="btn btn-primary btn-pill" id="btnLoad" type="button">
-                <i class="bi bi-search"></i> Carregar
-              </button>
-
               <button class="btn btn-outline-secondary btn-pill" id="btnDiag" type="button" disabled>
                 <i class="bi bi-activity"></i> Diagnóstico
               </button>
@@ -152,85 +152,32 @@
             </div>
           </div>
 
-          <!-- RIGHT (Resumo) -->
-          <div class="panel-block panel-block--soft">
-            <div class="panel-mini-title">RESUMO</div>
+          <!-- DIREITA: FOTO GRANDE -->
+          <div class="panel-block panel-block--soft aa-photo-block">
+            <div class="panel-mini-title">FOTO DO PRODUTO</div>
 
-            <div class="aa-summary-grid">
-              <div class="aa-summary-card">
-                <div class="k">Título</div>
-                <div class="v" id="sumTitle">—</div>
+            <div class="aa-photo-wrap" id="aaPhotoWrap">
+              <div class="aa-photo-placeholder" id="aaPhotoPlaceholder">
+                <i class="bi bi-image"></i>
+                <div>Carregue um anúncio pra ver a imagem aqui ✨</div>
               </div>
 
-              <div class="aa-summary-card">
-                <div class="k">Tipo</div>
-                <div class="v" id="sumType">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Preço</div>
-                <div class="v" id="sumPrice">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Estoque</div>
-                <div class="v" id="sumStock">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Vendidos</div>
-                <div class="v" id="sumSold">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Criado</div>
-                <div class="v" id="sumCreated">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Premium</div>
-                <div class="v" id="sumPremium">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Catálogo</div>
-                <div class="v" id="sumCatalog">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Visitas (janela)</div>
-                <div class="v" id="sumVisits">—</div>
-              </div>
-
-              <div class="aa-summary-card">
-                <div class="k">Frete (CEP)</div>
-                <div class="v" id="sumShipping">—</div>
-              </div>
-
-              <div class="aa-summary-card aa-summary-card--wide">
-                <div class="k">Vendedor</div>
-                <div class="v" id="sumSeller">—</div>
-              </div>
-
-              <div class="aa-summary-card aa-summary-card--wide">
-                <div class="k">Reputação</div>
-                <div class="v" id="sumRep">—</div>
-              </div>
+              <img id="itemThumb" alt="Imagem do anúncio" />
             </div>
 
-            <div class="aa-hint mt-2">
-              Próximos passos: Trends + GPT-OSS (insights e sugestões).
+            <div class="aa-photo-hint">
+              Se não aparecer imagem, o item pode estar sem foto no ML ou sem permissão no retorno.
             </div>
           </div>
         </div>
       </section>
 
-      <!-- DETALHES -->
+      <!-- DADOS (Resumo + Informações unificados) -->
       <section class="card-panel mt-3">
         <div class="card-panel__header">
           <div>
-            <h3 class="card-panel__title">Detalhes</h3>
-            <p class="card-panel__hint">Imagem + informações + JSON raw (somente leitura).</p>
+            <h3 class="card-panel__title">Dados do anúncio</h3>
+            <p class="card-panel__hint">Resumo + Informações no mesmo painel. JSON raw continua disponível.</p>
           </div>
 
           <div class="right-tools">
@@ -238,7 +185,7 @@
           </div>
         </div>
 
-        <!-- Tabs internas no padrão do editar -->
+        <!-- Tabs internas -->
         <div class="editar-inner-tabs">
           <button class="inner-tab active" data-tab="details"><i class="bi bi-layout-text-window"></i> Detalhes</button>
           <button class="inner-tab" data-tab="diagnostic"><i class="bi bi-activity"></i> Diagnóstico</button>
@@ -248,17 +195,81 @@
         <div class="editar-panes">
           <!-- Details -->
           <div class="pane active" id="panel-details">
-            <div class="aa-details-grid">
-              <div class="aa-box">
-                <div class="aa-box__title"><i class="bi bi-image"></i> Imagem</div>
-                <div class="aa-img">
-                  <img id="itemThumb" alt="Imagem do anúncio" />
+            <div class="aa-box aa-box--unified">
+              <div class="aa-box__title">
+                <i class="bi bi-card-text"></i> Resumo & Informações
+              </div>
+
+              <!-- RESUMO (mantém os mesmos IDs do JS) -->
+              <div class="aa-summary-grid aa-summary-grid--unified">
+                <div class="aa-summary-card aa-summary-card--wide">
+                  <div class="k">Título</div>
+                  <div class="v" id="sumTitle">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Tipo</div>
+                  <div class="v" id="sumType">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Preço</div>
+                  <div class="v" id="sumPrice">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Estoque</div>
+                  <div class="v" id="sumStock">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Vendidos</div>
+                  <div class="v" id="sumSold">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Criado</div>
+                  <div class="v" id="sumCreated">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Premium</div>
+                  <div class="v" id="sumPremium">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Catálogo</div>
+                  <div class="v" id="sumCatalog">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Visitas (janela)</div>
+                  <div class="v" id="sumVisits">—</div>
+                </div>
+
+                <div class="aa-summary-card">
+                  <div class="k">Frete (CEP)</div>
+                  <div class="v" id="sumShipping">—</div>
+                </div>
+
+                <div class="aa-summary-card aa-summary-card--wide">
+                  <div class="k">Vendedor</div>
+                  <div class="v" id="sumSeller">—</div>
+                </div>
+
+                <div class="aa-summary-card aa-summary-card--wide">
+                  <div class="k">Reputação</div>
+                  <div class="v" id="sumRep">—</div>
                 </div>
               </div>
 
-              <div class="aa-box">
-                <div class="aa-box__title"><i class="bi bi-info-circle"></i> Informações</div>
-                <div class="aa-kv" id="infoList"></div>
+              <div class="aa-divider"></div>
+
+              <!-- INFORMAÇÕES -->
+              <div class="aa-kv aa-kv--unified" id="infoList"></div>
+
+              <div class="aa-hint mt-2">
+                Próximos passos: Trends + GPT-OSS (insights e sugestões).
               </div>
             </div>
           </div>

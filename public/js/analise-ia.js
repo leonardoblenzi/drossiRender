@@ -7,6 +7,9 @@
     days: $("daysSelect"),
     zip: $("zipInput"),
 
+    photoWrap: document.getElementById("aaPhotoWrap"),
+    photoPh: document.getElementById("aaPhotoPlaceholder"),
+
     btnLoad: $("btnLoad"),
     btnDiag: $("btnDiag"),
     btnCopy: $("btnCopyJson"),
@@ -165,13 +168,16 @@
       data?.pictures?.[0] ||
       data?.pictures?.[0]?.url ||
       "";
+
     if (el.thumb) {
       if (thumb) {
         el.thumb.src = thumb;
         el.thumb.style.display = "block";
+        if (el.photoPh) el.photoPh.style.display = "none";
       } else {
         el.thumb.removeAttribute("src");
         el.thumb.style.display = "none";
+        if (el.photoPh) el.photoPh.style.display = "flex";
       }
     }
 
@@ -429,6 +435,8 @@
       el.thumb.removeAttribute("src");
       el.thumb.style.display = "none";
     }
+    if (el.photoPh) el.photoPh.style.display = "flex";
+
     if (el.infoList) el.infoList.innerHTML = "";
     if (el.jsonPre) el.jsonPre.textContent = "{}";
     if (el.diagBox)

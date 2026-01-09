@@ -148,10 +148,15 @@ app.get("/", noCache, (req, res, next) => {
   return res.redirect("/login");
 });
 
-// (Opcional) você pode até remover essa tela e mandar sempre pro login
-app.get("/selecao-plataforma", noCache, (req, res) => {
-  return res.sendFile(path.join(__dirname, "views", "selecao-plataforma.html"));
+app.get("/healthz", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.status(200).json({ ok: true });
 });
+
+// (Opcional) você pode até remover essa tela e mandar sempre pro login
+/*app.get("/selecao-plataforma", noCache, (req, res) => {
+  return res.sendFile(path.join(__dirname, "views", "selecao-plataforma.html"));
+}); */
 
 app.get("/login", noCache, (req, res) => {
   return res.sendFile(path.join(__dirname, "views", "login.html"));

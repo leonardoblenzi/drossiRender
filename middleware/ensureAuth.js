@@ -15,10 +15,16 @@ if (!JWT_SECRET) {
  * - carregar CSS/JS/IMG do login
  * - usar /api/auth pra autenticar
  *
- * Se você quiser deixar mais “fechado” ainda, dá pra reduzir assets,
- * mas aí tem que garantir que o login usa assets embutidos ou CDN.
+ * ✅ IMPORTANTE (Render):
+ * O Render faz healthcheck SEM cookies. Então /api/system/health PRECISA passar 200.
+ * Senão o deploy fica "Waiting for internal health check..." e falha por timeout.
  */
 const PUBLIC_PATHS = [
+  // ✅ Render healthcheck (DEVE ser público)
+  /^\/api\/system\/health(?:\/|$)/i,
+  /^\/api\/system\/stats(?:\/|$)/i,
+  /^\/healthz(?:\/|$)/i,
+
   // páginas públicas
   /^\/(?:login|cadastro|selecao-plataforma)(?:\/|$)/i,
 
