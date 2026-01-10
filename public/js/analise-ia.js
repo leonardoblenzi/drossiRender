@@ -1,7 +1,4 @@
-// /public/js/analise-ia.js
-// IA • Análise de Anúncio — JS atualizado (pills + indicadores + sem campos repetidos)
-// ✅ compatível com seu HTML atual (não quebra se IDs novos não existirem)
-
+// public/js/analise-ia.js
 (() => {
   const $ = (id) => document.getElementById(id);
   const qsa = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -27,7 +24,6 @@
     err: $("aaError"),
     ok: $("aaOk"),
 
-    // Resumo (mini-cards) — mantém IDs
     sumTitle: $("sumTitle"),
     sumType: $("sumType"),
     sumPrice: $("sumPrice"),
@@ -35,7 +31,7 @@
     sumSold: $("sumSold"),
     sumCreated: $("sumCreated"),
 
-    // antigos (mantém compat)
+    // antigos (compat)
     sumPremium: $("sumPremium"),
     sumCatalog: $("sumCatalog"),
     sumVisits: $("sumVisits"),
@@ -43,12 +39,13 @@
     sumSeller: $("sumSeller"),
     sumRep: $("sumRep"),
 
-    // ✅ NOVOS (opcionais no HTML)
+    // pills
     pillPremium: $("pillPremium"),
     pillCatalog: $("pillCatalog"),
     pillOfficial: $("pillOfficial"),
     pillFreeShip: $("pillFreeShip"),
 
+    // métricas
     kpiVisits: $("kpiVisits"),
     kpiConversion: $("kpiConversion"),
     kpiSalesPerDay: $("kpiSalesPerDay"),
@@ -56,13 +53,21 @@
     kpiSaleEvery: $("kpiSaleEvery"),
     kpiFreteVal: $("kpiFreteVal"),
 
-    // opcional (barra “Faturando” se você criar)
-    faturandoVal: $("faturandoVal"),
+    // ✅ novos cards
+    kpiTax: $("kpiTax"),
+    kpiReceives: $("kpiReceives"),
+    kpiRecommendation: $("kpiRecommendation"),
+    kpiMlConsumption: $("kpiMlConsumption"),
+    kpiRevenue: $("kpiRevenue"),
+    btnRevenueInfo: $("btnRevenueInfo"),
+    kpiLastSale: $("kpiLastSale"),
+
+    rankBox: $("rankBox"),
+    negativesBox: $("negativesBox"),
 
     lastUpdate: $("lastUpdateInfo"),
     thumb: $("itemThumb"),
 
-    // Painel unificado
     infoList: $("infoList"),
 
     jsonPre: $("jsonPre"),
@@ -72,9 +77,6 @@
   const API_BASE = "/api/analise-anuncios";
   let lastPayload = null;
 
-  // --------------------------
-  // Utils
-  // --------------------------
   function show(elm) {
     if (elm) elm.classList.remove("d-none");
   }
@@ -116,7 +118,6 @@
   function fmtPct(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
-    // backend pode mandar 0.0043 (0.43%) ou 0.43 (0.43%)
     const pct = n > 1 ? n : n * 100;
     return `${pct.toLocaleString("pt-BR", {
       minimumFractionDigits: 2,
@@ -129,10 +130,6 @@
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return String(iso);
     return d.toLocaleString("pt-BR");
-  }
-
-  function safeStr(v) {
-    return v == null || v === "" ? "—" : String(v);
   }
 
   function setAlert(kind, msg) {
@@ -153,12 +150,8 @@
   function setChips({ mlb, status }) {
     setText(el.chipMlb, `MLB: ${mlb || "—"}`);
     setText(el.chipStatus, `Status: ${status || "—"}`);
-    // chipConta vem do account-bar.js
   }
 
-  // --------------------------
-  // Pills helpers
-  // --------------------------
   function setPill(elm, { on, labelOn, labelOff, unknownLabel = "—" } = {}) {
     if (!elm) return;
     if (on === true) {
@@ -178,41 +171,37 @@
     elm.classList.remove("is-off");
   }
 
-  // --------------------------
-  // Derivados (sem depender do backend)
-  // --------------------------
   function computeDerived(data, days) {
     const s = data?.summary || {};
-    const visitsN = Number(data?.visits?.total ?? data?.visits ?? NaN);
-    const soldN = Number(s.sold_quantity ?? s.sold ?? NaN);
+    const visits = Number(data?.visits?.total ?? data?.visits ?? NaN);
+    const sold = Number(s.sold_quantity ?? NaN);
 
     const out = {
-      visits: Number.isFinite(visitsN) ? visitsN : null,
-      sold: Number.isFinite(soldN) ? soldN : null,
+      visits: Number.isFinite(visits) ? visits : null,
+      sold: Number.isFinite(sold) ? sold : null,
       conversion: null,
       saleEvery: null,
       salesPerDay: null,
       salesPerMonth: null,
     };
 
-    // conversão
     const convBackend = data?.metrics?.conversion ?? data?.conversion ?? null;
-    if (convBackend != null) out.conversion = Number(convBackend);
-    else if (out.visits != null && out.sold != null) {
+    if (convBackend != null) {
+      out.conversion = Number(convBackend);
+    } else if (out.visits && Number.isFinite(out.sold)) {
       out.conversion = out.visits > 0 ? out.sold / out.visits : null;
     }
 
-    if (out.visits != null && out.sold != null && out.sold > 0) {
+    if (out.visits && Number.isFinite(out.sold) && out.sold > 0) {
       out.saleEvery = out.visits / out.sold;
     }
 
     const d = Number(days);
-    if (Number.isFinite(d) && d > 0 && out.sold != null) {
+    if (Number.isFinite(d) && d > 0 && Number.isFinite(out.sold)) {
       out.salesPerDay = out.sold / d;
       out.salesPerMonth = out.salesPerDay * 30;
     }
 
-    // prioridade do backend
     const m = data?.metrics || {};
     if (m.sale_every_visits != null) out.saleEvery = Number(m.sale_every_visits);
     if (m.sales_per_day != null) out.salesPerDay = Number(m.sales_per_day);
@@ -221,11 +210,10 @@
     return out;
   }
 
-  // --------------------------
-  // Render resumo (mini-cards + pills + indicadores + imagem)
-  // --------------------------
   function renderSummary(data) {
     const s = data?.summary || {};
+    const m = data?.metrics || {};
+    const unit = m?.unit || {}; // ✅ imposto/recebe unitário vem aqui
 
     setText(el.sumTitle, s.title);
     setText(el.sumType, s.listing_type_id || s.listing_type || "—");
@@ -234,13 +222,14 @@
     setText(el.sumSold, s.sold_quantity ?? s.sold ?? "—");
     setText(el.sumCreated, s.date_created ? fmtDateTime(s.date_created) : "—");
 
-    // Pills (opcionais)
+    // Pills
     setPill(el.pillPremium, {
       on: s.is_premium,
       labelOn: "Premium",
       labelOff: "Clássico",
       unknownLabel: "Tipo —",
     });
+
     setPill(el.pillCatalog, {
       on: s.catalog_listing,
       labelOn: "Item catálogo",
@@ -248,14 +237,13 @@
       unknownLabel: "Catálogo —",
     });
 
-    // Loja oficial (se vier)
-    const seller = data?.seller || {};
+    // ✅ Loja oficial: prioriza backend, mas cai no summary.official_store_id
     const official =
-      seller?.official_store != null
-        ? !!seller.official_store
-        : seller?.official_store_id != null
-        ? true
-        : null;
+      data?.seller?.official_store != null
+        ? !!data.seller.official_store
+        : data?.summary?.official_store_id != null
+          ? true
+          : null;
 
     setPill(el.pillOfficial, {
       on: official,
@@ -264,7 +252,7 @@
       unknownLabel: "Loja —",
     });
 
-    // Frete pill + valor
+    // Frete
     const freeShip =
       data?.shipping?.free_shipping != null ? !!data.shipping.free_shipping : null;
 
@@ -314,15 +302,32 @@
       );
     }
 
-    // Barra “Faturando” (se existir no HTML) — tenta usar backend, senão calcula price*sold
-    if (el.faturandoVal) {
-      const fatBackend = data?.metrics?.revenue ?? data?.revenue ?? null;
-      const calc = Number(s.price) * Number(s.sold_quantity ?? 0);
-      const fat = fatBackend != null ? Number(fatBackend) : Number.isFinite(calc) ? calc : null;
-      setText(el.faturandoVal, fat != null && Number.isFinite(fat) ? fmtMoneyBRL(fat) : "—");
+    // ✅ novos cards (do backend)
+    // imposto/recebe: unitário (tax/receives em unit.*)
+    if (el.kpiTax) setText(el.kpiTax, unit.tax != null ? fmtMoneyBRL(unit.tax) : "—");
+    if (el.kpiReceives) setText(el.kpiReceives, unit.receives != null ? fmtMoneyBRL(unit.receives) : "—");
+
+    if (el.kpiRecommendation) setText(el.kpiRecommendation, m.recommendation || "—");
+    if (el.kpiMlConsumption) setText(el.kpiMlConsumption, m.ml_consumption != null ? fmtMoneyBRL(m.ml_consumption) : "—");
+    if (el.kpiRevenue) setText(el.kpiRevenue, m.revenue_gross != null ? fmtMoneyBRL(m.revenue_gross) : "—");
+
+    // ✅ última venda (vem em metrics.last_sale_at)
+    if (el.kpiLastSale) setText(el.kpiLastSale, m.last_sale_at ? fmtDateTime(m.last_sale_at) : "—");
+
+    // Info icon do faturamento
+    if (el.btnRevenueInfo) {
+      el.btnRevenueInfo.onclick = () => {
+        const c = m.revenue_orders_count;
+        const txt =
+          m.revenue_gross == null
+            ? "Faturamento não disponível (talvez sem scope read_orders)."
+            : `Janela ${days} dias • pedidos pagos: ${c ?? "—"} • faturamento bruto: ${fmtMoneyBRL(m.revenue_gross)}`;
+        setAlert("ok", txt);
+        setTimeout(() => setAlert(null), 2400);
+      };
     }
 
-    // Compat com resumo antigo (se ainda existir)
+    // Compat antigos
     setText(el.sumPremium, s.is_premium ? "Sim" : s.is_premium === false ? "Não" : "—");
     setText(el.sumCatalog, s.catalog_listing ? "Sim" : s.catalog_listing === false ? "Não" : "—");
 
@@ -337,6 +342,7 @@
         : "—";
     setText(el.sumShipping, shipTxt);
 
+    const seller = data?.seller || {};
     const sellerTxt = seller.nickname
       ? `${seller.nickname}${seller.seller_id ? ` • ID ${seller.seller_id}` : ""}${
           seller.location ? ` • ${seller.location}` : ""
@@ -352,7 +358,7 @@
       : "—";
     setText(el.sumRep, repTxt);
 
-    // ✅ Imagem: capa grande primeiro
+    // Imagem
     const thumb =
       s.pictures?.[0] ||
       s.thumbnail ||
@@ -378,13 +384,12 @@
       el.lastUpdate,
       data?.meta?.fetched_at ? `Atualizado em ${fmtDateTime(data.meta.fetched_at)}` : ""
     );
+
+    // Rank / Negativos (placeholder por enquanto)
+    if (el.rankBox) setText(el.rankBox, m.rank || "—");
+    if (el.negativesBox) setText(el.negativesBox, m.negatives || "—");
   }
 
-  // --------------------------
-  // InfoList unificado (sem repetidos)
-  // Não repetir: título, tipo, preço, estoque, vendidos, criado, premium, catálogo, visitas, frete
-  // Aqui entram: status, permalink, categoria, condição, moeda, atualizado, seller detalhado, reputação detalhada etc.
-  // --------------------------
   function renderInfoList(data) {
     if (!el.infoList) return;
 
@@ -392,36 +397,22 @@
     const seller = data?.seller || {};
     const rep = data?.seller_reputation || {};
 
-    // Monta só o que é “complementar” e útil
-    const pairs = [
+    const extraPairs = [
       ["MLB", s.id],
       ["Status", s.status],
       ["Permalink", s.permalink],
       ["Categoria", s.category_id],
       ["Condição", s.condition],
       ["Moeda", s.currency_id],
-      ["Atualizado em", s.last_updated ? fmtDateTime(s.last_updated) : "—"],
+      ["SKU", s.sku],
+      ["Atualizado em", fmtDateTime(s.last_updated)],
 
-      // Vendedor (detalhe completo)
-      [
-        "Vendedor",
-        seller.nickname
-          ? `${seller.nickname}${seller.seller_id ? ` • ID ${seller.seller_id}` : ""}`
-          : "—",
-      ],
+      ["Vendedor", seller.nickname ? `${seller.nickname}${seller.seller_id ? ` • ID ${seller.seller_id}` : ""}` : "—"],
       ["Local", seller.location || "—"],
-      [
-        "Loja oficial",
-        seller.official_store != null
-          ? seller.official_store
-            ? "Sim"
-            : "Não"
-          : seller.official_store_id != null
-          ? "Sim"
-          : "—",
-      ],
 
-      // Reputação detalhada (sem duplicar “resumo”)
+      // ✅ Loja oficial vem do item/summary (official_store_id)
+      ["Loja oficial ID", s.official_store_id ?? "—"],
+
       [
         "Reputação",
         rep.level_id
@@ -431,24 +422,23 @@
       [
         "Transações",
         rep.transactions
-          ? `vendas ${safeStr(rep.transactions.completed)} • canceladas ${safeStr(rep.transactions.canceled)}`
+          ? `vendas ${rep.transactions.completed ?? "—"} • canceladas ${rep.transactions.canceled ?? "—"}`
           : "—",
       ],
     ];
 
-    // remove duplicados e valores vazios repetidos
     const seen = new Set();
-    const filtered = pairs.filter(([k, v]) => {
-      const vv = safeStr(v);
+    const pairs = extraPairs.filter(([k, v]) => {
+      const vv = v == null || v === "" ? "—" : String(v);
       const key = `${k}::${vv}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    el.infoList.innerHTML = filtered
+    el.infoList.innerHTML = pairs
       .map(([k, v]) => {
-        const vv = safeStr(v);
+        const vv = v == null || v === "" ? "—" : String(v);
 
         if (k === "Permalink" && vv !== "—") {
           const safeUrl = escapeHtml(vv);
@@ -494,9 +484,6 @@
     if (el.diagBox) el.diagBox.textContent = out;
   }
 
-  // --------------------------
-  // Fetch JSON com proteção contra HTML/redirect
-  // --------------------------
   async function fetchJson(url) {
     const r = await fetch(url, {
       cache: "no-store",
@@ -534,7 +521,7 @@
       throw new Error(msg);
     }
 
-    // backend pode devolver {ok:true, ...}
+    if (data && data.ok === true && (data.summary || data.visits || data.shipping)) return data;
     return data;
   }
 
@@ -640,19 +627,25 @@
       setText($(id), "—")
     );
 
-    // pills / indicadores
     setPill(el.pillPremium, { on: null, unknownLabel: "Tipo —" });
     setPill(el.pillCatalog, { on: null, unknownLabel: "Catálogo —" });
     setPill(el.pillOfficial, { on: null, unknownLabel: "Loja —" });
     setPill(el.pillFreeShip, { on: null, unknownLabel: "Frete —" });
 
-    setText(el.kpiVisits, "—");
-    setText(el.kpiConversion, "—");
-    setText(el.kpiSalesPerDay, "—");
-    setText(el.kpiSalesPerMonth, "—");
-    setText(el.kpiSaleEvery, "—");
-    setText(el.kpiFreteVal, "—");
-    setText(el.faturandoVal, "—");
+    [
+      el.kpiVisits,
+      el.kpiConversion,
+      el.kpiSalesPerDay,
+      el.kpiSalesPerMonth,
+      el.kpiSaleEvery,
+      el.kpiFreteVal,
+      el.kpiTax,
+      el.kpiReceives,
+      el.kpiRecommendation,
+      el.kpiMlConsumption,
+      el.kpiRevenue,
+      el.kpiLastSale,
+    ].forEach((x) => setText(x, "—"));
 
     if (el.thumb) {
       el.thumb.removeAttribute("src");
@@ -664,6 +657,9 @@
     if (el.jsonPre) el.jsonPre.textContent = "{}";
     if (el.diagBox) el.diagBox.textContent = "Carregue um anúncio para ver o diagnóstico.";
     if (el.lastUpdate) el.lastUpdate.textContent = "";
+
+    if (el.rankBox) setText(el.rankBox, "—");
+    if (el.negativesBox) setText(el.negativesBox, "—");
 
     lastPayload = null;
     if (el.btnDiag) el.btnDiag.disabled = true;

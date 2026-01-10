@@ -671,3 +671,325 @@
 .aa-kv a:hover{
   text-decoration: underline;
 }
+/* ================================
+   ✅ A MAIS — estados (JS usa is-on / is-off nas tag pills)
+   (se você ainda não tinha isso, adiciona que fica bem “ML”)
+================================ */
+.aa-tag-pill.is-on{
+  background: rgba(25,135,84,.12);
+  border-color: rgba(25,135,84,.28);
+}
+.aa-tag-pill.is-off{
+  background: rgba(220,53,69,.08);
+  border-color: rgba(220,53,69,.22);
+}
+
+/* ================================
+   ✅ A MAIS — “Ultima venda:” (colocar no bloco da direita da strip)
+   Use uma div com class="aa-last-sale" e dentro um <strong id="kpiLastSale">
+================================ */
+.aa-last-sale{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(0,0,0,.02);
+  font-weight: 900;
+  font-size: .88rem;
+  color: rgba(0,0,0,.82);
+  white-space: nowrap;
+}
+.aa-last-sale strong{
+  font-weight: 900;
+}
+
+/* ================================
+   IA • Análise de Anúncio — Layout novo (Busca + Foto)
+   (se essa parte ainda não existia no seu CSS base)
+================================ */
+.aa-search-grid{
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 16px;
+  align-items: stretch;
+}
+@media (max-width: 992px){
+  .aa-search-grid{ grid-template-columns: 1fr; }
+}
+
+.aa-search-block{ padding-right: 6px; }
+
+.aa-searchbar{
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+@media (max-width: 576px){
+  .aa-searchbar{ flex-direction: column; }
+}
+.aa-searchbar__input .form-control{ min-height: 46px; }
+.aa-searchbar__btn{
+  white-space: nowrap;
+  min-height: 46px;
+  padding-inline: 16px;
+}
+
+.aa-photo-block{
+  display: flex;
+  flex-direction: column;
+}
+
+/* trava o bloco da foto */
+.aa-photo-wrap{
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.02);
+  border: 1px solid rgba(0,0,0,0.06);
+
+  height: 260px;
+  min-height: 260px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 992px){
+  .aa-photo-wrap{
+    height: 220px;
+    min-height: 220px;
+  }
+}
+
+#aaPhotoPlaceholder.aa-photo-placeholder{
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0,0,0,0.55);
+  text-align: center;
+  padding: 18px;
+}
+#aaPhotoPlaceholder i{
+  font-size: 28px;
+  opacity: 0.9;
+}
+
+/* reseta regras antigas e força caber no bloco */
+#itemThumb{
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+
+  object-fit: cover;
+  object-position: center;
+
+  display: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent;
+  image-rendering: auto;
+}
+
+.aa-photo-hint{
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(0,0,0,0.55);
+}
+
+/* ================================
+   Unificação Resumo + Info
+================================ */
+.aa-box--unified{ padding: 14px; }
+.aa-summary-grid--unified{ margin-top: 10px; }
+
+.aa-divider{
+  height: 1px;
+  background: rgba(0,0,0,0.08);
+  margin: 14px 0;
+}
+
+.aa-kv--unified .aa-row{
+  padding: 8px 0;
+  border-bottom: 1px dashed rgba(0,0,0,0.08);
+}
+.aa-kv--unified .aa-row:last-child{ border-bottom: 0; }
+
+/* ================================
+   Pills estilo ML (Vendidos/Estoque/Tipo/Preço)
+================================ */
+.aa-pill-row{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.aa-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(0,0,0,.02);
+  font-weight: 900;
+  line-height: 1;
+}
+.aa-pill i{ opacity: .9; }
+
+.aa-pill .t{
+  font-size: .86rem;
+  color: rgba(0,0,0,.70);
+  font-weight: 900;
+}
+.aa-pill .n{
+  font-size: .92rem;
+  color: rgba(0,0,0,.90);
+  font-weight: 900;
+}
+
+.aa-pill--sold{
+  background: rgba(255, 193, 7, .14);
+  border-color: rgba(255, 193, 7, .35);
+}
+.aa-pill--stock{
+  background: rgba(13, 110, 253, .12);
+  border-color: rgba(13, 110, 253, .30);
+}
+.aa-pill--type{
+  background: rgba(111, 66, 193, .12);
+  border-color: rgba(111, 66, 193, .30);
+}
+.aa-pill--price{
+  background: rgba(25, 135, 84, .12);
+  border-color: rgba(25, 135, 84, .28);
+}
+
+/* ================================
+   Tag pills (Premium/Catálogo/Loja/Frete)
+================================ */
+.aa-strip{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.aa-strip__left{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.aa-strip__right{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aa-tag-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(0,0,0,.02);
+  font-weight: 900;
+  font-size: .88rem;
+  color: rgba(0,0,0,.82);
+  white-space: nowrap;
+}
+.aa-tag-pill i{ opacity: .9; }
+.aa-tag-pill strong{ font-weight: 900; }
+
+/* ================================
+   Indicadores (grid tipo ML)
+================================ */
+.aa-metrics-grid{
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 1200px){
+  .aa-metrics-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 768px){
+  .aa-metrics-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.aa-metric{
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  padding: 10px 10px;
+  min-height: 64px;
+}
+.aa-metric .k{
+  font-size: .78rem;
+  color: rgba(0,0,0,.55);
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.aa-metric .v{
+  font-weight: 900;
+  font-size: .98rem;
+  line-height: 1.2;
+  color: rgba(0,0,0,.88);
+  word-break: break-word;
+}
+
+/* ================================
+   Barra “Faturando”
+================================ */
+.aa-revenue-bar{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(13, 110, 253, .22);
+  background: rgba(13, 110, 253, .10);
+}
+.aa-revenue-bar .left{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 900;
+  color: rgba(0,0,0,.85);
+}
+.aa-revenue-bar .left i{ opacity: .9; }
+.aa-revenue-bar strong{ font-weight: 900; }
+
+/* ================================
+   Accordion ajustes suaves
+================================ */
+.accordion{
+  --bs-accordion-border-color: rgba(0,0,0,.08);
+  --bs-accordion-btn-focus-box-shadow: none;
+}
+.accordion-button{ font-weight: 900; }
+.accordion-button:not(.collapsed){
+  background: rgba(0,0,0,.02);
+  color: rgba(0,0,0,.86);
+}
+.accordion-body{
+  color: rgba(0,0,0,.82);
+  font-weight: 700;
+}
+
+/* Links do infoList */
+.aa-kv a{ text-decoration: none; }
+.aa-kv a:hover{ text-decoration: underline; }

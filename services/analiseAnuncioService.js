@@ -22,7 +22,6 @@ function datePart(d) {
 
 function cleanZip(zip) {
   const z = String(zip || "").replace(/\D/g, "");
-  // CEP BR: 8 dígitos
   if (z.length !== 8) return null;
   return z;
 }
@@ -213,6 +212,135 @@ async function getShipping({ mlb, accessToken, zip_code, item }) {
   return base;
 }
 
+/**
+ * ✅ FEES UNITÁRIO (Imposto/Recebe por 1 venda)
+ * Endpoint oficial:
+ *   /sites/{site_id}/listing_prices?price=...&listing_type_id=...&category_id=...
+ *
+ * Retorna valores tipo:
+ *   sale_fee_amount, listing_fee_amount, etc
+ */
+async function getUnitFees({ accessToken, siteId, price, categoryId, listingTypeId }) {
+  if (!siteId || !price || !categoryId || !listingTypeId) return { ok: false, raw: null };
+
+  const attempts = [
+    () =>
+      mlGet(
+        `/sites/${encodeURIComponent(siteId)}/listing_prices`,
+        accessToken,
+        {
+          price: Number(price),
+          category_id: categoryId,
+          listing_type_id: listingTypeId,
+        },
+        2
+      ),
+  ];
+
+  for (const fn of attempts) {
+    try {
+      const resp = await fn();
+      const row =
+        Array.isArray(resp?.listing_prices) && resp.listing_prices.length
+          ? resp.listing_prices[0]
+          : Array.isArray(resp) && resp.length
+            ? resp[0]
+            : resp;
+
+      // tenta extrair padrões comuns
+      const saleFee = Number(row?.sale_fee_amount);
+      const listFee = Number(row?.listing_fee_amount);
+
+      const sale_fee_amount = Number.isFinite(saleFee) ? saleFee : 0;
+      const listing_fee_amount = Number.isFinite(listFee) ? listFee : 0;
+
+      const total_fee = sale_fee_amount + listing_fee_amount;
+      const net_receive = Number(price) - total_fee;
+
+      return {
+        ok: true,
+        sale_fee_amount,
+        listing_fee_amount,
+        total_fee,
+        net_receive: Number.isFinite(net_receive) ? net_receive : null,
+        raw: resp,
+      };
+    } catch (_e) {}
+  }
+
+  return { ok: false, raw: null };
+}
+
+/**
+ * ✅ ÚLTIMA VENDA (data/hora da venda mais recente do anúncio)
+ * Precisa Orders:
+ *   /orders/search?seller=...&item=...&sort=date_desc&limit=...
+ *
+ * A gente tenta filtrar por status pago/confirmado, mas se o filtro não pegar
+ * (varia um pouco), a gente busca e escolhe o primeiro "paid/confirmed".
+ */
+async function getLastSale({ accessToken, sellerId, mlb }) {
+  if (!sellerId || !mlb) return { last_sale_at: null, order: null, raw: null };
+
+  const baseQs = {
+    seller: sellerId,
+    item: mlb,
+    sort: "date_desc",
+    limit: 10,
+  };
+
+  const attempts = [
+    // tenta filtros comuns
+    () => mlGet(`/orders/search`, accessToken, { ...baseQs, "order.status": "paid" }, 2),
+    () => mlGet(`/orders/search`, accessToken, { ...baseQs, "order.status": "confirmed" }, 2),
+    () => mlGet(`/orders/search`, accessToken, { ...baseQs, "order.status": "paid,confirmed" }, 2),
+    // fallback sem filtro
+    () => mlGet(`/orders/search`, accessToken, { ...baseQs }, 2),
+  ];
+
+  for (const fn of attempts) {
+    try {
+      const resp = await fn();
+
+      const results =
+        resp?.results ||
+        resp?.orders ||
+        (Array.isArray(resp) ? resp : null);
+
+      if (!Array.isArray(results) || !results.length) {
+        return { last_sale_at: null, order: null, raw: resp };
+      }
+
+      const pick = (o) => {
+        const status = String(o?.status || "").toLowerCase();
+        return status === "paid" || status === "confirmed";
+      };
+
+      const order = results.find(pick) || results[0];
+
+      const dt =
+        order?.date_closed ||
+        order?.date_created ||
+        order?.date_last_updated ||
+        null;
+
+      return {
+        last_sale_at: dt || null,
+        order: order
+          ? {
+              id: order.id ?? null,
+              status: order.status ?? null,
+              date: dt || null,
+            }
+          : null,
+        raw: resp,
+      };
+    } catch (_e) {}
+  }
+
+  return { last_sale_at: null, order: null, raw: null };
+}
+
 module.exports = {
   async getOverview({ mlb, accessToken, days = 30, zip_code = null }) {
     const now = new Date();
@@ -229,7 +357,6 @@ module.exports = {
     );
 
     // ✅ IMAGENS GRANDES (pra não ficar borrado)
-    // pictures costuma vir com secure_url grande
     const pictures = Array.isArray(item?.pictures)
       ? item.pictures.map((p) => p?.secure_url || p?.url).filter(Boolean)
       : [];
@@ -253,6 +380,19 @@ module.exports = {
     // 4) Shipping (se tiver CEP)
     const shipping = await getShipping({ mlb, accessToken, zip_code, item });
 
+    // 5) ✅ Fees unitário (Imposto/Recebe por 1 venda)
+    const siteId = item?.site_id || "MLB";
+    const feesUnit = await getUnitFees({
+      accessToken,
+      siteId,
+      price: item?.price,
+      categoryId: item?.category_id,
+      listingTypeId: item?.listing_type_id,
+    });
+
+    // 6) ✅ Última venda (Orders)
+    const lastSale = await getLastSale({ accessToken, sellerId, mlb });
+
     // Resumo no formato que seu analise-ia.js renderiza
     const summary = {
       id: item?.id,
@@ -271,12 +411,13 @@ module.exports = {
       catalog_listing: item?.catalog_listing ?? null,
       is_premium: inferPremium(item?.listing_type_id),
 
+      // ✅ oficial store id vem do item
+      official_store_id: item?.official_store_id ?? null,
+
       date_created: item?.date_created ?? null,
       last_updated: item?.last_updated ?? null,
 
-      // ✅ prioridade pra imagem grande
-      thumbnail:
-        pictures[0] || item?.thumbnail || item?.secure_thumbnail || null,
+      thumbnail: pictures[0] || item?.thumbnail || item?.secure_thumbnail || null,
       pictures,
     };
 
@@ -285,8 +426,10 @@ module.exports = {
           seller_id: seller?.id ?? sellerId ?? null,
           nickname: seller?.nickname ?? null,
           location: pickSellerLocation(seller),
+          // ✅ útil pro pill "Loja oficial" no front
+          official_store: seller?.official_store ?? null,
         }
-      : { seller_id: sellerId ?? null, nickname: null, location: null };
+      : { seller_id: sellerId ?? null, nickname: null, location: null, official_store: null };
 
     const sellerRep = seller?.seller_reputation || null;
 
@@ -306,6 +449,32 @@ module.exports = {
       },
       seller: sellerOut,
       seller_reputation: sellerRep,
+
+      // ✅ NOVO: métricas pra preencher os cards faltando
+      metrics: {
+        unit: feesUnit?.ok
+          ? {
+              // “Imposto” = total de fee estimado do ML (por 1 venda)
+              tax: feesUnit.total_fee,
+              // “Recebe” = preço - fees (por 1 venda)
+              receives: feesUnit.net_receive,
+              // extras úteis
+              sale_fee_amount: feesUnit.sale_fee_amount,
+              listing_fee_amount: feesUnit.listing_fee_amount,
+              currency_id: item?.currency_id || "BRL",
+            }
+          : {
+              tax: null,
+              receives: null,
+              sale_fee_amount: null,
+              listing_fee_amount: null,
+              currency_id: item?.currency_id || "BRL",
+            },
+
+        // “Última venda”
+        last_sale_at: lastSale.last_sale_at,
+      },
+
       meta: {
         fetched_at: new Date().toISOString(),
       },
@@ -314,6 +483,8 @@ module.exports = {
         seller,
         visits: visits.raw,
         shipping: shipping.raw,
+        fees_unit: feesUnit.raw,
+        last_sale: lastSale.raw,
       },
     };
   },
