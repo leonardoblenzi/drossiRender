@@ -13,6 +13,7 @@
 
     btnLoad: $("btnLoad"),
     btnDiag: $("btnDiag"),
+    btnInsightsIA: $("btnInsightsIA"), // ✅ NOVO
     btnCopy: $("btnCopyJson"),
     btnCopy2: $("btnCopyJson2"),
     btnClear: $("btnClear"),
@@ -72,10 +73,16 @@
 
     jsonPre: $("jsonPre"),
     diagBox: $("diagBox"),
+
+    // ✅ IA
+    aiDiagBox: $("aiDiagBox"),
   };
 
   const API_BASE = "/api/analise-anuncios";
   let lastPayload = null;
+
+  // guarda o último mlb/days/zip carregado no overview
+  let lastContext = { mlb: "", days: 30, zip: "" };
 
   function show(elm) {
     if (elm) elm.classList.remove("d-none");
@@ -203,9 +210,11 @@
     }
 
     const m = data?.metrics || {};
-    if (m.sale_every_visits != null) out.saleEvery = Number(m.sale_every_visits);
+    if (m.sale_every_visits != null)
+      out.saleEvery = Number(m.sale_every_visits);
     if (m.sales_per_day != null) out.salesPerDay = Number(m.sales_per_day);
-    if (m.sales_per_month != null) out.salesPerMonth = Number(m.sales_per_month);
+    if (m.sales_per_month != null)
+      out.salesPerMonth = Number(m.sales_per_month);
 
     return out;
   }
@@ -213,7 +222,7 @@
   function renderSummary(data) {
     const s = data?.summary || {};
     const m = data?.metrics || {};
-    const unit = m?.unit || {}; // ✅ imposto/recebe unitário vem aqui
+    const unit = m?.unit || {};
 
     setText(el.sumTitle, s.title);
     setText(el.sumType, s.listing_type_id || s.listing_type || "—");
@@ -222,7 +231,6 @@
     setText(el.sumSold, s.sold_quantity ?? s.sold ?? "—");
     setText(el.sumCreated, s.date_created ? fmtDateTime(s.date_created) : "—");
 
-    // Pills
     setPill(el.pillPremium, {
       on: s.is_premium,
       labelOn: "Premium",
@@ -237,13 +245,12 @@
       unknownLabel: "Catálogo —",
     });
 
-    // ✅ Loja oficial: prioriza backend, mas cai no summary.official_store_id
     const official =
       data?.seller?.official_store != null
         ? !!data.seller.official_store
         : data?.summary?.official_store_id != null
-          ? true
-          : null;
+        ? true
+        : null;
 
     setPill(el.pillOfficial, {
       on: official,
@@ -252,9 +259,10 @@
       unknownLabel: "Loja —",
     });
 
-    // Frete
     const freeShip =
-      data?.shipping?.free_shipping != null ? !!data.shipping.free_shipping : null;
+      data?.shipping?.free_shipping != null
+        ? !!data.shipping.free_shipping
+        : null;
 
     setPill(el.pillFreeShip, {
       on: freeShip,
@@ -268,18 +276,27 @@
       setText(el.kpiFreteVal, cost != null ? fmtMoneyBRL(cost) : "—");
     }
 
-    // Indicadores
     const days = Number(el.days?.value || 30);
     const derived = computeDerived(data, days);
 
-    if (el.kpiVisits) setText(el.kpiVisits, derived.visits != null ? fmtInt(derived.visits) : "—");
-    if (el.kpiConversion) setText(el.kpiConversion, derived.conversion != null ? fmtPct(derived.conversion) : "—");
+    if (el.kpiVisits)
+      setText(
+        el.kpiVisits,
+        derived.visits != null ? fmtInt(derived.visits) : "—"
+      );
+    if (el.kpiConversion)
+      setText(
+        el.kpiConversion,
+        derived.conversion != null ? fmtPct(derived.conversion) : "—"
+      );
 
     if (el.kpiSalesPerDay) {
       setText(
         el.kpiSalesPerDay,
         derived.salesPerDay != null && Number.isFinite(derived.salesPerDay)
-          ? derived.salesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+          ? derived.salesPerDay.toLocaleString("pt-BR", {
+              maximumFractionDigits: 2,
+            })
           : "—"
       );
     }
@@ -288,7 +305,9 @@
       setText(
         el.kpiSalesPerMonth,
         derived.salesPerMonth != null && Number.isFinite(derived.salesPerMonth)
-          ? derived.salesPerMonth.toLocaleString("pt-BR", { maximumFractionDigits: 0 })
+          ? derived.salesPerMonth.toLocaleString("pt-BR", {
+              maximumFractionDigits: 0,
+            })
           : "—"
       );
     }
@@ -297,68 +316,54 @@
       setText(
         el.kpiSaleEvery,
         derived.saleEvery != null && Number.isFinite(derived.saleEvery)
-          ? `1 a cada ${derived.saleEvery.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} visitas`
+          ? `1 a cada ${derived.saleEvery.toLocaleString("pt-BR", {
+              maximumFractionDigits: 0,
+            })} visitas`
           : "—"
       );
     }
 
-    // ✅ novos cards (do backend)
-    // imposto/recebe: unitário (tax/receives em unit.*)
-    if (el.kpiTax) setText(el.kpiTax, unit.tax != null ? fmtMoneyBRL(unit.tax) : "—");
-    if (el.kpiReceives) setText(el.kpiReceives, unit.receives != null ? fmtMoneyBRL(unit.receives) : "—");
+    if (el.kpiTax)
+      setText(el.kpiTax, unit.tax != null ? fmtMoneyBRL(unit.tax) : "—");
+    if (el.kpiReceives)
+      setText(
+        el.kpiReceives,
+        unit.receives != null ? fmtMoneyBRL(unit.receives) : "—"
+      );
 
-    if (el.kpiRecommendation) setText(el.kpiRecommendation, m.recommendation || "—");
-    if (el.kpiMlConsumption) setText(el.kpiMlConsumption, m.ml_consumption != null ? fmtMoneyBRL(m.ml_consumption) : "—");
-    if (el.kpiRevenue) setText(el.kpiRevenue, m.revenue_gross != null ? fmtMoneyBRL(m.revenue_gross) : "—");
+    if (el.kpiRecommendation)
+      setText(el.kpiRecommendation, m.recommendation || "—");
+    if (el.kpiMlConsumption)
+      setText(
+        el.kpiMlConsumption,
+        m.ml_consumption != null ? fmtMoneyBRL(m.ml_consumption) : "—"
+      );
+    if (el.kpiRevenue)
+      setText(
+        el.kpiRevenue,
+        m.revenue_gross != null ? fmtMoneyBRL(m.revenue_gross) : "—"
+      );
 
-    // ✅ última venda (vem em metrics.last_sale_at)
-    if (el.kpiLastSale) setText(el.kpiLastSale, m.last_sale_at ? fmtDateTime(m.last_sale_at) : "—");
+    if (el.kpiLastSale)
+      setText(
+        el.kpiLastSale,
+        m.last_sale_at ? fmtDateTime(m.last_sale_at) : "—"
+      );
 
-    // Info icon do faturamento
     if (el.btnRevenueInfo) {
       el.btnRevenueInfo.onclick = () => {
         const c = m.revenue_orders_count;
         const txt =
           m.revenue_gross == null
             ? "Faturamento não disponível (talvez sem scope read_orders)."
-            : `Janela ${days} dias • pedidos pagos: ${c ?? "—"} • faturamento bruto: ${fmtMoneyBRL(m.revenue_gross)}`;
+            : `Janela ${days} dias • pedidos pagos: ${
+                c ?? "—"
+              } • faturamento bruto: ${fmtMoneyBRL(m.revenue_gross)}`;
         setAlert("ok", txt);
         setTimeout(() => setAlert(null), 2400);
       };
     }
 
-    // Compat antigos
-    setText(el.sumPremium, s.is_premium ? "Sim" : s.is_premium === false ? "Não" : "—");
-    setText(el.sumCatalog, s.catalog_listing ? "Sim" : s.catalog_listing === false ? "Não" : "—");
-
-    const visitsLegacy = data?.visits?.total ?? data?.visits ?? null;
-    setText(el.sumVisits, visitsLegacy == null ? "—" : visitsLegacy);
-
-    const shipTxt =
-      data?.shipping?.free_shipping != null
-        ? `${data.shipping.free_shipping ? "Frete grátis" : "Frete pago"}${
-            data.shipping.cost != null ? ` • ${fmtMoneyBRL(data.shipping.cost)}` : ""
-          }`
-        : "—";
-    setText(el.sumShipping, shipTxt);
-
-    const seller = data?.seller || {};
-    const sellerTxt = seller.nickname
-      ? `${seller.nickname}${seller.seller_id ? ` • ID ${seller.seller_id}` : ""}${
-          seller.location ? ` • ${seller.location}` : ""
-        }`
-      : "—";
-    setText(el.sumSeller, sellerTxt);
-
-    const rep = data?.seller_reputation || {};
-    const repTxt = rep.level_id
-      ? `${rep.level_id}${rep.power_seller_status ? ` • ${rep.power_seller_status}` : ""}${
-          rep.transactions ? ` • vendas ${rep.transactions.completed ?? "—"}` : ""
-        }`
-      : "—";
-    setText(el.sumRep, repTxt);
-
-    // Imagem
     const thumb =
       s.pictures?.[0] ||
       s.thumbnail ||
@@ -382,10 +387,11 @@
 
     setText(
       el.lastUpdate,
-      data?.meta?.fetched_at ? `Atualizado em ${fmtDateTime(data.meta.fetched_at)}` : ""
+      data?.meta?.fetched_at
+        ? `Atualizado em ${fmtDateTime(data.meta.fetched_at)}`
+        : ""
     );
 
-    // Rank / Negativos (placeholder por enquanto)
     if (el.rankBox) setText(el.rankBox, m.rank || "—");
     if (el.negativesBox) setText(el.negativesBox, m.negatives || "—");
   }
@@ -406,23 +412,30 @@
       ["Moeda", s.currency_id],
       ["SKU", s.sku],
       ["Atualizado em", fmtDateTime(s.last_updated)],
-
-      ["Vendedor", seller.nickname ? `${seller.nickname}${seller.seller_id ? ` • ID ${seller.seller_id}` : ""}` : "—"],
+      [
+        "Vendedor",
+        seller.nickname
+          ? `${seller.nickname}${
+              seller.seller_id ? ` • ID ${seller.seller_id}` : ""
+            }`
+          : "—",
+      ],
       ["Local", seller.location || "—"],
-
-      // ✅ Loja oficial vem do item/summary (official_store_id)
       ["Loja oficial ID", s.official_store_id ?? "—"],
-
       [
         "Reputação",
         rep.level_id
-          ? `${rep.level_id}${rep.power_seller_status ? ` • ${rep.power_seller_status}` : ""}`
+          ? `${rep.level_id}${
+              rep.power_seller_status ? ` • ${rep.power_seller_status}` : ""
+            }`
           : "—",
       ],
       [
         "Transações",
         rep.transactions
-          ? `vendas ${rep.transactions.completed ?? "—"} • canceladas ${rep.transactions.canceled ?? "—"}`
+          ? `vendas ${rep.transactions.completed ?? "—"} • canceladas ${
+              rep.transactions.canceled ?? "—"
+            }`
           : "—",
       ],
     ];
@@ -460,7 +473,8 @@
 
   function renderJson(data) {
     lastPayload = data || null;
-    if (el.jsonPre) el.jsonPre.textContent = JSON.stringify(data || {}, null, 2);
+    if (el.jsonPre)
+      el.jsonPre.textContent = JSON.stringify(data || {}, null, 2);
   }
 
   function renderDiagnostic(data) {
@@ -468,14 +482,19 @@
     const issues = [];
 
     if (!s.id) issues.push("• Não veio ID do item (MLB).");
-    if (s.available_quantity === 0) issues.push("• Estoque zerado (available_quantity=0).");
-    if (s.status && s.status !== "active") issues.push(`• Status diferente de active: ${s.status}`);
-    if (s.catalog_listing === false) issues.push("• Não é item de catálogo (catalog_listing=false).");
+    if (s.available_quantity === 0)
+      issues.push("• Estoque zerado (available_quantity=0).");
+    if (s.status && s.status !== "active")
+      issues.push(`• Status diferente de active: ${s.status}`);
+    if (s.catalog_listing === false)
+      issues.push("• Não é item de catálogo (catalog_listing=false).");
     if (s.is_premium === false) issues.push("• Não está Premium.");
-    if (data?.visits?.total == null) issues.push("• Visitas não carregaram (ver endpoint visits).");
+    if (data?.visits?.total == null)
+      issues.push("• Visitas não carregaram (ver endpoint visits).");
 
     const hasZip = String(el.zip?.value || "").trim().length > 0;
-    if (hasZip && data?.shipping == null) issues.push("• Frete não carregou (ver shipping_options + cep).");
+    if (hasZip && data?.shipping == null)
+      issues.push("• Frete não carregou (ver shipping_options + cep).");
 
     const out = issues.length
       ? `Encontramos alguns pontos:\n\n${issues.join("\n")}`
@@ -484,24 +503,91 @@
     if (el.diagBox) el.diagBox.textContent = out;
   }
 
-  async function fetchJson(url) {
+  // ✅ renderiza IA
+  function renderAiInsights(ai) {
+    if (!el.aiDiagBox) return;
+
+    if (!ai) {
+      el.aiDiagBox.textContent = "IA indisponível no momento.";
+      return;
+    }
+
+    if (ai?.meta?.fallback) {
+      el.aiDiagBox.textContent = ai.headline || "IA indisponível no momento.";
+      return;
+    }
+
+    const headline = ai.headline || "Insights da IA";
+    const scores = ai.scores || {};
+    const insights = Array.isArray(ai.insights) ? ai.insights : [];
+
+    const scoreLine =
+      `SEO ${scores.seo ?? "—"} • Preço ${scores.preco ?? "—"} • ` +
+      `Frete ${scores.frete ?? "—"} • Conversão ${scores.conversao ?? "—"} • ` +
+      `Risco ${scores.risco ?? "—"}`;
+
+    const itemsHtml = insights.length
+      ? `<ol class="ai-insights" style="margin:10px 0 0 18px;">
+          ${insights
+            .map((x) => {
+              const sev = x.severidade || "—";
+              const tipo = x.tipo || "outros";
+              const what = x.o_que_esta_ruim || "";
+              const act = x.acao_recomendada || "";
+              const impact = x.impacto_esperado || "";
+              return `
+                <li style="margin:10px 0;">
+                  <div><b>[${escapeHtml(sev)}]</b> <b>${escapeHtml(
+                tipo
+              )}</b> — ${escapeHtml(what)}</div>
+                  ${act ? `<div><b>Ação:</b> ${escapeHtml(act)}</div>` : ""}
+                  ${
+                    impact
+                      ? `<div><b>Impacto:</b> ${escapeHtml(impact)}</div>`
+                      : ""
+                  }
+                </li>`;
+            })
+            .join("")}
+        </ol>`
+      : `<div style="margin-top:8px;">Sem insights (a IA pode ter retornado missing_data).</div>`;
+
+    el.aiDiagBox.innerHTML = `
+      <div><b>${escapeHtml(headline)}</b></div>
+      <div class="text-muted" style="margin-top:4px;">${escapeHtml(
+        scoreLine
+      )}</div>
+      ${itemsHtml}
+    `;
+  }
+
+  // ✅ fetch GET/POST
+  async function fetchJson(url, opts = {}) {
     const r = await fetch(url, {
+      method: opts.method || "GET",
+      body: opts.body,
       cache: "no-store",
       credentials: "same-origin",
       redirect: "follow",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...(opts.headers || {}),
+      },
     });
 
     const ct = (r.headers.get("content-type") || "").toLowerCase();
 
-    if (r.status === 401) throw new Error("401: Não autorizado. Faça login novamente.");
-    if (r.status === 403) throw new Error("403: Sem permissão para acessar este recurso.");
+    if (r.status === 401)
+      throw new Error("401: Não autorizado. Faça login novamente.");
+    if (r.status === 403)
+      throw new Error("403: Sem permissão para acessar este recurso.");
     if (r.status === 404) throw new Error("Rota não encontrada");
 
     if (!ct.includes("application/json")) {
       const txt = await r.text().catch(() => "");
       const looksHtml = txt && txt.toLowerCase().includes("<html");
-      const maybeRedirected = r.url && !r.url.includes("/api/analise-anuncios/");
+      const maybeRedirected =
+        r.url && !r.url.includes("/api/analise-anuncios/");
 
       if (looksHtml || maybeRedirected) {
         throw new Error(
@@ -521,8 +607,23 @@
       throw new Error(msg);
     }
 
-    if (data && data.ok === true && (data.summary || data.visits || data.shipping)) return data;
     return data;
+  }
+
+  // ✅ chama IA (manual)
+  async function loadAiInsights(mlb, days, zip) {
+    if (!el.aiDiagBox) return;
+
+    el.aiDiagBox.textContent = "Gerando insights com IA…";
+
+    const url =
+      `${API_BASE}/insights/${encodeURIComponent(mlb)}` +
+      `?days=${encodeURIComponent(days)}` +
+      `&zip_code=${encodeURIComponent(zip || "")}`;
+
+    // backend: POST
+    const ai = await fetchJson(url, { method: "POST" });
+    renderAiInsights(ai);
   }
 
   async function loadOverview() {
@@ -557,19 +658,35 @@
       renderJson(data);
       renderDiagnostic(data);
 
+      // ✅ guarda contexto e habilita botões
+      lastContext = { mlb, days, zip };
       if (el.btnDiag) el.btnDiag.disabled = false;
+      if (el.btnInsightsIA) el.btnInsightsIA.disabled = false;
+
+      // ✅ texto inicial da IA
+      if (el.aiDiagBox)
+        el.aiDiagBox.textContent =
+          "Clique em “Insights IA” para gerar a análise.";
+
       setAlert("ok", "Dados carregados com sucesso.");
     } catch (err) {
       console.error("loadOverview:", err);
 
-      setChips({ mlb, status: "—" });
+      setChips({ mlb: "", status: "—" });
       renderSummary({});
       renderInfoList({});
       renderJson({});
       renderDiagnostic({});
 
-      setAlert("error", err.message || "Erro ao carregar.");
+      lastContext = { mlb: "", days: 30, zip: "" };
+
+      if (el.aiDiagBox)
+        el.aiDiagBox.textContent =
+          "Carregue um anúncio para ver os insights da IA.";
       if (el.btnDiag) el.btnDiag.disabled = true;
+      if (el.btnInsightsIA) el.btnInsightsIA.disabled = true;
+
+      setAlert("error", err.message || "Erro ao carregar.");
     } finally {
       if (el.btnLoad) el.btnLoad.disabled = false;
     }
@@ -611,7 +728,10 @@
       setAlert("ok", "JSON copiado ✅");
       setTimeout(() => setAlert(null), 1400);
     } catch {
-      setAlert("error", "Não foi possível copiar. Clipboard bloqueado no browser.");
+      setAlert(
+        "error",
+        "Não foi possível copiar. Clipboard bloqueado no browser."
+      );
     }
   }
 
@@ -623,9 +743,14 @@
     setChips({ mlb: "", status: "" });
     setAlert(null);
 
-    ["sumTitle", "sumType", "sumPrice", "sumStock", "sumSold", "sumCreated"].forEach((id) =>
-      setText($(id), "—")
-    );
+    [
+      "sumTitle",
+      "sumType",
+      "sumPrice",
+      "sumStock",
+      "sumSold",
+      "sumCreated",
+    ].forEach((id) => setText($(id), "—"));
 
     setPill(el.pillPremium, { on: null, unknownLabel: "Tipo —" });
     setPill(el.pillCatalog, { on: null, unknownLabel: "Catálogo —" });
@@ -655,14 +780,21 @@
 
     if (el.infoList) el.infoList.innerHTML = "";
     if (el.jsonPre) el.jsonPre.textContent = "{}";
-    if (el.diagBox) el.diagBox.textContent = "Carregue um anúncio para ver o diagnóstico.";
+    if (el.diagBox)
+      el.diagBox.textContent = "Carregue um anúncio para ver o diagnóstico.";
+    if (el.aiDiagBox)
+      el.aiDiagBox.textContent =
+        "Clique em “Insights IA” para gerar a análise.";
     if (el.lastUpdate) el.lastUpdate.textContent = "";
 
     if (el.rankBox) setText(el.rankBox, "—");
     if (el.negativesBox) setText(el.negativesBox, "—");
 
     lastPayload = null;
+    lastContext = { mlb: "", days: 30, zip: "" };
+
     if (el.btnDiag) el.btnDiag.disabled = true;
+    if (el.btnInsightsIA) el.btnInsightsIA.disabled = true;
 
     const detailsTab = document.querySelector('.inner-tab[data-tab="details"]');
     if (detailsTab) detailsTab.click();
@@ -676,6 +808,37 @@
     el.btnDiag?.addEventListener("click", () => {
       const tab = document.querySelector('.inner-tab[data-tab="diagnostic"]');
       if (tab) tab.click();
+    });
+
+    // ✅ clique pra IA (manual)
+    el.btnInsightsIA?.addEventListener("click", async () => {
+      setAlert(null);
+
+      const mlb = lastContext.mlb || parseFirstMlb(el.mlbInput?.value || "");
+      if (!mlb) {
+        setAlert("error", "Carregue um anúncio primeiro (MLB).");
+        return;
+      }
+
+      const days = Number(el.days?.value || lastContext.days || 30);
+      const zip = String(el.zip?.value || lastContext.zip || "").trim();
+
+      // opcional: já ir pra aba Diagnóstico quando clicar
+      const tab = document.querySelector('.inner-tab[data-tab="diagnostic"]');
+      if (tab) tab.click();
+
+      if (el.btnInsightsIA) el.btnInsightsIA.disabled = true;
+      try {
+        await loadAiInsights(mlb, days, zip);
+        setAlert("ok", "Insights IA gerados ✅");
+      } catch (e) {
+        console.warn("IA insights falhou:", e);
+        if (el.aiDiagBox)
+          el.aiDiagBox.textContent = e.message || "IA indisponível.";
+        setAlert("error", e.message || "IA indisponível.");
+      } finally {
+        if (el.btnInsightsIA) el.btnInsightsIA.disabled = false;
+      }
     });
 
     el.btnCopy?.addEventListener("click", copyJson);
@@ -705,6 +868,10 @@
   document.addEventListener("DOMContentLoaded", () => {
     setChips({ mlb: "", status: "" });
     if (el.btnDiag) el.btnDiag.disabled = true;
+    if (el.btnInsightsIA) el.btnInsightsIA.disabled = true;
+    if (el.aiDiagBox)
+      el.aiDiagBox.textContent =
+        "Clique em “Insights IA” para gerar a análise.";
     bind();
   });
 })();

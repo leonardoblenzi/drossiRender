@@ -145,6 +145,11 @@
               <button class="btn btn-outline-secondary btn-pill" id="btnDiag" type="button" disabled>
                 <i class="bi bi-activity"></i> Diagnóstico
               </button>
+
+              <!-- ✅ NOVO: botão pra chamar IA manualmente -->
+              <button class="btn btn-dark btn-pill" id="btnInsightsIA" type="button" disabled title="Gerar insights com IA">
+                <i class="bi bi-stars"></i> Insights IA
+              </button>
             </div>
 
             <div class="aa-alerts mt-3">
@@ -296,7 +301,6 @@
                   <div class="v" id="kpiSalesPerDay">—</div>
                 </div>
 
-                <!-- placeholders extras (imagem 2) -->
                 <div class="aa-metric">
                   <div class="k"><i class="bi bi-receipt"></i> Imposto</div>
                   <div class="v" id="kpiTax">—</div>
@@ -318,14 +322,10 @@
                 </div>
 
                 <div class="aa-metric">
-                <div class="k"><i class="bi bi-clock-history"></i> Última venda</div>
-                <div class="v" id="kpiLastSale">—</div>
+                  <div class="k"><i class="bi bi-clock-history"></i> Última venda</div>
+                  <div class="v" id="kpiLastSale">—</div>
+                </div>
               </div>
-              
-              </div>
-
-              
-
 
               <!-- Barra faturando -->
               <div class="aa-revenue-bar mt-3" role="status" aria-live="polite">
@@ -341,7 +341,7 @@
 
               <div class="aa-divider"></div>
 
-              <!-- Informações complementares (sem repetir os KPIs acima) -->
+              <!-- Informações complementares -->
               <div class="aa-box__title mt-2" style="border-top:1px solid rgba(0,0,0,.06);">
                 <i class="bi bi-info-circle"></i> Informações complementares
               </div>
@@ -381,7 +381,7 @@
               </div>
 
               <div class="aa-hint mt-3">
-                Próximos passos: Trends + GPT-OSS (insights e sugestões).
+                Próximos passos: Trends + IA (insights e sugestões).
               </div>
             </div>
           </div>
@@ -393,6 +393,12 @@
               <div class="aa-diag" id="diagBox">
                 Carregue um anúncio para ver o diagnóstico.
               </div>
+            </div>
+
+            <!-- ✅ IA -->
+            <div class="aa-card mt-2">
+              <div class="aa-card-title">IA • Insights</div>
+              <div id="aiDiagBox">Clique em “Insights IA” para gerar a análise.</div>
             </div>
           </div>
 
@@ -423,7 +429,6 @@
       const btn = document.getElementById('btnRevenueInfo');
       if (!btn) return;
       btn.addEventListener('click', () => {
-        // sem modal agora — só um toast/alert simples
         alert('Faturando: hoje é calculado como preço * vendidos (se o backend não mandar). Depois dá pra plugar taxas/impostos e "recebe".');
       });
     });

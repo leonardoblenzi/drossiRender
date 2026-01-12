@@ -24,12 +24,17 @@ router.use((_req, res, next) => {
  * Este router deve ser montado no index.js assim:
  *   app.use("/api/analise-anuncios", require("./routes/AnaliseAnuncioRoutes"));
  *
- * E o front chama:
- *   /api/analise-anuncios/overview/:mlb
+ * Observação:
+ * No seu index.js, estas rotas já estão protegidas por:
+ *   ensureAuth -> ensureAccount -> app.use(authMiddleware)
+ * Portanto NÃO aplique authMiddleware aqui dentro.
  */
 
 // Overview “tipo Mercado Livre” (vendidos/estoque/visitas/criado/premium/catálogo/frete + vendedor)
 router.get("/overview/:mlb", AnaliseAnuncioController.overview);
+
+// ✅ NOVO: Insights via IA (Gemini)
+router.post("/insights/:mlb", AnaliseAnuncioController.insights);
 
 // Health check do módulo
 router.get("/ping", (_req, res) => {
@@ -53,7 +58,7 @@ const debugHandler = (_req, res) => {
   res.json({ ok: true, routes });
 };
 
-// ✅ Se tiver ensurePermission, protege (MASTER). Senão, só expõe fora de produção.
+// ✅ Se tiver ensurePermission, protege (MASTER). Senão, só expõe fora de production.
 if (ensurePermission?.requireMaster) {
   router.get("/routes", ensurePermission.requireMaster(), debugHandler);
 } else {

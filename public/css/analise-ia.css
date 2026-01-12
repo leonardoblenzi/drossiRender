@@ -993,3 +993,104 @@
 /* Links do infoList */
 .aa-kv a{ text-decoration: none; }
 .aa-kv a:hover{ text-decoration: underline; }
+/* ============================
+   Botão "Insights IA" (mini CSS)
+   Cole no final do /css/analise-ia.css
+   ============================ */
+
+/* base premium */
+#btnInsightsIA{
+  position: relative;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.14);
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+  background: linear-gradient(135deg, rgba(20,20,20,1), rgba(55,55,55,1));
+}
+
+/* brilho sutil */
+#btnInsightsIA::after{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  border-radius:999px;
+  background: linear-gradient(135deg, rgba(255,255,255,.25), rgba(255,255,255,0));
+  opacity:.22;
+  pointer-events:none;
+}
+
+/* glow “IA” */
+#btnInsightsIA::before{
+  content:"";
+  position:absolute;
+  inset:-3px;
+  border-radius:999px;
+  background: conic-gradient(
+    from 180deg,
+    rgba(255,255,255,0),
+    rgba(255,255,255,.14),
+    rgba(255,255,255,0)
+  );
+  opacity:.22;
+  filter: blur(6px);
+  pointer-events:none;
+}
+
+#btnInsightsIA:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 14px 34px rgba(0,0,0,.18);
+  filter: brightness(1.05);
+}
+
+#btnInsightsIA:active{
+  transform: translateY(0);
+  box-shadow: 0 10px 22px rgba(0,0,0,.14);
+  filter: brightness(0.98);
+}
+
+#btnInsightsIA:focus-visible{
+  outline: 3px solid rgba(0,0,0,.15);
+  outline-offset: 2px;
+}
+
+/* estado desabilitado */
+#btnInsightsIA:disabled{
+  opacity: .55;
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+  filter: none;
+}
+#btnInsightsIA:disabled::before,
+#btnInsightsIA:disabled::after{
+  opacity: 0;
+}
+
+/* ícone com leve destaque */
+#btnInsightsIA .bi{
+  margin-right: 6px;
+  transform: translateY(-1px);
+  opacity: .95;
+}
+
+/* ============================
+   Card IA (opcional, bem leve)
+   ============================ */
+.aa-card{
+  border-radius: 16px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(255,255,255,1);
+  box-shadow: 0 10px 24px rgba(0,0,0,.06);
+}
+.aa-card-title{
+  font-weight: 900;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ai-insights li{
+  line-height: 1.35;
+}
