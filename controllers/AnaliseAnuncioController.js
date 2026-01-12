@@ -3,10 +3,11 @@
 
 const analiseAnuncioService = require("../services/analiseAnuncioService");
 
-// Gemini (Google GenAI SDK) + schema
-const { GoogleGenAI } = require("@google/genai");
+// ✅ Gemini (Google GenAI SDK) — Structured Output do jeito certo (responseSchema + Type)
+const { GoogleGenAI, Type } = require("@google/genai");
+
+// Zod para validar o JSON final (ótimo pra garantir formato)
 const { z } = require("zod");
-const { zodToJsonSchema } = require("zod-to-json-schema");
 
 // ============================================================================
 // Helpers
@@ -81,6 +82,7 @@ function cacheKeyFor({ mlb, days, zip_code, model, promptVersion }) {
 // ============================================================================
 
 let _ai = null;
+
 function getGeminiClient() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
@@ -93,6 +95,7 @@ function getGeminiClient() {
 }
 
 function getGeminiModel() {
+  // Sugestão: pra testar primeiro, usa gemini-2.5-flash
   return process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 }
 
@@ -129,7 +132,6 @@ function buildAnalysisPack(data) {
       date_created: summary?.date_created ?? null,
       last_updated: summary?.last_updated ?? null,
       sku: summary?.sku ?? null,
-      // thumbnail/pictures não são necessários pra insight textual (reduz tokens)
     },
     visits: {
       total: visits?.total ?? null,
@@ -159,9 +161,7 @@ function buildAnalysisPack(data) {
 }
 
 // ============================================================================
-// Structured Output Schema (Zod -> JSON Schema)
-// Docs: responseMimeType + responseJsonSchema no JS SDK
-// https://ai.google.dev/gemini-api/docs/structured-output
+// Schema — validação final com Zod (mantém seu padrão)
 // ============================================================================
 
 const InsightSchema = z.object({
@@ -190,7 +190,7 @@ const InsightSchema = z.object({
       o_que_esta_ruim: z.string(),
       acao_recomendada: z.string(),
       impacto_esperado: z.string(),
-      evidencias: z.array(z.string()).default([]), // ex: ["summary.price","visits.total"]
+      evidencias: z.array(z.string()).default([]),
     })
   ),
   experimentos: z
@@ -205,6 +205,83 @@ const InsightSchema = z.object({
     .default([]),
   missing_data: z.array(z.string()).default([]),
 });
+
+// ============================================================================
+// ✅ Structured Output Schema pro @google/genai (Type.*)
+// (Isso é o que evita o "Unterminated string in JSON...")
+// ============================================================================
+
+const InsightResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    headline: { type: Type.STRING },
+    scores: {
+      type: Type.OBJECT,
+      properties: {
+        seo: { type: Type.NUMBER },
+        preco: { type: Type.NUMBER },
+        frete: { type: Type.NUMBER },
+        conversao: { type: Type.NUMBER },
+        risco: { type: Type.NUMBER },
+      },
+      required: ["seo", "preco", "frete", "conversao", "risco"],
+    },
+    insights: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          tipo: {
+            type: Type.STRING,
+            enum: [
+              "titulo",
+              "preco",
+              "frete",
+              "estoque",
+              "reputacao",
+              "catalogo",
+              "premium",
+              "conversao",
+              "outros",
+            ],
+          },
+          severidade: { type: Type.STRING, enum: ["alta", "media", "baixa"] },
+          o_que_esta_ruim: { type: Type.STRING },
+          acao_recomendada: { type: Type.STRING },
+          impacto_esperado: { type: Type.STRING },
+          evidencias: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: [
+          "tipo",
+          "severidade",
+          "o_que_esta_ruim",
+          "acao_recomendada",
+          "impacto_esperado",
+          "evidencias",
+        ],
+      },
+    },
+    experimentos: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          nome: { type: Type.STRING },
+          hipotese: { type: Type.STRING },
+          variacoes: { type: Type.ARRAY, items: { type: Type.STRING } },
+          metrica: { type: Type.STRING },
+        },
+        required: ["nome", "hipotese", "variacoes", "metrica"],
+      },
+    },
+    missing_data: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ["headline", "scores", "insights", "experimentos", "missing_data"],
+};
+
+// ============================================================================
+// Prompt
+// ============================================================================
 
 function buildPrompt(analysisPack) {
   return `
@@ -224,24 +301,39 @@ ${JSON.stringify(analysisPack)}
   `.trim();
 }
 
+// ============================================================================
+// Gemini call (com parse defensivo)
+// ============================================================================
+
+function stripJsonFences(s) {
+  const raw = String(s ?? "").trim();
+  return raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
+
 async function gerarInsightsComGemini(analysisPack) {
   const ai = getGeminiClient();
   const model = getGeminiModel();
 
   const resp = await ai.models.generateContent({
     model,
-    contents: buildPrompt(analysisPack),
+    // ✅ formato recomendado (contents.parts)
+    contents: {
+      parts: [{ text: buildPrompt(analysisPack) }],
+    },
     config: {
       responseMimeType: "application/json",
-      responseJsonSchema: zodToJsonSchema(InsightSchema),
-      // Controle de custo/limite:
+      responseSchema: InsightResponseSchema, // ✅ ESSENCIAL
       maxOutputTokens: 900,
       temperature: 0.4,
     },
   });
 
-  const parsed = JSON.parse(resp.text);
-  return InsightSchema.parse(parsed);
+  const cleaned = stripJsonFences(resp?.text);
+  const parsed = JSON.parse(cleaned);
+  return InsightSchema.parse(parsed); // ✅ valida
 }
 
 // ============================================================================
@@ -271,7 +363,6 @@ module.exports = {
         zip_code,
       });
 
-      // Front não depende de "ok", mas é útil padronizar
       return res.json({ ok: true, ...data });
     } catch (error) {
       const code = error.statusCode || 500;
@@ -283,7 +374,7 @@ module.exports = {
     }
   },
 
-  // NOVO: POST /api/analise-anuncios/insights/:mlb?days=30&zip_code=...
+  // POST /api/analise-anuncios/insights/:mlb?days=30&zip_code=...
   async insights(req, res) {
     try {
       if (!isInsightsEnabled()) {
@@ -307,7 +398,7 @@ module.exports = {
       const accessToken = pickAccessToken(req);
 
       const model = getGeminiModel();
-      const promptVersion = "v1";
+      const promptVersion = "v2-schema"; // ✅ mudou pq schema mudou
       const key = cacheKeyFor({ mlb, days, zip_code, model, promptVersion });
 
       const cached = cacheGet(key);
@@ -364,9 +455,9 @@ module.exports = {
             tipo: "outros",
             severidade: "baixa",
             o_que_esta_ruim:
-              "A IA falhou ou atingiu limite temporário, ou houve erro de configuração.",
+              "A IA falhou ou houve erro ao forçar saída estruturada.",
             acao_recomendada:
-              "Verifique GEMINI_API_KEY / limites do projeto e tente novamente. Se persistir, reduza o período (days) e mantenha cache ligado.",
+              "Verifique GEMINI_API_KEY / modelo, e se persistir reduza days e mantenha cache ligado. Se estiver usando Render, confirme variáveis de ambiente e reinicie o serviço.",
             impacto_esperado: "Retomar a análise quando o serviço normalizar.",
             evidencias: [],
           },
