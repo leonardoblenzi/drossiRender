@@ -154,9 +154,9 @@ app.get("/healthz", (_req, res) => {
 });
 
 // (Opcional) você pode até remover essa tela e mandar sempre pro login
-/*app.get("/selecao-plataforma", noCache, (req, res) => {
+app.get("/selecao-plataforma", noCache, (req, res) => {
   return res.sendFile(path.join(__dirname, "views", "selecao-plataforma.html"));
-}); */
+});
 
 app.get("/login", noCache, (req, res) => {
   return res.sendFile(path.join(__dirname, "views", "login.html"));
