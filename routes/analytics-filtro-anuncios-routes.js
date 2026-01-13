@@ -1,16 +1,3 @@
-// routes/analytics-filtro-anuncios-routes.js
-// Jobs para Filtro de Anúncios (Export/Paginação)
-// Endpoints:
-//   POST /api/analytics/filtro-anuncios/jobs               -> cria job
-//   GET  /api/analytics/filtro-anuncios/jobs/:job_id       -> status
-//   GET  /api/analytics/filtro-anuncios/jobs/:job_id/items -> pagina resultados
-//   GET  /api/analytics/filtro-anuncios/jobs/:job_id/download.csv -> baixa CSV
-//
-// Compat:
-//   GET /api/analytics/filtro-anuncios
-//     - se vier ?job_id=... -> retorna items do job (SEM LOOP)
-//     - se NÃO vier job_id -> cria job e retorna 202 com job_id
-
 "use strict";
 
 const express = require("express");
@@ -131,7 +118,6 @@ function parseFiltersFromReq(req) {
   let sales_no_sales_after = toBool(src.sales_no_sales_after, false);
 
   // trava de segurança: só faz sentido para (< 1) ou (=0)
-  // (se vier true fora disso, ignoramos para evitar custo desnecessário)
   const okNoAfter =
     (sales_op === "lt" && Number(sales_value) === 1) ||
     Number(sales_value) === 0;
@@ -165,16 +151,12 @@ function parseFiltersFromReq(req) {
     detalhes,
     sales_op,
     sales_value,
-
-    // ✅ NOVO
     sales_no_sales_after,
-
     visits_op,
     visits_value,
     sort_by,
     sort_dir,
     q,
-
     promo,
     ads,
     clicks_op,
@@ -266,7 +248,7 @@ async function handleJobItems(req, res) {
     const end = start + limit;
     const pageRows = filtered.slice(start, end);
 
-    // Formato “igual sua tela antiga” (8 colunas)
+    // Formato “igual sua tela antiga” (+ ✅ ultima_venda)
     const data = pageRows.map((r) => ({
       mlb: r.mlb,
       sku: r.sku,
@@ -275,6 +257,10 @@ async function handleJobItems(req, res) {
       envios: r.envio,
       valor_venda: (r.sold_value_cents || 0) / 100,
       qnt_vendas: r.sales_units || 0,
+
+      // ✅ NOVO
+      ultima_venda: r.ultima_venda || null,
+
       // null => UI mostra "-"
       visitas:
         r.visits === null || r.visits === undefined ? null : r.visits || 0,
@@ -402,10 +388,10 @@ router.get("/filtro-anuncios/jobs/:job_id/download.csv", async (req, res) => {
 
     const rows = await filtroQueue.getResults(job_id);
 
-    // ✅ defaults mais úteis agora (por anúncio)
+    // ✅ default atualizado: inclui ultima_venda
     const fields = String(
       req.query.fields ||
-        "mlb,sku,title,date_created,status,parent_item_id,tipo,envio,sales_units,sold_value_cents,visits"
+        "mlb,sku,title,date_created,ultima_venda,status,parent_item_id,tipo,envio,sales_units,sold_value_cents,visits"
     )
       .split(",")
       .map((s) => s.trim())

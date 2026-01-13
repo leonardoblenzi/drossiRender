@@ -139,13 +139,13 @@ console.log("✅ AuthGate aplicado (tudo protegido; allowlist mínimo liberado)"
 // ✅ Rotas públicas de página (só login/cadastro)
 // ==========================================
 
-// Raiz: se tiver cookie tenta ir pro dashboard; se não, vai pro login
+// Raiz: se tiver cookie tenta ir pro dashboard; se não, vai selecao plataforma
 app.get("/", noCache, (req, res, next) => {
   // se tiver auth_token, deixa o ensureAuth validar e redireciona
   if (req.cookies?.auth_token) {
     return ensureAuth(req, res, () => res.redirect("/dashboard"));
   }
-  return res.redirect("/login");
+  return res.redirect("/selecao-plataforma");
 });
 
 app.get("/healthz", (_req, res) => {

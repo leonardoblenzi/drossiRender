@@ -1,13 +1,3 @@
-// public/js/filtro-anuncios.js
-// =====================================================
-// Filtro Avançado de Anúncios — frontend (COM JOBS)
-// - NÃO carrega ao abrir (só ao clicar "Filtrar").
-// - EXCEÇÃO: se vier ?job_id=... na URL, retoma o job automaticamente.
-// - Cria job:  POST /api/analytics/filtro-anuncios/jobs
-// - Status:     GET /api/analytics/filtro-anuncios/jobs/:job_id
-// - Itens:      GET /api/analytics/filtro-anuncios/jobs/:job_id/items
-// - CSV:        GET /api/analytics/filtro-anuncios/jobs/:job_id/download.csv
-// =====================================================
 (function () {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -31,8 +21,8 @@
   const POLL_MIN_MS = 800;
   const POLL_MAX_MS = 2500;
 
-  // ✅ Tabela com 8 colunas (sem "Detalhes")
-  const GRID_COLS = 8;
+  // ✅ Agora 9 colunas (adiciona "Última venda")
+  const GRID_COLS = 9;
 
   // =========================
   // Estado
@@ -57,7 +47,6 @@
     status: "all",
 
     // ✅ NOVO: quando true => “e também sem vendas após o período (até hoje)”
-    // Só faz sentido em: (op == 'lt' && value == 1) OU (value == 0)
     sales_no_sales_after: false,
 
     // mantidos (mesmo se não usados no backend agora)
@@ -154,14 +143,6 @@
 
   // =========================
   // ✅ Sales “no sales after” toggle (UI)
-  // - aparece e habilita quando:
-  //    (sales_op == 'lt' && sales_value == 1) OU (sales_value == 0)
-  // - quando não faz sentido:
-  //    esconde, desmarca e zera state.sales_no_sales_after
-  //
-  // Requer no HTML:
-  //   - wrapper:  #fSalesNoSalesAfterWrap
-  //   - checkbox: #fSalesNoSalesAfter
   // =========================
   function getSalesValNumber() {
     const raw = (state.sales_value ?? "").toString().trim();
@@ -188,7 +169,6 @@
     const chk = $("#fSalesNoSalesAfter");
 
     if (wrap) wrap.style.display = visible ? "" : "none";
-
     if (chk) chk.disabled = !visible;
 
     if (!visible) {
@@ -256,7 +236,6 @@
   }
 
   function buildFiltersPayload() {
-    // ✅ só envia a flag se fizer sentido (evita backend receber true em casos errados)
     const allowNoSalesAfter = shouldShowSalesNoSalesAfter();
 
     return {
@@ -267,7 +246,6 @@
       sales_op: state.sales_op || "all",
       sales_value: state.sales_value,
 
-      // ✅ NOVO
       sales_no_sales_after: allowNoSalesAfter
         ? !!state.sales_no_sales_after
         : false,
@@ -275,7 +253,6 @@
       visits_op: state.visits_op || "all",
       visits_value: state.visits_value,
 
-      // guardados
       promo: state.promo || "all",
       ads: state.ads || "all",
       clicks_op: state.clicks_op || "all",
@@ -283,12 +260,10 @@
       impr_op: state.impr_op || "all",
       impr_value: state.impr_value,
 
-      // filtros “baratos”
       envio: state.envio || "all",
       tipo: state.tipo || "all",
       detalhes: state.detalhes || "all",
 
-      // ordenação do job
       sort_by: state.sort_by || "sold_value",
       sort_dir: state.sort_dir || "desc",
     };
@@ -346,7 +321,7 @@
       return;
     }
 
-    // ✅ 8 colunas: MLB | SKU | Título | Tipo | Envios | Valor venda | Qtd vendas | Visitas
+    // ✅ 9 colunas: ... | Qtd vendas | Última venda | Visitas
     tbody.innerHTML = rows
       .map((r) => {
         const mlb = safe(r.mlb);
@@ -358,6 +333,9 @@
 
         const valorVenda = fmtMoney(r.valor_venda);
         const qtdVendas = fmtInt(r.qnt_vendas);
+
+        // ✅ NOVO
+        const ultimaVenda = safe(r.ultima_venda, "-");
 
         const visits =
           r.visitas === null || r.visitas === undefined
@@ -373,6 +351,7 @@
           <td>${envios}</td>
           <td class="num">${valorVenda}</td>
           <td class="num">${qtdVendas}</td>
+          <td>${ultimaVenda}</td>
           <td class="num">${visits}</td>
         </tr>
       `;
@@ -467,7 +446,6 @@
       return null;
     }
 
-    // ✅ garante que visibilidade/estado estão coerentes antes de enviar
     updateSalesNoSalesAfterUI();
     syncSalesNoSalesAfterFromUI();
 
@@ -731,7 +709,6 @@
       el.addEventListener(ev, () => {
         state[key] = el.value;
 
-        // ✅ sempre que mexer em Vendas, atualiza visibilidade do checkbox
         if (key === "sales_op" || key === "sales_value") {
           updateSalesNoSalesAfterUI();
         }
@@ -744,7 +721,6 @@
     bind("fSalesOp", "sales_op");
     bind("fSalesVal", "sales_value");
 
-    // ✅ NOVO: checkbox (se existir no HTML)
     const chkSalesAfter = $("#fSalesNoSalesAfter");
     if (chkSalesAfter) {
       chkSalesAfter.addEventListener("change", () => {
@@ -799,7 +775,6 @@
     const btnSwitch = $("#account-switch");
     if (btnSwitch) btnSwitch.addEventListener("click", trocarConta);
 
-    // ✅ estado inicial do checkbox (hide/show)
     updateSalesNoSalesAfterUI();
   }
 
@@ -868,7 +843,6 @@
     bindFilters();
     carregarContaAtual();
 
-    // estado inicial
     state.hasSearched = false;
     state.total = 0;
     state.rows = [];
@@ -878,7 +852,6 @@
     renderTable([]);
     renderPager();
 
-    // ✅ Se veio ?job_id=... na URL, retoma automaticamente
     resumeJobIfPresent().catch(console.error);
   });
 })();

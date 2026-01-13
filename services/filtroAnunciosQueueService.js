@@ -1,4 +1,3 @@
-// services/filtroAnunciosQueueService.js
 "use strict";
 
 const Bull = require("bull");
@@ -152,6 +151,8 @@ async function fetchItemsBatch({ token, ids }) {
  * ✅ Vendas agregadas "por anúncio" NO PERÍODO.
  * Regra correta para bater com o painel: usar order.date_closed (venda fechada/concluída/paga).
  * Fallback: se date_closed não for aceito/retornar erro, usa date_created (para não quebrar).
+ *
+ * ✅ NOVO: também calcula ultima_venda (data YYYY-MM-DD) dentro do período.
  */
 async function fetchSalesMap({
   token,
@@ -189,6 +190,10 @@ async function fetchSalesMap({
       const results = Array.isArray(j?.results) ? j.results : [];
 
       for (const order of results) {
+        const orderDateIso =
+          order?.[mode] || order?.date_closed || order?.date_created;
+        const orderDay = datePart(orderDateIso);
+
         for (const it of order.order_items || []) {
           const rawId = upper(it?.item?.id);
           if (!rawId) continue;
@@ -198,9 +203,21 @@ async function fetchSalesMap({
           const unit = Number(it?.unit_price || 0);
           const revenue = unit * qty;
 
-          const prev = out.get(mlb) || { units: 0, revenue_cents: 0 };
+          const prev = out.get(mlb) || {
+            units: 0,
+            revenue_cents: 0,
+            last_sale: null,
+          };
           prev.units += qty;
           prev.revenue_cents += Math.round(revenue * 100);
+
+          // ✅ ultima_venda dentro do período (YYYY-MM-DD)
+          if (orderDay) {
+            if (!prev.last_sale || orderDay > prev.last_sale) {
+              prev.last_sale = orderDay;
+            }
+          }
+
           out.set(mlb, prev);
         }
       }
@@ -231,6 +248,8 @@ async function fetchSalesMap({
  * ✅ NOVO: vendas após o período (date_to -> HOJE) agregadas no pai.
  * - usado SOMENTE quando sales_no_sales_after=true
  * - preferência: order.date_closed (fallback: order.date_created)
+ *
+ * (mantido como já estava; sem mudar comportamento)
  */
 async function fetchSalesAfterMap({
   token,
@@ -290,9 +309,14 @@ async function fetchSalesAfterMap({
           const unit = Number(it?.unit_price || 0);
           const revenue = unit * qty;
 
-          const prev = out.get(mlb) || { units: 0, revenue_cents: 0 };
+          const prev = out.get(mlb) || {
+            units: 0,
+            revenue_cents: 0,
+            last_sale: null,
+          };
           prev.units += qty;
           prev.revenue_cents += Math.round(revenue * 100);
+
           out.set(mlb, prev);
         }
       }
@@ -485,6 +509,10 @@ class FiltroAnunciosQueueService {
               sold_value_cents: 0,
               visits: null,
 
+              // ✅ NOVO: última venda (YYYY-MM-DD)
+              // - se não tiver venda no período, será preenchido no final com date_created
+              ultima_venda: null,
+
               // usado se checkbox ativo
               sales_after_units: 0,
               sales_after_value_cents: 0,
@@ -566,9 +594,16 @@ class FiltroAnunciosQueueService {
           });
 
           for (const r of rows) {
-            const s = salesMap.get(r.mlb) || { units: 0, revenue_cents: 0 };
+            const s = salesMap.get(r.mlb) || {
+              units: 0,
+              revenue_cents: 0,
+              last_sale: null,
+            };
             r.sales_units = s.units;
             r.sold_value_cents = s.revenue_cents;
+
+            // ✅ NOVO: ultima venda (no período). Fallback final é preenchido depois.
+            r.ultima_venda = s.last_sale || null;
           }
         }
 
@@ -607,6 +642,12 @@ class FiltroAnunciosQueueService {
         }
 
         job.progress(78);
+
+        // ✅ NOVO: fallback da ultima_venda
+        // Se não teve vendas no período, usa date_created (pra você detectar “nunca vendeu” quando forem iguais)
+        for (const r of rows) {
+          if (!r.ultima_venda) r.ultima_venda = r.date_created || null;
+        }
 
         // 5) visitas — SOMENTE se filtro de visitas estiver ativo
         const needVisits = filters.visits_op && filters.visits_op !== "all";

@@ -1,5 +1,5 @@
 MAPEAMENTO ATUALIZADO (TXT) — DAVANTTI API
-Versão: 2025-12-26 (após migração para OAuth+DB + Admin Panel + Migrações + Backup)
+Versão: 2026-01-13 (inclui nova feature “Analise IA / Análise de Anúncio”)
 Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “estilo” e adicionando/ajustando:
 - OAuth Mercado Livre (PKCE + state no DB) + seleção de conta (cookie httpOnly meli_conta_id)
 - Multi-empresa (empresas + empresa_usuarios) e modo MASTER (admin_master) com listagem global
@@ -292,13 +292,14 @@ FULL • Produtos Fulfillment (ATUAL)
 ================================================================================
 (sem alterações)
 
-11) ✅ NOVO — Analise IA (IA • Análise de Anúncio)
+================================================================================
+11) ✅ NOVO — Analise IA (IA • Análise de Anúncio) — OVERVIEW + Dependências
+================================================================================
 
 Objetivo
-
 Tela “IA • Análise de Anúncio” no padrão do EDITAR/Full:
 • input MLB (pega o primeiro MLB de um texto colado)
-• janela de dias (7/30/60/90)
+• janela de dias (7/30/60/90 ou livre via select)
 • CEP opcional para simular frete
 • bloco “Buscar anúncio + Foto do produto” (grid 2 colunas)
 • “Informações” unifica Resumo + detalhes (mini-kpis + kv)
@@ -307,14 +308,12 @@ Tela “IA • Análise de Anúncio” no padrão do EDITAR/Full:
 • tudo protegido (ninguém acessa sem estar logado + conta selecionada + token ML válido)
 
 Proteções (padrão do seu index.js)
-
 ✅ ensureAuth (JWT do app) aplicado globalmente abaixo das rotas públicas mínimas
-
 ✅ ensureAccount (conta ML selecionada via cookie meli_conta_id)
-
 ✅ authMiddleware (token ML válido/renovável) para rotas do app
 
-Observação: como o htmlRoutes está montado DEPOIS do ensureAccount + authMiddleware,
+Observação
+Como o htmlRoutes está montado DEPOIS do ensureAccount + authMiddleware,
 a página /analise-ia também exige conta selecionada e token ML (além do login JWT).
 
 / (raiz do projeto)
@@ -349,102 +348,103 @@ a página /analise-ia também exige conta selecionada e token ML (além do login
 │ • app.use('/api/analise-anuncios', AnaliseAnuncioRoutes)
 │ -> OBS: manter esse nome /api/analise-anuncios mesmo que a tela se chame /analise-ia (UI),
 │ para evitar colisão com outras features.
+
+Arquivos principais e dependentes
+├─ routes/AnaliseAnuncioRoutes.js ✅
+│ • router.use(Cache-Control: no-store)
+│ • GET /api/analise-anuncios/overview/:mlb
+│   - query: days=30 (default), zip_code=xxxxx-xxx (opcional)
+│   - chama AnaliseAnuncioController.overview()
+│ • GET /api/analise-anuncios/ping
+│ • GET /api/analise-anuncios/routes (debug)
+│   - se middleware/ensurePermission.js existir:
+│     protege com ensurePermission.requireMaster()
+│   - senão: só expõe fora de produção
 │
-├─ routes/
-│ ├─ AnaliseAnuncioRoutes.js ✅
-│ │ • GET /api/analise-anuncios/overview/:mlb
-│ │ - query: days=30 (default), zip_code=xxxxx-xxx (opcional)
-│ │ - headers: Cache-Control: no-store
-│ │ - chama AnaliseAnuncioController.overview()
-│ │ - responde JSON consolidado para o front:
-│ │ {
-│ │ ok: true,
-│ │ summary: {
-│ │ id, title, status, price,
-│ │ sold_quantity, available_quantity,
-│ │ listing_type_id, catalog_listing, is_premium,
-│ │ date_created, last_updated,
-│ │ permalink, category_id, condition, currency_id,
-│ │ thumbnail, pictures[]
-│ │ },
-│ │ visits: { total, date_from, date_to },
-│ │ shipping: { zip_code, free_shipping, cost, logistic_type, mode },
-│ │ seller: { seller_id, nickname, location },
-│ │ seller_reputation: { level_id, power_seller_status, transactions... },
-│ │ meta: { fetched_at },
-│ │ raw: { item, seller, visits, shipping }
-│ │ }
-│ │
-│ └─ htmlRoutes.js
-│ • GET /analise-ia -> views/analise-ia.html
-│
-├─ controllers/
-│ └─ AnaliseAnuncioController.js ✅
+├─ controllers/AnaliseAnuncioController.js ✅
 │ • overview(req,res)
-│ - valida mlb (MLB\d+)
-│ - lê days (1..365) e zip_code (opcional)
-│ - exige accessToken via req.ml.accessToken (injetado pelo authMiddleware)
-│ - chama analiseAnuncioService.getOverview({ mlb, accessToken, days, zip_code })
-│ - retorna { ok: true, ...data } ou { ok:false, error, message }
+│   - valida mlb (MLB\d+)
+│   - lê days (1..365) e zip_code (opcional)
+│   - exige accessToken via req.ml.accessToken (injetado pelo authMiddleware)
+│   - chama analiseAnuncioService.getOverview({ mlb, accessToken, days, zip_code })
+│   - retorna { ok:true, ...data } ou { ok:false, error, message }
 │
-├─ services/
-│ └─ analiseAnuncioService.js ✅
+├─ services/analiseAnuncioService.js ✅
 │ • getOverview({ mlb, accessToken, days, zip_code })
 │ - chama endpoints oficiais do Mercado Livre:
-│ 1) GET /items/:mlb
-│ 2) GET visitas (tentativas):
-│ - /items/:mlb/visits?date_from=...&date_to=...
-│ - /visits/items?ids=:mlb&date_from=...&date_to=...
-│ 3) frete (se zip_code informado):
-│ - /items/:mlb/shipping_options?zip_code=...
-│ 4) vendedor:
-│ - /users/:seller_id (nickname + localização + seller_reputation)
+│   1) GET /items/:mlb
+│   2) visitas (fallbacks):
+│      - GET /items/:mlb/visits?date_from=...&date_to=...
+│      - GET /visits/items?ids=:mlb&date_from=...&date_to=...
+│      - GET /visits/items?ids=:mlb (fallback simples)
+│   3) frete (se zip_code informado):
+│      - GET /items/:mlb/shipping_options?zip_code=...
+│      - (fallback) /items/:mlb/shipping_options/free?zip_code=...
+│   4) vendedor:
+│      - GET /users/:seller_id
 │
 │ - Normalizações do retorno:
-│ • is_premium = listing_type_id == gold_pro (ou gold_premium)
-│ • seller.location = cidade/estado (quando disponível)
-│ • shipping.cost = menor custo encontrado nas opções
+│   • is_premium = listing_type_id == gold_pro (ou gold_premium)
+│   • seller.location = cidade/estado (quando disponível)
+│   • shipping.cost = menor custo encontrado nas opções
 │
 │ - ✅ Foto nítida (evitar thumb borrada):
-│ • pictures[] vem de item.pictures[].secure_url/url
-│ • thumbnail prioriza pictures[0] (capa) e só cai no item.thumbnail como fallback
+│   • pictures[] vem de item.pictures[].secure_url/url
+│   • thumbnail prioriza pictures[0] e cai em item.thumbnail como fallback
 │
-├─ views/
-│ └─ analise-ia.html ✅
+│ - Retorno consolidado esperado pelo front:
+│   {
+│     ok: true,
+│     summary: { id,title,status,permalink,category_id,condition,currency_id,
+│               price,available_quantity,sold_quantity,
+│               listing_type_id,catalog_listing,is_premium,
+│               date_created,last_updated,thumbnail,pictures[] },
+│     visits: { total,date_from,date_to },
+│     shipping: { zip_code,free_shipping,cost,logistic_type,mode },
+│     seller: { seller_id,nickname,location, (opcional) official_store_id/official_store },
+│     seller_reputation: { level_id,power_seller_status,transactions,metrics... },
+│     meta: { fetched_at },
+│     raw: { item,seller,visits,shipping }
+│   }
+│
+├─ routes/htmlRoutes.js ✅
+│ • GET /analise-ia -> views/analise-ia.html
+│
+├─ views/analise-ia.html ✅
 │ • Layout: mesmo padrão do editar (top header + chips + card-panel)
 │ • Card principal:
-│ - Coluna esquerda: MLB + janela dias + CEP + botões (Carregar / Diagnóstico)
-│ - Coluna direita: Foto do produto (bloco fixo)
+│   - Coluna esquerda: MLB + janela dias + CEP + botões
+│   - Coluna direita: Foto do produto (bloco fixo)
 │ • Bloco “Informações” unificado:
-│ - mini-kpis (Resumo)
-│ - lista kv (detalhes)
+│   - mini-kpis (Resumo)
+│   - lista kv (detalhes)
 │ • Tabs internas:
-│ - Detalhes: imagem + informações
-│ - Diagnóstico: heurísticas iniciais
-│ - JSON: <pre> raw + copiar JSON
+│   - Detalhes
+│   - Diagnóstico
+│   - JSON (<pre> + copiar)
 │
 └─ public/
-├─ js/analise-ia.js ✅
-│ • API_BASE = /api/analise-anuncios
-│ • loadOverview() -> GET /overview/:mlb?days=&zip_code=
-│ • parseMLBFromText(): pega o 1º MLB encontrado
-│ • render:
-│ - renderSummary() (mini-kpis)
-│ - renderInfoList() (kv unificado)
-│ - renderPhoto() (usa summary.thumbnail/pictures[0])
-│ - renderDiagnostic()
-│ - renderJson()
-│ • copiar JSON: btnCopyJson + btnCopyJson2
-│ • tabs internas: .inner-tab + .pane (padrão editar)
-│
-└─ css/analise-ia.css ✅
-• baseado no editar-anuncio.css (card-panel, chips, inner-tabs, json-pre)
-• ajustes específicos:
-- .aa-search-grid: busca + foto lado a lado
-- .aa-photo-wrap: bloco fixo (não “explode” quando carrega imagem)
-- mini-kpis para resumo
-- aa-kv para pares chave/valor
-- evitar conflito bootstrap: usar .aa-row em vez de .row
+   ├─ js/analise-ia.js ✅
+   │ • API_BASE = /api/analise-anuncios
+   │ • loadOverview() -> GET /overview/:mlb?days=&zip_code=
+   │ • parseFirstMlb(): pega o 1º MLB encontrado em texto colado
+   │ • render:
+   │   - renderSummary() (mini-kpis + pills + KPIs)
+   │   - renderInfoList() (kv unificado)
+   │   - renderPhoto() (usa summary.thumbnail/pictures[0])
+   │   - renderDiagnostic()
+   │   - renderJson()
+   │ • copiar JSON: btnCopyJson + btnCopyJson2
+   │ • tabs internas: .inner-tab + .pane (padrão editar)
+   │
+   └─ css/analise-ia.css ✅
+     • baseado no editar-anuncio.css (card-panel, chips, inner-tabs, json-pre)
+     • ajustes específicos:
+       - .aa-search-grid: busca + foto lado a lado
+       - .aa-photo-wrap: bloco fixo (não “explode” quando carrega imagem)
+       - mini-kpis para resumo
+       - aa-kv para pares chave/valor
+       - evitar conflito bootstrap: usar .aa-row em vez de .row
 
 Notas de segurança/permissão:
 - A tela /analise-ia é “app normal” (não admin-only por padrão).
@@ -453,5 +453,5 @@ Notas de segurança/permissão:
 - Se quiser restringir por nível, aplicar ensurePermission.requireAdmin() no GET /analise-ia (htmlRoutes).
 
 ================================================================================
-(Seções 1–10 permanecem iguais ao seu texto; apenas foi adicionado o item 11 acima)
+(Seções 1–10 permanecem iguais ao seu texto; foi adicionado o item 11 no final)
 ================================================================================
