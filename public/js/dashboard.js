@@ -1,12 +1,105 @@
 // public/js/dashboard.js
-console.log("Dashboard script carregado");
+console.log("✅ Dashboard.js carregado (single-source)");
 
-// ===== Conta atual / Trocar conta (OAuth-only) =====
+// =========================
+// Util
+// =========================
+const $ = (id) => document.getElementById(id);
+const qsa = (s, el = document) => Array.from(el.querySelectorAll(s));
+
+function safeBind(el, ev, fn) {
+  if (el) el.addEventListener(ev, fn);
+}
+function show(el) {
+  if (el) el.style.display = "block";
+}
+function hide(el) {
+  if (el) el.style.display = "none";
+}
+function setText(id, v) {
+  const el = $(id);
+  if (el) el.textContent = v;
+}
+
+const fmtBRL = (v) => {
+  const n = Number(v || 0);
+  try {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(n);
+  } catch {
+    return "R$ " + n.toFixed(2);
+  }
+};
+
+const fmtNum = (v) => {
+  const n = Number(v || 0);
+  try {
+    return new Intl.NumberFormat("pt-BR").format(n);
+  } catch {
+    return String(n);
+  }
+};
+
+function showDashAlert(type, text) {
+  const el = $("dash-alert");
+  if (!el) return;
+  el.className = "";
+  el.style.display = "block";
+  el.classList.add(
+    "dash-alert",
+    type === "error" ? "dash-alert--error" : "dash-alert--info"
+  );
+  el.textContent = text;
+}
+function hideDashAlert() {
+  const el = $("dash-alert");
+  if (!el) return;
+  el.style.display = "none";
+  el.textContent = "";
+  el.className = "";
+}
+
+// =========================
+// Abas (hash)
+// =========================
+function initTabs() {
+  const tabs = qsa(".nav-tab");
+  const pages = qsa(".tab-page");
+
+  tabs.forEach((btn) => {
+    safeBind(btn, "click", () => {
+      tabs.forEach((b) => b.classList.remove("active"));
+      pages.forEach((p) => p.classList.remove("active"));
+
+      btn.classList.add("active");
+      const id = "tab-" + btn.dataset.tab;
+      const page = $(id);
+      if (page) page.classList.add("active");
+
+      if (btn.dataset.tab)
+        history.replaceState(null, "", "#" + btn.dataset.tab);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  });
+}
+
+function openTabByHash() {
+  const hash = (location.hash || "").replace("#", "").trim();
+  if (!hash) return;
+  const btn = document.querySelector(`.nav-tab[data-tab="${hash}"]`);
+  if (btn) btn.click();
+}
+
+// =========================
+// Conta atual / Trocar conta
+// =========================
 async function carregarContaAtual() {
-  const currentEl = document.getElementById("account-current");
-  const inlineEl = document.getElementById("account-name-inline");
+  const currentEl = $("account-current");
+  const inlineEl = $("account-name-inline");
 
-  const setText = (txt) => {
+  const setBoth = (txt) => {
     if (currentEl) currentEl.textContent = txt;
     if (inlineEl) inlineEl.textContent = txt;
   };
@@ -20,31 +113,23 @@ async function carregarContaAtual() {
     });
 
     const ct = String(r.headers.get("content-type") || "");
-    if (!ct.includes("application/json")) {
-      setText("Indisponível");
-      return;
-    }
+    if (!ct.includes("application/json")) return setBoth("Indisponível");
 
     const data = await r.json().catch(() => null);
 
-    // esperado: { ok:true, accountType:'oauth', accountKey:'123', label:'...' }
-    if (
-      (data?.ok || data?.success) &&
-      data?.accountType === "oauth" &&
-      data?.accountKey
-    ) {
-      const shown = String(data.label || "").trim() || "Conta selecionada";
-      setText(shown);
-      return;
+    if ((data?.ok || data?.success) && data?.accountKey) {
+      const shown = String(data?.label || "").trim() || "Conta selecionada";
+      return setBoth(shown);
     }
 
-    setText("Não selecionada");
+    setBoth("Não selecionada");
   } catch {
-    setText("Indisponível");
+    setBoth("Indisponível");
   }
 }
 
 async function trocarConta() {
+  // usa o endpoint que você já tem no projeto (oauth)
   try {
     await fetch("/api/meli/limpar-selecao", {
       method: "POST",
@@ -54,149 +139,48 @@ async function trocarConta() {
   window.location.href = "/select-conta";
 }
 
-// ===== Notificações modernas =====
-function showNotification(type, message) {
-  const existing = document.querySelectorAll(".notification");
-  existing.forEach((n) => n.remove());
-
-  const notification = document.createElement("div");
-  notification.className = `notification notification-${type}`;
-
-  const icons = { success: "✅", error: "❌", warning: "⚠️", info: "ℹ️" };
-
-  notification.innerHTML = `
-    <div class="notification-content">
-      <span class="notification-icon">${icons[type] || icons.info}</span>
-      <span class="notification-message">${String(message || "").replace(
-        /\n/g,
-        "<br>"
-      )}</span>
-      <button class="notification-close" type="button">×</button>
-    </div>
-  `;
-
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    padding: 18px 16px;
-    max-width: 420px;
-    z-index: 1000;
-    animation: slideInRight 0.3s ease-out;
-    border-left: 4px solid ${
-      type === "success"
-        ? "#28a745"
-        : type === "error"
-        ? "#dc3545"
-        : type === "warning"
-        ? "#ffc107"
-        : "#17a2b8"
-    };
-  `;
-
-  notification
-    .querySelector(".notification-close")
-    ?.addEventListener("click", () => {
-      notification.remove();
-    });
-
-  document.body.appendChild(notification);
-
-  setTimeout(() => {
-    if (notification.parentElement) {
-      notification.style.animation = "slideOutRight 0.3s ease-out";
-      setTimeout(() => notification.remove(), 280);
-    }
-  }, 5000);
+// =========================
+// Modal Status (token)
+// =========================
+function abrirModalStatus() {
+  show($("modal-status"));
+}
+function fecharModalStatus() {
+  hide($("modal-status"));
 }
 
-// CSS das notificações
-(function injectNotificationStyles() {
-  if (document.getElementById("notification-styles")) return;
-
-  const st = document.createElement("style");
-  st.id = "notification-styles";
-  st.textContent = `
-    @keyframes slideInRight {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes slideOutRight {
-      from { transform: translateX(0); opacity: 1; }
-      to { transform: translateX(100%); opacity: 0; }
-    }
-    .notification-content { display:flex; align-items:flex-start; gap:10px; }
-    .notification-icon { font-size: 20px; flex-shrink:0; }
-    .notification-message { flex:1; line-height:1.4; color:#333; }
-    .notification-close {
-      background:none; border:none; font-size:20px; cursor:pointer;
-      color:#999; padding:0; margin-left:10px; flex-shrink:0;
-    }
-    .notification-close:hover { color:#333; }
-  `;
-  document.head.appendChild(st);
-})();
-
-// ===== Token: verificar/renovar (1 única versão) =====
-let isProcessing = false;
-
-async function verificarToken(event) {
-  if (isProcessing) return;
-
-  const button = event?.target || null;
-  const originalText = button ? button.textContent : null;
-
+async function verificarToken(updateModal = false) {
   try {
-    isProcessing = true;
-    if (button) {
-      button.classList.add("btn-loading");
-      button.textContent = "Verificando...";
-    }
-
     const response = await fetch("/verificar-token", {
       credentials: "include",
     });
     const data = await response.json().catch(() => null);
 
     if (data?.success) {
-      showNotification(
-        "success",
-        `✅ ${data.message}\nUser: ${data.nickname}\nToken: ${data.token_preview}`
-      );
+      if (updateModal) {
+        setText("status-usuario", data.nickname || "—");
+        setText("status-token", data.token_preview || "—");
+        setText("status-msg", data.message || "OK");
+      } else {
+        alert(
+          `✅ ${data.message || "OK"}\nUser: ${data.nickname || "—"}\nToken: ${
+            data.token_preview || "—"
+          }`
+        );
+      }
     } else {
-      showNotification(
-        "error",
-        `❌ ${data?.error || "Falha ao verificar token"}`
-      );
+      const msg = data?.error || "Falha ao verificar";
+      if (updateModal) setText("status-msg", msg);
+      else alert("❌ " + msg);
     }
   } catch (error) {
-    console.error("Erro ao verificar token:", error);
-    showNotification("error", `❌ Erro: ${error.message}`);
-  } finally {
-    isProcessing = false;
-    if (button) {
-      button.classList.remove("btn-loading");
-      button.textContent = originalText;
-    }
+    if (updateModal) setText("status-msg", "Erro: " + error.message);
+    else alert("❌ Erro: " + error.message);
   }
 }
 
-async function renovarToken(event) {
-  if (isProcessing) return;
-
-  const button = event?.target || null;
-  const originalText = button ? button.textContent : null;
-
+async function renovarToken(updateModal = false) {
   try {
-    isProcessing = true;
-    if (button) {
-      button.classList.add("btn-loading");
-      button.textContent = "Renovando...";
-    }
-
     const response = await fetch("/renovar-token-automatico", {
       method: "POST",
       credentials: "include",
@@ -205,285 +189,271 @@ async function renovarToken(event) {
     const data = await response.json().catch(() => null);
 
     if (data?.success) {
-      showNotification(
-        "success",
-        `✅ ${data.message}\nUser: ${data.nickname}\nNovo token: ${String(
-          data.access_token || ""
-        ).substring(0, 20)}...`
-      );
+      if (updateModal) {
+        setText("status-usuario", data.nickname || "—");
+        setText(
+          "status-token",
+          (data.access_token || "").substring(0, 20) + "..."
+        );
+        setText("status-msg", data.message || "Token renovado");
+      } else {
+        alert(
+          `✅ ${data.message || "Token renovado"}\nUser: ${
+            data.nickname || "—"
+          }\nNovo token: ${(data.access_token || "").substring(0, 20)}...`
+        );
+      }
     } else {
-      showNotification(
-        "error",
-        `❌ ${data?.error || "Falha ao renovar token"}`
-      );
+      const msg = data?.error || "Falha ao renovar";
+      if (updateModal) setText("status-msg", msg);
+      else alert("❌ " + msg);
     }
   } catch (error) {
-    console.error("Erro ao renovar token:", error);
-    showNotification("error", `❌ Erro: ${error.message}`);
-  } finally {
-    isProcessing = false;
-    if (button) {
-      button.classList.remove("btn-loading");
-      button.textContent = originalText;
-    }
+    if (updateModal) setText("status-msg", "Erro: " + error.message);
+    else alert("❌ Erro: " + error.message);
   }
 }
 
-// ===== Modal Processos =====
-let intervalAtualizacao;
+// =========================
+// Dashboard (KPIs)
+// =========================
+function setPill(id, text, kind /* ok | warn | neutral */) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text;
 
-async function abrirModalProcessos() {
-  document.getElementById("modal-processos").style.display = "block";
-  await atualizarProcessos();
-  intervalAtualizacao = setInterval(atualizarProcessos, 5000);
+  // Se teu CSS não tiver classes específicas, isso é só no-op visual.
+  el.classList.remove("pill-ok", "pill-warn", "pill-neutral");
+  if (kind === "ok") el.classList.add("pill-ok");
+  else if (kind === "warn") el.classList.add("pill-warn");
+  else el.classList.add("pill-neutral");
 }
 
-function fecharModalProcessos() {
-  document.getElementById("modal-processos").style.display = "none";
-  if (intervalAtualizacao) clearInterval(intervalAtualizacao);
+function renderNoSparkline() {
+  const wrap = $("dash-sparkline");
+  const empty = $("dash-spark-empty");
+  if (wrap) wrap.innerHTML = "";
+  if (empty) empty.style.display = "block";
 }
 
-async function atualizarProcessos() {
-  try {
-    const response = await fetch("/api/pesquisa-descricao/jobs?limite=20", {
-      credentials: "include",
-    });
-    const data = await response.json().catch(() => null);
-    if (data?.success) {
-      atualizarEstatisticas(data.estatisticas_gerais);
-      exibirProcessos(data.jobs);
-      atualizarContadorDashboard(data.jobs);
-    }
-  } catch (error) {
-    console.error("Erro ao atualizar processos:", error);
-  }
-}
+// ==================================================
+// ✅ Sparkline (Ritmo do mês) — GARANTE que existe no dashboard.js
+// ==================================================
+function renderSparkline(dailyOrders, dayOfMonth, daysInMonth) {
+  const wrap = document.getElementById("dash-sparkline");
+  const empty = document.getElementById("dash-spark-empty");
+  if (!wrap) return;
 
-function atualizarEstatisticas(stats) {
-  document.getElementById("total-processando").textContent =
-    stats?.processando_agora || 0;
-  document.getElementById("total-aguardando").textContent =
-    stats?.fila_aguardando || 0;
-  document.getElementById("total-concluidos").textContent =
-    stats?.concluidos_recentes || 0;
-  document.getElementById("total-erros").textContent =
-    stats?.falharam_recentes || 0;
-}
+  wrap.innerHTML = "";
 
-function exibirProcessos(jobs) {
-  const container = document.getElementById("lista-processos");
-  if (!jobs || jobs.length === 0) {
-    container.innerHTML = `
-      <div style="text-align:center; padding:40px;">
-        <p>📭 Nenhum processo encontrado</p>
-        <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Iniciar Primeiro Processo</button>
-      </div>`;
+  const arr = Array.isArray(dailyOrders) ? dailyOrders : [];
+  if (!arr.length) {
+    if (empty) empty.style.display = "block";
     return;
   }
+  if (empty) empty.style.display = "none";
 
-  container.innerHTML = jobs
-    .map(
-      (job) => `
-    <div class="process-item ${job.status}">
-      <div class="process-header">
-        <div class="process-title">📋 ${job.job_id}</div>
-        <div class="process-status ${job.status}">${job.status}</div>
-      </div>
-      <div style="font-size:14px; color:#666; margin:5px 0;">
-        📊 ${job.concluidos + job.falharam}/${job.total_mlbs} MLBs processados
-        ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ""}
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:${
-          job.progresso_percentual
-        }%"></div>
-      </div>
-      <div class="process-actions">
-        <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${
-          job.job_id
-        }')">📊 Detalhes</button>
-        ${
-          job.status === "concluido"
-            ? `<a href="/api/pesquisa-descricao/download/${job.job_id}" class="btn-small btn-success">📥 Download</a>`
-            : ""
-        }
-        ${
-          job.status === "processando" || job.status === "aguardando"
-            ? `<button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id}')">🚫 Cancelar</button>`
-            : ""
-        }
-      </div>
-    </div>
-  `
-    )
-    .join("");
-}
+  // ✅ pega máximo de revenue pra escala visual
+  const max = Math.max(1, ...arr.map((x) => Number(x?.revenue || 0)));
 
-function atualizarContadorDashboard(jobs) {
-  const ativos = (jobs || []).filter(
-    (j) => j.status === "processando" || j.status === "aguardando"
-  ).length;
-  const counter = document.getElementById("process-counter");
-  const counterNumber = document.getElementById("counter-number");
-  if (!counter || !counterNumber) return;
+  for (let i = 0; i < arr.length; i++) {
+    const d = arr[i] || {};
+    const value = Number(d.revenue || 0);
 
-  if (ativos > 0) {
-    counter.style.display = "inline-flex";
-    counter.classList.add("pulsing");
-    counterNumber.textContent = ativos;
-  } else {
-    counter.style.display = "none";
-    counter.classList.remove("pulsing");
+    // mínimo visual pra não sumir
+    const pct = Math.max(0.04, value / max);
+
+    const bar = document.createElement("div");
+    bar.className = "spark-bar";
+
+    const dayIndex = i + 1;
+    if (dayIndex > dayOfMonth) bar.classList.add("is-future");
+    if (dayIndex === dayOfMonth) bar.classList.add("is-today");
+
+    bar.style.height = Math.round(pct * 100) + "%";
+
+    // ✅ tooltips
+    const fmtBRL =
+      window.fmtBRL ||
+      ((v) =>
+        new Intl.NumberFormat("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        }).format(Number(v || 0)));
+
+    const fmtNum =
+      window.fmtNum ||
+      ((v) => new Intl.NumberFormat("pt-BR").format(Number(v || 0)));
+
+    bar.title = `${d.date || ""}\nVendas: ${fmtBRL(value)}\nPedidos: ${fmtNum(
+      d.orders || 0
+    )}\nUnidades: ${fmtNum(d.units || 0)}`;
+
+    wrap.appendChild(bar);
   }
+
+  // ✅ barra de progresso do mês
+  const fill = document.getElementById("dash-progress-fill");
+  const meta = document.getElementById("dash-progress-meta");
+
+  const progress = Math.min(
+    100,
+    Math.max(0, (Number(dayOfMonth || 1) / Number(daysInMonth || 30)) * 100)
+  );
+
+  if (fill) fill.style.width = progress.toFixed(2) + "%";
+  if (meta)
+    meta.textContent = `Dia ${dayOfMonth} de ${daysInMonth} (${progress.toFixed(
+      0
+    )}% do mês)`;
 }
 
-async function verDetalhesProcesso(jobId) {
+// ✅ se algum outro trecho chamar via window, garante
+window.renderSparkline = renderSparkline;
+
+async function carregarDashboard() {
+  hideDashAlert();
+
   try {
-    const response = await fetch(`/api/pesquisa-descricao/status/${jobId}`, {
-      credentials: "include",
+    // ✅ agora usa /summary (e /monthly-sales também funciona)
+    const r = await fetch("/api/dashboard/summary?tz=America%2FSao_Paulo", {
+      cache: "no-store",
     });
-    const data = await response.json().catch(() => null);
-    if (data?.success) {
-      const job = data.status;
-      alert(`📊 Detalhes do Processo: ${jobId}
+    const txt = await r.text().catch(() => "");
+    const data = txt ? JSON.parse(txt) : null;
 
-Status: ${job.status}
-Progresso: ${job.progresso_percentual}%
-Total MLBs: ${job.total_mlbs}
-Processados: ${job.concluidos + job.falharam}
-Sucessos: ${job.concluidos}
-Erros: ${job.falharam}
-Tempo decorrido: ${job.tempo_decorrido}
-${
-  job.tempo_estimado_restante
-    ? `Tempo restante: ${job.tempo_estimado_restante}`
-    : ""
-}`);
+    if (!r.ok || !data || !data.ok) {
+      throw new Error(data && data.error ? data.error : `HTTP ${r.status}`);
     }
-  } catch (error) {
-    alert("❌ Erro ao obter detalhes: " + error.message);
+
+    const period = data.period || {};
+    const totals = data.totals || {};
+    const series = data.series || {};
+    const breakdown = data.breakdown || {};
+
+    const month = String(period.month || "").padStart(2, "0");
+    const y = String(period.year || "");
+    const monthKey = period.month_key || (y && month ? `${y}-${month}` : "—");
+
+    setText("dash-period", monthKey);
+    setText(
+      "dash-day",
+      `${period.day_of_month || "—"}/${period.days_in_month || "—"}`
+    );
+
+    const totalAll = Number(
+      breakdown.total_all || totals.revenue_month_to_date || 0
+    );
+
+    setText("dash-total", fmtBRL(totalAll));
+    setText("dash-projected", fmtBRL(totals.revenue_projected_month || 0));
+    setText("dash-avg", fmtBRL(totals.avg_daily_revenue || 0));
+
+    setText("dash-orders", fmtNum(totals.orders_count || 0));
+    setText("dash-units", fmtNum(totals.units_sold || 0));
+    setText("dash-ticket", fmtBRL(totals.ticket_medio || 0));
+
+    const hint = `Ex: (${fmtBRL(totals.revenue_month_to_date || 0)} ÷ ${
+      period.day_of_month || 1
+    }) × ${period.days_in_month || 30}`;
+    setText("dash-formula-hint", hint);
+
+    renderSparkline(
+      series.daily_orders || [],
+      period.day_of_month || 1,
+      period.days_in_month || 30
+    );
+
+    // ==================================================
+    // ✅ ADS (atribuído) — reaproveita seu endpoint da Publicidade
+    // ==================================================
+    try {
+      const firstDay = `${monthKey}-01`;
+      const today =
+        period.today ||
+        `${monthKey}-${String(period.day_of_month || 1).padStart(2, "0")}`;
+
+      const urlAds = `/api/publicidade/product-ads/metrics/daily?date_from=${encodeURIComponent(
+        firstDay
+      )}&date_to=${encodeURIComponent(today)}`;
+      const ra = await fetch(urlAds, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const ta = await ra.text().catch(() => "");
+      const da = ta ? JSON.parse(ta) : {};
+
+      if (!ra.ok) throw new Error(`HTTP ${ra.status}`);
+
+      const arr = Array.isArray(da.results || da.series)
+        ? da.results || da.series
+        : [];
+      let adsAmount = 0;
+
+      for (const row of arr) {
+        // prioriza direct_amount; se não existir, usa total_amount
+        adsAmount += Number(row.direct_amount ?? row.total_amount ?? 0);
+      }
+
+      setText("dash-ads", fmtBRL(adsAmount));
+      setText("dash-ads-pill", "ok");
+
+      const organic = Math.max(0, totalAll - adsAmount);
+      setText("dash-organic", fmtBRL(organic));
+    } catch (adsErr) {
+      // se Ads falhar, não derruba o dashboard
+      setText("dash-ads", fmtBRL(0));
+      setText("dash-ads-pill", "indisp.");
+      setText("dash-organic", fmtBRL(totalAll));
+      showDashAlert("info", `ℹ️ Ads indisponível: ${adsErr.message || adsErr}`);
+    }
+  } catch (e) {
+    console.error("carregarDashboard:", e);
+    showDashAlert(
+      "error",
+      "❌ Não foi possível carregar o dashboard: " + (e.message || String(e))
+    );
   }
 }
 
-async function cancelarProcesso(jobId) {
-  if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) return;
-  try {
-    const response = await fetch(`/api/pesquisa-descricao/cancelar/${jobId}`, {
-      method: "POST",
-      credentials: "include",
-    });
-    const data = await response.json().catch(() => null);
-    if (data?.success) {
-      alert("✅ Processo cancelado com sucesso!");
-      atualizarProcessos();
-    } else {
-      alert("❌ Erro ao cancelar: " + (data?.message || "falha"));
-    }
-  } catch (error) {
-    alert("❌ Erro: " + error.message);
-  }
-}
-
-function iniciarNovoProcesso() {
-  window.location.href = "/pesquisa-descricao?novo_processo=true";
-}
-
-// ===== Utilitários opcionais =====
-async function verificarStatusServidor() {
-  try {
-    const response = await fetch("/test", { credentials: "include" });
-    if (response.ok) {
-      console.log("✅ Servidor funcionando");
-      return true;
-    }
-  } catch (error) {
-    console.error("❌ Servidor não está respondendo:", error);
-  }
-  return false;
-}
-
-async function obterEstatisticas() {
-  try {
-    const response = await fetch("/debug/routes", { credentials: "include" });
-    if (response.ok) {
-      const data = await response.json().catch(() => null);
-      if (data?.total_routes != null)
-        console.log(`📊 Total de rotas disponíveis: ${data.total_routes}`);
-      return data;
-    }
-  } catch (error) {
-    console.error("Erro ao obter estatísticas:", error);
-  }
-  return null;
-}
-
-function atualizarIndicadoresStatus() {
-  const statusElements = document.querySelectorAll(".status");
-  statusElements.forEach((element) => {
-    if (element.classList.contains("warning")) {
-      element.style.animation = "pulse 2s ease-in-out infinite";
-    }
-  });
-}
-
-function verificarAtualizacoes() {
-  console.log("🔍 Verificando atualizações...");
-}
-
-// ===== Boot único (sem duplicar DOMContentLoaded) =====
+// =========================
+// Boot
+// =========================
 document.addEventListener("DOMContentLoaded", async () => {
-  console.log("🚀 Dashboard inicializado");
+  try {
+    initTabs();
+    openTabByHash();
+    if (!location.hash) history.replaceState(null, "", "#dashboard");
 
-  // conta
-  carregarContaAtual();
-  const switchBtn = document.getElementById("account-switch");
-  if (switchBtn) switchBtn.addEventListener("click", trocarConta);
+    // conta
+    carregarContaAtual();
+    safeBind($("account-switch"), "click", trocarConta);
 
-  // animação dos cards "new"
-  const newFeatures = document.querySelectorAll(".endpoint.new");
-  newFeatures.forEach((feature, index) => {
-    setTimeout(() => {
-      feature.style.animation = "pulse 2s ease-in-out 2";
-    }, 1000 + index * 500);
-  });
+    // status
+    safeBind($("btn-status"), "click", async () => {
+      abrirModalStatus();
+      await verificarToken(true);
+    });
 
-  // processos
-  atualizarProcessos();
+    // refresh
+    safeBind($("dash-refresh"), "click", carregarDashboard);
 
-  // opcionais
-  verificarStatusServidor();
-  obterEstatisticas();
-  atualizarIndicadoresStatus();
-  verificarAtualizacoes();
+    // fechar modal clicando fora
+    window.addEventListener("click", (event) => {
+      const m = $("modal-status");
+      if (event.target === m) fecharModalStatus();
+    });
 
-  // atalhos
-  document.addEventListener("keydown", function (event) {
-    if (event.ctrlKey && event.key === "r") {
-      event.preventDefault();
-      renovarToken();
-    }
-    if (event.ctrlKey && event.key === "t") {
-      event.preventDefault();
-      verificarToken();
-    }
-  });
-
-  console.log("💡 Atalhos disponíveis:");
-  console.log("   Ctrl + R: Renovar token");
-  console.log("   Ctrl + T: Verificar token");
+    // carregamento inicial
+    await carregarDashboard();
+  } catch (err) {
+    console.error("Erro na inicialização do dashboard:", err);
+  }
 });
 
-// fechar modal ao clicar fora
-window.addEventListener("click", (event) => {
-  const modal = document.getElementById("modal-processos");
-  if (event.target === modal) fecharModalProcessos();
-});
-
-// Expor funções globalmente (botões HTML)
+// expor pro onclick do HTML
+window.abrirModalStatus = abrirModalStatus;
+window.fecharModalStatus = fecharModalStatus;
 window.verificarToken = verificarToken;
 window.renovarToken = renovarToken;
-window.abrirModalProcessos = abrirModalProcessos;
-window.fecharModalProcessos = fecharModalProcessos;
-window.iniciarNovoProcesso = iniciarNovoProcesso;
-
-console.log("✅ Dashboard pronto (OAuth-only)");
+window.trocarConta = trocarConta;

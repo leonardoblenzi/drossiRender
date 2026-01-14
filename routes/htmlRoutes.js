@@ -1,8 +1,10 @@
 // routes/htmlRoutes.js
+"use strict";
+
 const express = require("express");
 const path = require("path");
 
-// ✅ NOVO: gate de permissão (padrao/admin/master)
+// ✅ gate de permissão (padrao/admin/master)
 const ensurePermission = require("../middleware/ensurePermission");
 
 let HtmlController;
@@ -27,35 +29,10 @@ function noCache(_req, res, next) {
 }
 
 /**
- * Não tratamos "/" aqui — o index.js já decide entre
- * redirecionar para /select-conta ou seguir para o dashboard.
- * Se quiser um fallback local, descomente:
- *
- * router.get('/', (req, res) => res.redirect('/dashboard'));
+ * ✅ IMPORTANTE:
+ * Rotas públicas (login/cadastro/selecao-plataforma) ficam no index.js.
+ * Aqui deixamos apenas páginas do app (já protegidas pelo authGate).
  */
-
-/* ================================
- * NOVO: Seleção de plataforma (primeira tela)
- * ================================ */
-router.get("/selecao-plataforma", noCache, (_req, res) => {
-  res.sendFile(
-    path.join(__dirname, "..", "views", "html", "selecao-plataforma.html")
-  );
-});
-
-/* ================================
- * NOVO: Login Mercado Livre (tela do app)
- * ================================ */
-router.get("/ml/login", noCache, (_req, res) => {
-  res.sendFile(path.join(__dirname, "..", "views", "login.html"));
-});
-
-/* ================================
- * NOVO: Cadastro (tela do app)
- * ================================ */
-router.get("/cadastro", noCache, (_req, res) => {
-  res.sendFile(path.join(__dirname, "..", "views", "cadastro.html"));
-});
 
 // Dashboard
 router.get("/dashboard", noCache, HtmlController.servirDashboard);
@@ -78,63 +55,47 @@ router.get("/test", (_req, res) => {
   res.send("Servidor Node.js com Express está rodando!");
 });
 
-/* ================================
- * NOVO: Página Produtos Estratégicos (HTML)
- * ================================ */
+// Produtos Estratégicos (HTML)
 router.get("/estrategicos", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "estrategicos.html"));
 });
 
-/* ================================
- * ✅ PROTEGIDO: Página Exclusão de Anúncios (HTML) — ADMIN|MASTER
- *  - Se 'padrao' clicar no card e tentar abrir a view,
- *    já cai em /nao-autorizado (sem nem carregar a página)
- * ================================ */
+// ✅ PROTEGIDO: Página Exclusão de Anúncios (HTML) — ADMIN|MASTER
 router.get(
   "/excluir-anuncio",
   noCache,
-  ensurePermission.requireAdmin(), // ✅ CORRETO
+  ensurePermission.requireAdmin(),
   (_req, res) => {
     res.sendFile(path.join(__dirname, "..", "views", "excluir-anuncio.html"));
   }
 );
 
-/* ================================
- * ✅ NOVO: Página Editar Anúncio (HTML) — ADMIN|MASTER
- *  - Por padrão deixei protegido, porque "editar anúncio" costuma ser ação sensível.
- *  - Se você quiser liberar para usuário padrão, é só remover o requireAdmin().
- * ================================ */
+// ✅ Página Editar Anúncio (HTML) — ADMIN|MASTER (ação sensível)
 router.get(
   "/editar-anuncio",
   noCache,
-  ensurePermission.requireAdmin(), // ✅ mantém padrão de ação sensível
+  ensurePermission.requireAdmin(),
   (_req, res) => {
-    // ✅ como você pediu: html/editar-anuncio.html
     res.sendFile(path.join(__dirname, "..", "views", "editar-anuncio.html"));
   }
 );
 
+// Análise IA (HTML)
 router.get("/analise-ia", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "analise-ia.html"));
 });
 
-/* ================================
- * NOVO: Página Filtro Avançado de Anúncios (HTML)
- * ================================ */
+// Filtro Avançado de Anúncios (HTML)
 router.get("/filtro-anuncios", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "filtro-anuncios.html"));
 });
 
-/* ================================
- * Página Full (HTML)
- * ================================ */
+// Full (HTML)
 router.get("/full", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "full.html"));
 });
 
-/* ================================
- * Já existente: Página Curva ABC (HTML)
- * ================================ */
+// Curva ABC (HTML)
 router.get("/ia-analytics/curva-abc", noCache, (_req, res) => {
   res.sendFile(
     path.join(__dirname, "..", "views", "ia-analytics", "curva-abc.html")

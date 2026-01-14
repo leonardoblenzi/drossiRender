@@ -21,6 +21,86 @@ Obs: este documento substitui o seu mapeamento anterior, mantendo o mesmo “est
 - API de exclusão continua protegida no prefixo:
   • app.use('/api/excluir-anuncio', ensurePermission.requireAdmin(), excluirAnuncioRoutes)
 
+
+================================================================================
+0) ✅ NOVO — Dashboard (Projeção do Mês) + Ads (atribuído) + Orgânico (estimado)
+
+Objetivo
+Dashboard inicial do app com:
+• Total do mês (vendas)
+• Projeção do mês (ritmo atual)
+• Ads (atribuído) (quando disponível)
+• Orgânico (estimado) = Total − Ads
+• Ritmo dia a dia (sparkline/barras) + KPIs (pedidos, unidades, ticket)
+• Botão “Atualizar” + chips “Período” e “Dia”
+• Observação de Ads no alert (quando indisponível)
+
+Rotas (HTML + API) conforme seu setup atual
+/ (raiz do projeto)
+├─ index.js
+│ ├─ (HTML) GET /dashboard -> HtmlController.servirDashboard
+│ │ - servido via routes/htmlRoutes.js
+│ │
+│ ├─ (API) prefixo dashboard
+│ │ - app.use('/api/dashboard', dashboardRoutes) (ou equivalente)
+│ │
+│ └─ Proteções herdadas do pipeline do app (sem admin-only por padrão)
+│ ensureAuth -> ensureAccount -> authMiddleware
+
+├─ routes/
+│ ├─ htmlRoutes.js
+│ │ • GET /dashboard -> HtmlController.servirDashboard (noCache)
+│ │ • (opcional) pode aplicar ensurePermission.requireAdmin() se quiser restringir
+│ │
+│ └─ dashboardRoutes.js ✅ (rota atual enviada por você)
+│ • GET /api/dashboard/summary?period=YYYY-MM (opcional)
+│ -> DashboardController.summary
+
+├─ controllers/
+│ ├─ HtmlController.js ✅
+│ │ • servirDashboard -> envia views/dashboard.html
+│ │ • (outros helpers antigos permanecem)
+│ │
+│ └─ DashboardController.js ✅
+│ • summary(req,res)
+│ - calcula período atual ou usa query period
+│ - agrega pedidos pagos/confirmados do mês
+│ - monta totais + série diária
+│ - (Ads) tenta buscar atribuição (quando disponível) e seta flags
+│ - responde JSON consumido pelo front do dashboard
+
+├─ views/
+│ └─ dashboard.html ✅
+│ • Layout com chips, cards e painel “Ritmo do mês”
+│ • IDs principais usados pelo JS:
+│ dash-period, dash-day, dash-refresh
+│ dash-total, dash-projected, dash-avg
+│ dash-ads, dash-ads-pill, dash-organic
+│ dash-orders, dash-units, dash-ticket
+│ dash-sparkline, dash-spark-empty
+│ dash-progress-fill, dash-progress-meta
+│ dash-alert, dash-formula-hint
+│
+└─ public/
+├─ js/dashboard.js ✅
+│ • carregarDashboard()
+│ - fetch do endpoint do dashboard (conforme sua implementação)
+│ - atualiza textos/valores e chama renderSparkline()
+│
+│ • ✅ IMPORTANTE (bugfix aplicado): renderSparkline() existe no mesmo arquivo
+│ - evita erro “renderSparkline is not defined”
+│
+│ • (Conta atual + trocar conta + status token + notificações) permanecem
+│
+└─ css/dashboard.css ✅
+• estilos do layout do dashboard (cards, chips, painel, sparkline)
+
+Obs importante (rota do front x rota da API)
+
+Seu JS pode estar chamando um endpoint tipo /api/dashboard/monthly-sales.
+✅ Porém sua rota atual confirmada é: GET /api/dashboard/summary.
+Recomendo padronizar o fetch do dashboard para bater em /api/dashboard/summary
+(mantendo compat se existir alias/rota antiga).
 ================================================================================
 1) Publicidade/Product ADS
 ================================================================================
