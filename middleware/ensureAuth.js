@@ -78,12 +78,14 @@ function unauthorized(req, res, reason = "Não autenticado") {
     return res.status(401).json({
       ok: false,
       error: reason,
-      redirect: "/login",
+      // ✅ MUDANÇA: quando deslogado, manda pra seleção de plataforma
+      redirect: "/selecao-plataforma",
     });
   }
 
   // ✅ navegação (GET HTML): pode redirecionar
-  return res.redirect("/login");
+  // ✅ MUDANÇA: antes era /login
+  return res.redirect("/selecao-plataforma");
 }
 
 function ensureAuth(req, res, next) {

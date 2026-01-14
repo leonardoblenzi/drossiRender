@@ -28,7 +28,11 @@ async function carregarContaAtual() {
     const data = await r.json().catch(() => null);
 
     // esperado: { ok:true, accountType:'oauth', accountKey:'123', label:'...' }
-    if ((data?.ok || data?.success) && data?.accountType === "oauth" && data?.accountKey) {
+    if (
+      (data?.ok || data?.success) &&
+      data?.accountType === "oauth" &&
+      data?.accountKey
+    ) {
       const shown = String(data.label || "").trim() || "Conta selecionada";
       setText(shown);
       return;
@@ -63,7 +67,10 @@ function showNotification(type, message) {
   notification.innerHTML = `
     <div class="notification-content">
       <span class="notification-icon">${icons[type] || icons.info}</span>
-      <span class="notification-message">${String(message || "").replace(/\n/g, "<br>")}</span>
+      <span class="notification-message">${String(message || "").replace(
+        /\n/g,
+        "<br>"
+      )}</span>
       <button class="notification-close" type="button">×</button>
     </div>
   `;
@@ -90,9 +97,11 @@ function showNotification(type, message) {
     };
   `;
 
-  notification.querySelector(".notification-close")?.addEventListener("click", () => {
-    notification.remove();
-  });
+  notification
+    .querySelector(".notification-close")
+    ?.addEventListener("click", () => {
+      notification.remove();
+    });
 
   document.body.appendChild(notification);
 
@@ -147,7 +156,9 @@ async function verificarToken(event) {
       button.textContent = "Verificando...";
     }
 
-    const response = await fetch("/verificar-token", { credentials: "include" });
+    const response = await fetch("/verificar-token", {
+      credentials: "include",
+    });
     const data = await response.json().catch(() => null);
 
     if (data?.success) {
@@ -156,7 +167,10 @@ async function verificarToken(event) {
         `✅ ${data.message}\nUser: ${data.nickname}\nToken: ${data.token_preview}`
       );
     } else {
-      showNotification("error", `❌ ${data?.error || "Falha ao verificar token"}`);
+      showNotification(
+        "error",
+        `❌ ${data?.error || "Falha ao verificar token"}`
+      );
     }
   } catch (error) {
     console.error("Erro ao verificar token:", error);
@@ -193,10 +207,15 @@ async function renovarToken(event) {
     if (data?.success) {
       showNotification(
         "success",
-        `✅ ${data.message}\nUser: ${data.nickname}\nNovo token: ${String(data.access_token || "").substring(0, 20)}...`
+        `✅ ${data.message}\nUser: ${data.nickname}\nNovo token: ${String(
+          data.access_token || ""
+        ).substring(0, 20)}...`
       );
     } else {
-      showNotification("error", `❌ ${data?.error || "Falha ao renovar token"}`);
+      showNotification(
+        "error",
+        `❌ ${data?.error || "Falha ao renovar token"}`
+      );
     }
   } catch (error) {
     console.error("Erro ao renovar token:", error);
@@ -226,7 +245,9 @@ function fecharModalProcessos() {
 
 async function atualizarProcessos() {
   try {
-    const response = await fetch("/api/pesquisa-descricao/jobs?limite=20", { credentials: "include" });
+    const response = await fetch("/api/pesquisa-descricao/jobs?limite=20", {
+      credentials: "include",
+    });
     const data = await response.json().catch(() => null);
     if (data?.success) {
       atualizarEstatisticas(data.estatisticas_gerais);
@@ -239,10 +260,14 @@ async function atualizarProcessos() {
 }
 
 function atualizarEstatisticas(stats) {
-  document.getElementById("total-processando").textContent = stats?.processando_agora || 0;
-  document.getElementById("total-aguardando").textContent = stats?.fila_aguardando || 0;
-  document.getElementById("total-concluidos").textContent = stats?.concluidos_recentes || 0;
-  document.getElementById("total-erros").textContent = stats?.falharam_recentes || 0;
+  document.getElementById("total-processando").textContent =
+    stats?.processando_agora || 0;
+  document.getElementById("total-aguardando").textContent =
+    stats?.fila_aguardando || 0;
+  document.getElementById("total-concluidos").textContent =
+    stats?.concluidos_recentes || 0;
+  document.getElementById("total-erros").textContent =
+    stats?.falharam_recentes || 0;
 }
 
 function exibirProcessos(jobs) {
@@ -269,10 +294,14 @@ function exibirProcessos(jobs) {
         ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ""}
       </div>
       <div class="progress-bar">
-        <div class="progress-fill" style="width:${job.progresso_percentual}%"></div>
+        <div class="progress-fill" style="width:${
+          job.progresso_percentual
+        }%"></div>
       </div>
       <div class="process-actions">
-        <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id}')">📊 Detalhes</button>
+        <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${
+          job.job_id
+        }')">📊 Detalhes</button>
         ${
           job.status === "concluido"
             ? `<a href="/api/pesquisa-descricao/download/${job.job_id}" class="btn-small btn-success">📥 Download</a>`
@@ -291,7 +320,9 @@ function exibirProcessos(jobs) {
 }
 
 function atualizarContadorDashboard(jobs) {
-  const ativos = (jobs || []).filter((j) => j.status === "processando" || j.status === "aguardando").length;
+  const ativos = (jobs || []).filter(
+    (j) => j.status === "processando" || j.status === "aguardando"
+  ).length;
   const counter = document.getElementById("process-counter");
   const counterNumber = document.getElementById("counter-number");
   if (!counter || !counterNumber) return;
@@ -308,7 +339,9 @@ function atualizarContadorDashboard(jobs) {
 
 async function verDetalhesProcesso(jobId) {
   try {
-    const response = await fetch(`/api/pesquisa-descricao/status/${jobId}`, { credentials: "include" });
+    const response = await fetch(`/api/pesquisa-descricao/status/${jobId}`, {
+      credentials: "include",
+    });
     const data = await response.json().catch(() => null);
     if (data?.success) {
       const job = data.status;
@@ -321,7 +354,11 @@ Processados: ${job.concluidos + job.falharam}
 Sucessos: ${job.concluidos}
 Erros: ${job.falharam}
 Tempo decorrido: ${job.tempo_decorrido}
-${job.tempo_estimado_restante ? `Tempo restante: ${job.tempo_estimado_restante}` : ""}`);
+${
+  job.tempo_estimado_restante
+    ? `Tempo restante: ${job.tempo_estimado_restante}`
+    : ""
+}`);
     }
   } catch (error) {
     alert("❌ Erro ao obter detalhes: " + error.message);
@@ -370,7 +407,8 @@ async function obterEstatisticas() {
     const response = await fetch("/debug/routes", { credentials: "include" });
     if (response.ok) {
       const data = await response.json().catch(() => null);
-      if (data?.total_routes != null) console.log(`📊 Total de rotas disponíveis: ${data.total_routes}`);
+      if (data?.total_routes != null)
+        console.log(`📊 Total de rotas disponíveis: ${data.total_routes}`);
       return data;
     }
   } catch (error) {

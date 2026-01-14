@@ -58,95 +58,176 @@
   </nav>
 
   <div class="wrap publicidade-wrap">
-    <header class="page-header">
-      <div>
-        <h2>Product Ads</h2>
-        <p class="subtitle">
-          Visualize campanhas de Product Ads, acompanhe as principais métricas e veja os anúncios participantes.
-        </p>
+
+    <!-- ✅ NOVA SEÇÃO PREMIUM (substitui cards + gráfico antigos) -->
+    <section class="ads-premium">
+
+      <div class="ads-premium__top">
+        <div>
+          <h2 class="ads-premium__title">📊 Visão consolidada</h2>
+          <p class="ads-premium__subtitle">
+            Gráfico diário (X = dias do mês) com valores no topo de cada ponto.
+          </p>
+        </div>
+        <!-- ✅ IMPORTANTE: id único (evita conflito com o ranking abaixo) -->
+        <div class="ads-premium__hint" id="premiumPeriod">Período: —</div>
       </div>
 
-      <form id="ads-filters" class="ads-filters" autocomplete="off">
-        <div class="ads-filters__group">
-          <label for="dateFrom">De</label>
-          <input id="dateFrom" name="dateFrom" type="date">
-        </div>
-        <div class="ads-filters__group">
-          <label for="dateTo">Até</label>
-          <input id="dateTo" name="dateTo" type="date">
-        </div>
-        <button id="btnReloadAds" type="button" class="btn primary">Atualizar métricas</button>
-      </form>
-    </header>
-
-    <!-- Resumo numérico -->
-    <section class="ads-summary">
-      <div class="ads-summary-grid">
-        <article class="ads-summary-card">
-          <h3>Investimento</h3>
-          <p id="sumCost" class="ads-summary__value">R$ 0,00</p>
-          <p class="ads-summary__hint">Custo total das campanhas no período</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>Cliques</h3>
-          <p id="sumClicks" class="ads-summary__value">0</p>
-          <p class="ads-summary__hint">Total de cliques gerados</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>Impressões</h3>
-          <p id="sumPrints" class="ads-summary__value">0</p>
-          <p class="ads-summary__hint">Quantidade de vezes que seus anúncios apareceram</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>CTR médio</h3>
-          <p id="avgCtr" class="ads-summary__value">0,00%</p>
-          <p class="ads-summary__hint">Taxa média de cliques sobre impressões</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>ACOS médio</h3>
-          <p id="avgAcos" class="ads-summary__value">0,00%</p>
-          <p class="ads-summary__hint">Custo em relação ao faturamento</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>ROAS médio</h3>
-          <p id="avgRoas" class="ads-summary__value">0,00x</p>
-          <p class="ads-summary__hint">Retorno sobre o investimento em anúncios</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>Vendas (unid.)</h3>
-          <p id="sumUnits" class="ads-summary__value">0</p>
-          <p class="ads-summary__hint">Unidades vendidas atribuídas aos anúncios</p>
-        </article>
-
-        <article class="ads-summary-card">
-          <h3>Faturamento</h3>
-          <p id="sumAmount" class="ads-summary__value">R$ 0,00</p>
-          <p class="ads-summary__hint">Valor de vendas atribuídas às campanhas</p>
-        </article>
-      </div>
-    </section>
-
-    <!-- Gráfico -->
-    <section class="ads-chart">
-      <div class="card">
-        <header class="card-header">
-          <div>
-            <h3>Evolução das métricas</h3>
-            <p class="muted">
-              Visualize impressões, cliques, investimento e faturamento no período selecionado.
-            </p>
+      <div class="ads-premium__panel">
+        <!-- filtros -->
+        <form id="ads-filters" class="ads-premium__filters">
+          <div class="ads-field">
+            <label for="dateFrom">Data inicial</label>
+            <input id="dateFrom" type="date" />
           </div>
-        </header>
 
-        <div class="ads-chart-wrapper" style="height: 260px;">
-          <canvas id="adsMetricsChart"></canvas>
+          <div class="ads-field">
+            <label for="dateTo">Data final</label>
+            <input id="dateTo" type="date" />
+          </div>
+
+          <div class="ads-field" style="min-width:220px;">
+            <label for="metric">Métrica do gráfico</label>
+            <select id="metric">
+              <option value="total_amount">Faturamento</option>
+              <option value="cost">Investimento</option>
+              <option value="clicks">Cliques</option>
+              <option value="prints">Impressões</option>
+            </select>
+          </div>
+
+          <div class="ads-actions">
+            <button id="btnThisMonth" class="btn-ghost" type="button">📅 Este mês</button>
+            <button id="btnReloadAds" class="btn-premium" type="submit">🔄 Atualizar</button>
+          </div>
+        </form>
+
+        <!-- KPIs -->
+        <div class="ads-premium__kpis">
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">Faturamento</div>
+              <div class="kpi-pill" id="pillRange">Período</div>
+            </div>
+            <div class="kpi-value" id="kpiRevenue">—</div>
+            <div class="kpi-foot">Total do período</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">Investimento</div>
+              <div class="kpi-pill">Ads</div>
+            </div>
+            <div class="kpi-value" id="kpiCost">—</div>
+            <div class="kpi-foot">Total do período</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">ROAS</div>
+              <div class="kpi-pill">Receita/Invest.</div>
+            </div>
+            <div class="kpi-value" id="kpiRoas">—</div>
+            <div class="kpi-foot">Média do período</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">ACOS</div>
+              <div class="kpi-pill">Invest./Receita</div>
+            </div>
+            <div class="kpi-value" id="kpiAcos">—</div>
+            <div class="kpi-foot">Média do período</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">Cliques</div>
+              <div class="kpi-pill">Total</div>
+            </div>
+            <div class="kpi-value" id="kpiClicks">—</div>
+            <div class="kpi-foot">Somatório</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">Impressões</div>
+              <div class="kpi-pill">Total</div>
+            </div>
+            <div class="kpi-value" id="kpiPrints">—</div>
+            <div class="kpi-foot">Somatório</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">CTR</div>
+              <div class="kpi-pill">Cliques/Impr.</div>
+            </div>
+            <div class="kpi-value" id="kpiCtr">—</div>
+            <div class="kpi-foot">Média do período</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-top">
+              <div class="kpi-label">CPC</div>
+              <div class="kpi-pill">Invest./Clique</div>
+            </div>
+            <div class="kpi-value" id="kpiCpc">—</div>
+            <div class="kpi-foot">Média do período</div>
+          </div>
         </div>
+
+        <!-- gráfico + tabela diária -->
+        <div class="ads-premium__split">
+          <div class="card">
+            <div class="card-hd">
+              <div>
+                <h3 class="card-title">📈 Série diária</h3>
+                <div class="card-sub" id="chartHint">X = dias do mês • Y = valores • labels em cada dia</div>
+              </div>
+              <div class="card-sub">Fonte: /api/publicidade/product-ads/metrics/daily</div>
+            </div>
+            <div class="card-bd">
+              <div class="chart-wrap">
+                <!-- mantém o id usado pelo JS -->
+                <canvas id="adsMetricsChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-hd">
+              <div>
+                <h3 class="card-title">📋 Detalhamento diário</h3>
+                <div class="card-sub">Resumo por dia (período selecionado)</div>
+              </div>
+              <div class="card-sub" id="tableCount">—</div>
+            </div>
+            <div class="card-bd">
+              <div class="table-wrap">
+                <table class="dash-table">
+                  <thead>
+                    <tr>
+                      <th>Dia</th>
+                      <th class="num">Faturamento</th>
+                      <th class="num">Investimento</th>
+                      <th class="num">Cliques</th>
+                      <th class="num">Impressões</th>
+                      <th class="num">CTR</th>
+                      <th class="num">CPC</th>
+                      <th class="num">ROAS</th>
+                      <th class="num">ACOS</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyDaily">
+                    <tr><td colspan="9" class="muted">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </section>
 

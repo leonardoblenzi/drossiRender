@@ -1,6 +1,6 @@
 // public/js/publicidade.js
 (() => {
-  console.log("🚀 publicidade.js carregado");
+  console.log("🚀 publicidade.js carregado (premium section)");
 
   // ==========================================
   // Helpers
@@ -51,20 +51,38 @@
   };
 
   const todayISO = () => new Date().toISOString().slice(0, 10);
+
   const addDays = (days) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
   };
 
-  function parseDateBr(isoLike) {
-    if (!isoLike) return null;
-    // aceita "YYYY-MM-DD" ou "YYYY-MM-DDTHH:mm:ssZ"
-    const s = String(isoLike);
+  const firstDayOfMonthISO = () => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().slice(0, 10);
+  };
+
+  function isSameMonth(fromISO, toISO) {
+    if (!fromISO || !toISO) return false;
+    const a = String(fromISO).slice(0, 7);
+    const b = String(toISO).slice(0, 7);
+    return a === b;
+  }
+
+  function dayOfMonth(isoLike) {
+    const s = String(isoLike || "");
     const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return null;
-    const [, y, mm, dd] = m;
-    return `${dd}/${mm}/${y}`;
+    if (!m) return s;
+    return String(parseInt(m[3], 10)); // "1".."31"
+  }
+
+  function dayMonth(isoLike) {
+    const s = String(isoLike || "");
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return s;
+    return `${m[3]}/${m[2]}`;
   }
 
   function getDateRange() {
@@ -98,24 +116,33 @@
     if (el) el.textContent = value;
   };
 
+  const setTextAny = (ids, value) => {
+    (ids || []).forEach((id) => setText(id, value));
+  };
+
   // ==========================================
   // Estado
   // ==========================================
   const state = {
     date_from: null,
     date_to: null,
+
+    // ranking + itens
     campaigns: [],
     itemsByCampaign: new Map(), // campaign_id -> { date_from, date_to, items }
     selectedCampaignId: null,
     selectedRowEl: null,
-    chart: null,
-    chartSeries: [],
     itemsPage: 1,
     itemsPerPage: 20,
+
+    // daily chart/table (premium)
+    dailySeries: [],
+    chart: null,
+    metric: "total_amount",
   };
 
   // ==========================================
-  // DOM hooks
+  // DOM hooks (ranking / itens)
   // ==========================================
   const $campBody = () => qs("#tbodyCampaigns");
   const $itemsBody = () => qs("#tbodyItems");
@@ -123,7 +150,7 @@
   const $pagination = () => qs("#adsPagination");
 
   // ==========================================
-  // UI helpers: pills + seleção de linha
+  // UI helpers: pills + seleção de linha (ranking)
   // ==========================================
   function pillStatus(statusRaw) {
     const s = String(statusRaw || "").toLowerCase();
@@ -170,21 +197,10 @@
   }
 
   // ==========================================
-  // RESUMO GERAL (cards do topo)
+  // ✅ KPIs (premium) – baseado nas campaigns
   // ==========================================
   function atualizarResumoGeral() {
     const list = state.campaigns || [];
-    if (!list.length) {
-      setText("sumCost", "R$ 0,00");
-      setText("sumClicks", "0");
-      setText("sumPrints", "0");
-      setText("avgCtr", "0,00%");
-      setText("avgAcos", "0,00%");
-      setText("avgRoas", "0,00x");
-      setText("sumUnits", "0");
-      setText("sumAmount", "R$ 0,00");
-      return;
-    }
 
     let clicks = 0;
     let prints = 0;
@@ -204,19 +220,31 @@
     const ctr = prints > 0 ? (clicks / prints) * 100 : 0;
     const acos = amount > 0 ? (cost / amount) * 100 : 0;
     const roas = cost > 0 ? amount / cost : 0;
+    const cpc = clicks > 0 ? cost / clicks : 0;
 
-    setText("sumCost", fmtMoney(cost));
-    setText("sumClicks", fmtNumber(clicks));
-    setText("sumPrints", fmtNumber(prints));
-    setText("avgCtr", fmtPct(ctr));
-    setText("avgAcos", fmtPct(acos));
-    setText("avgRoas", `${fmtNumber(roas || 0, 2)}x`);
-    setText("sumUnits", fmtNumber(units));
-    setText("sumAmount", fmtMoney(amount));
+    // novos ids (premium)
+    setText("kpiRevenue", fmtMoney(amount));
+    setText("kpiCost", fmtMoney(cost));
+    setText("kpiRoas", fmtRatioX(roas || 0, 2));
+    setText("kpiAcos", fmtPct(acos, 2));
+    setText("kpiClicks", fmtNumber(clicks));
+    setText("kpiPrints", fmtNumber(prints));
+    setText("kpiCtr", fmtPct(ctr, 2));
+    setText("kpiCpc", cpc ? fmtMoney(cpc) : "—");
+
+    // compat (se ainda existirem ids antigos na página – não atrapalha)
+    setTextAny(["sumCost"], fmtMoney(cost));
+    setTextAny(["sumClicks"], fmtNumber(clicks));
+    setTextAny(["sumPrints"], fmtNumber(prints));
+    setTextAny(["avgCtr"], fmtPct(ctr));
+    setTextAny(["avgAcos"], fmtPct(acos));
+    setTextAny(["avgRoas"], fmtRatioX(roas || 0, 2));
+    setTextAny(["sumUnits"], fmtNumber(units));
+    setTextAny(["sumAmount"], fmtMoney(amount));
   }
 
   // ==========================================
-  // Fetch – campanhas
+  // Fetch – campanhas (ranking)
   // ==========================================
   async function carregarCampanhas() {
     const tbody = $campBody();
@@ -225,6 +253,8 @@
     state.date_to = to;
 
     setText("rankingPeriod", `Período: ${from} a ${to}`);
+    setText("pillRange", `${from} → ${to}`);
+
     setLoadingTable(tbody, `Carregando campanhas de ${from} até ${to}…`);
 
     const url = `/api/publicidade/product-ads/campaigns?date_from=${encodeURIComponent(
@@ -237,9 +267,8 @@
 
       if (!r.ok) {
         console.error("Erro ao carregar campanhas:", r.status, txt);
-        if (tbody) {
+        if (tbody)
           tbody.innerHTML = `<tr><td colspan="99" class="muted">Falha ao carregar campanhas (HTTP ${r.status}).</td></tr>`;
-        }
         state.campaigns = [];
         atualizarResumoGeral();
         return;
@@ -254,9 +283,8 @@
 
       const itemsBody = $itemsBody();
       if (!campaigns.length) {
-        if (itemsBody) {
+        if (itemsBody)
           itemsBody.innerHTML = `<tr><td colspan="99" class="muted">Nenhuma campanha encontrada no período.</td></tr>`;
-        }
         const btn = $btnExport();
         if (btn) btn.disabled = true;
         return;
@@ -277,9 +305,8 @@
       }
     } catch (e) {
       console.error("Erro inesperado ao buscar campanhas:", e);
-      if (tbody) {
+      if (tbody)
         tbody.innerHTML = `<tr><td colspan="99" class="muted">Erro ao buscar campanhas (ver console).</td></tr>`;
-      }
     }
   }
 
@@ -289,7 +316,6 @@
 
     const list = state.campaigns || [];
     if (!list.length) {
-      // ajuste o colspan conforme a quantidade REAL de colunas do seu <thead>
       tbody.innerHTML = `<tr><td colspan="13" class="muted">Nenhuma campanha para o período selecionado.</td></tr>`;
       return;
     }
@@ -319,10 +345,6 @@
             ? fmtRatioX(Number(m.total_amount || 0) / cost || 0, 2)
             : "—";
 
-        // ======================================================
-        // ✅ NOVO: adgroups_count + created_at (vindos do backend)
-        // Backend recomendado: c.created_at e c.adgroups_count
-        // ======================================================
         const adgroupsCountRaw =
           c.adgroups_count ??
           c.adgroupsCount ??
@@ -338,16 +360,19 @@
         const createdRaw =
           c.created_at ??
           c.date_created ??
-          c.created_at ??
           c.createdAt ??
           c.meliCreatedAt ??
           null;
-
-        const createdBr = parseDateBr(createdRaw);
+        const createdBr = (() => {
+          if (!createdRaw) return null;
+          const s = String(createdRaw);
+          const mm = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (!mm) return null;
+          return `${mm[3]}/${mm[2]}/${mm[1]}`;
+        })();
 
         const sub1 =
           adgroupsCount != null ? `${adgroupsCount} adgroups` : "— adgroups";
-
         const sub2 = createdBr
           ? `Data de criação: ${createdBr}`
           : "Data de criação: —";
@@ -365,8 +390,6 @@
           <td class="sticky-col">
             <div class="camp-name">
               <span class="camp-title">${esc(c.name || c.id || "—")}</span>
-
-              <!-- sublinhas estilo "minimalista" -->
               <div class="camp-sub">
                 <span class="camp-sub__line">${esc(sub1)}</span>
                 <span class="camp-sub__line">${esc(sub2)}</span>
@@ -380,7 +403,6 @@
           <td class="num">${acosObj}</td>
           <td class="num">${acosVal}</td>
 
-          <!-- ✅ aqui ficam só as colunas que você manteve -->
           <td class="num">${vendasPublicidade}</td>
           <td class="num">${fmtNumber(prints)}</td>
           <td class="num">${fmtNumber(m.clicks ?? 0)}</td>
@@ -396,7 +418,6 @@
 
     tbody.innerHTML = rows;
 
-    // Delegação: clique + teclado
     tbody.onclick = (ev) => {
       const tr = ev.target.closest("tr[data-camp-id]");
       if (!tr) return;
@@ -409,7 +430,6 @@
       const tr = ev.target.closest("tr[data-camp-id]");
       if (!tr) return;
 
-      // Enter / Space seleciona
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
         const id = tr.getAttribute("data-camp-id");
@@ -418,7 +438,6 @@
         return;
       }
 
-      // setas navegam na lista
       if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
         ev.preventDefault();
         const all = qsa("tr[data-camp-id]", tbody);
@@ -435,7 +454,6 @@
       }
     };
 
-    // garantir marca visual da selecionada após render
     if (state.selectedCampaignId) {
       const tr = tbody.querySelector(
         `tr[data-camp-id="${CSS.escape(String(state.selectedCampaignId))}"]`
@@ -445,7 +463,7 @@
   }
 
   // ==========================================
-  // Seleção de campanha
+  // Seleção de campanha (ranking -> itens)
   // ==========================================
   function selecionarCampanha(campaignId, opts = {}) {
     const id = String(campaignId || "");
@@ -462,9 +480,8 @@
 
     if (rowEl) {
       setSelectedCampaignRow(rowEl);
-      if (opts.scroll !== false) {
+      if (opts.scroll !== false)
         rowEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-      }
     }
 
     carregarItensCampanha(id);
@@ -498,11 +515,13 @@
 
     setLoadingTable(tbody, "Carregando itens da campanha…");
 
-    const url = `/api/publicidade/product-ads/campaigns/${encodeURIComponent(
-      campaignId
-    )}/items?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(
-      to
-    )}`;
+    const url =
+      `/api/publicidade/product-ads/campaigns/${encodeURIComponent(
+        campaignId
+      )}/items` +
+      `?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(
+        to
+      )}`;
 
     try {
       const r = await fetch(url, { credentials: "same-origin" });
@@ -575,7 +594,6 @@
       it.listing_quality ??
       it.health ??
       null;
-
     if (raw == null) return { cls: "quality-badge--na", label: "N/D" };
 
     const n = Number(raw);
@@ -619,7 +637,6 @@
       .map((it) => {
         const m = it.metrics || {};
 
-        // Base
         const prints = Number(m.prints ?? 0);
         const clicks = Number(m.clicks ?? 0);
 
@@ -629,6 +646,7 @@
             : prints > 0
             ? fmtPct((clicks / prints) * 100)
             : "—";
+
         const cpcVal =
           m.cpc != null
             ? fmtMoney(m.cpc)
@@ -640,7 +658,6 @@
         const tacosVal = m.tacos != null ? fmtPct(m.tacos) : "—";
         const roasVal = m.roas != null ? fmtRatioX(m.roas, 2) : "—";
 
-        // Conversão publicitária (units/clicks)
         const unitsQ = Number(m.units_quantity ?? 0);
         const convRate =
           m.conversion_rate != null
@@ -649,7 +666,6 @@
             ? fmtPct((unitsQ / clicks) * 100)
             : "—";
 
-        // Vendas (valores) — tenta várias chaves comuns
         const vendasPublicidadeVal =
           m.total_amount != null ? fmtMoney(m.total_amount) : "—";
         const vendasDiretasVal =
@@ -657,7 +673,6 @@
         const vendasAssistidasVal =
           m.indirect_amount != null ? fmtMoney(m.indirect_amount) : "—";
 
-        // Aporte de publicidade (unidades anunciadas) — fallback: units_quantity
         const aportePublicidade =
           m.organic_units_amount != null
             ? fmtNumber(m.organic_units_amount)
@@ -665,13 +680,11 @@
             ? fmtNumber(m.units_quantity)
             : "—";
 
-        // Renda por publicidade (receita por unidade) — total_amount / units_quantity
         const rendaPublicidade =
           Number(m.total_amount ?? NaN) > 0 && Number(m.units_quantity ?? 0) > 0
             ? fmtMoney(Number(m.total_amount) / Number(m.units_quantity))
             : "—";
 
-        // Investimento
         const investimentoVal = m.cost != null ? fmtMoney(m.cost) : "—";
 
         const statusRaw = it.status || it.item_status || "—";
@@ -700,9 +713,7 @@
         <tr class="ads-item-row" data-item-id="${esc(mlb)}">
           <td class="sticky-col">
             <div class="ads-item-product">
-              <div class="ads-item-thumb">
-                ${thumbHtml}
-              </div>
+              <div class="ads-item-thumb">${thumbHtml}</div>
               <div class="ads-item-info">
                 <div class="ads-item-title" title="${esc(title)}">${esc(
           title
@@ -719,12 +730,11 @@
           </td>
 
           <td class="num">
-            <div class="quality-badge ${q.cls}" title="Qualidade da publicação">
-              ${esc(q.label)}
-            </div>
+            <div class="quality-badge ${
+              q.cls
+            }" title="Qualidade da publicação">${esc(q.label)}</div>
           </td>
 
-          <!-- ordem solicitada -->
           <td class="num">${acosVal}</td>
           <td class="num">${tacosVal}</td>
           <td class="num">${roasVal}</td>
@@ -752,8 +762,67 @@
   }
 
   // ==========================================
-  // MÉTRICAS DIÁRIAS (gráfico)
+  // ✅ Daily series (premium): gráfico + tabela diária
   // ==========================================
+  function getMetricSelected() {
+    const sel = qs("#metric");
+    const v = sel?.value || state.metric || "total_amount";
+    state.metric = v;
+    return v;
+  }
+
+  function metricLabel(metric) {
+    switch (metric) {
+      case "cost":
+        return "Investimento";
+      case "clicks":
+        return "Cliques";
+      case "prints":
+        return "Impressões";
+      case "total_amount":
+      default:
+        return "Faturamento";
+    }
+  }
+
+  function formatValueForMetric(metric, v) {
+    const n = Number(v);
+    if (!isFinite(n)) return "—";
+    if (metric === "total_amount" || metric === "cost") return fmtMoney(n);
+    return fmtNumber(n);
+  }
+
+  // Plugin: escreve o valor no topo de cada ponto
+  const pointValueLabelsPlugin = {
+    id: "pointValueLabels",
+    afterDatasetsDraw(chart, args, pluginOptions) {
+      const { ctx } = chart;
+      const datasetIndex = 0;
+      const meta = chart.getDatasetMeta(datasetIndex);
+      if (!meta || meta.hidden) return;
+
+      const metric = pluginOptions?.metric || "total_amount";
+      const formatter = pluginOptions?.formatter || ((val) => String(val));
+
+      ctx.save();
+      ctx.font = "700 11px Segoe UI, Tahoma, sans-serif";
+      ctx.fillStyle = "rgba(17,24,39,.88)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+
+      meta.data.forEach((pt, i) => {
+        if (!pt || typeof pt.x !== "number" || typeof pt.y !== "number") return;
+        const raw = chart.data?.datasets?.[datasetIndex]?.data?.[i];
+        const label = formatter(raw, metric);
+
+        // sobe um pouquinho acima do ponto
+        ctx.fillText(label, pt.x, pt.y - 8);
+      });
+
+      ctx.restore();
+    },
+  };
+
   async function carregarMetricasDiarias() {
     const canvas = document.getElementById("adsMetricsChart");
     if (!canvas) return;
@@ -761,7 +830,9 @@
     const { from, to } = getDateRange();
     state.date_from = from;
     state.date_to = to;
+
     setText("rankingPeriod", `Período: ${from} a ${to}`);
+    setText("pillRange", `${from} → ${to}`);
 
     const url = `/api/publicidade/product-ads/metrics/daily?date_from=${encodeURIComponent(
       from
@@ -773,7 +844,9 @@
 
       if (!r.ok) {
         console.error("Erro ao carregar métricas diárias:", r.status, txt);
-        atualizarGrafico([]);
+        state.dailySeries = [];
+        renderDailyTable([]);
+        atualizarGrafico([], getMetricSelected());
         return;
       }
 
@@ -782,121 +855,162 @@
         ? data.results || data.series
         : [];
 
-      state.chartSeries = series;
-      atualizarGrafico(series);
+      state.dailySeries = series;
+      renderDailyTable(series);
+      atualizarGrafico(series, getMetricSelected());
     } catch (e) {
       console.error("Erro inesperado ao carregar métricas diárias:", e);
-      if (state.chart) {
-        try {
-          state.chart.destroy();
-        } catch (_) {}
-        state.chart = null;
-      }
+      state.dailySeries = [];
+      renderDailyTable([]);
+      atualizarGrafico([], getMetricSelected());
     }
   }
 
-  function atualizarGrafico(series) {
+  function renderDailyTable(series) {
+    const tbody = qs("#tbodyDaily");
+    const countEl = qs("#tableCount");
+    if (!tbody) return;
+
+    if (!series || !series.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="muted">Sem dados no período.</td></tr>`;
+      if (countEl) countEl.textContent = "0 dias";
+      return;
+    }
+
+    if (countEl) countEl.textContent = `${series.length} dias`;
+
+    const rows = series
+      .map((row) => {
+        const prints = Number(row.prints || 0);
+        const clicks = Number(row.clicks || 0);
+        const cost = Number(row.cost || 0);
+        const amount = Number(row.total_amount || 0);
+
+        const ctr = prints > 0 ? (clicks / prints) * 100 : 0;
+        const cpc = clicks > 0 ? cost / clicks : 0;
+        const roas = cost > 0 ? amount / cost : 0;
+        const acos = amount > 0 ? (cost / amount) * 100 : 0;
+
+        // Dia: se for o mesmo mês, mostra só o dia. Se cruzar mês, dia/mês.
+        const dia = isSameMonth(state.date_from, state.date_to)
+          ? dayOfMonth(row.date)
+          : dayMonth(row.date);
+
+        return `
+          <tr>
+            <td>${esc(dia)}</td>
+            <td class="num">${fmtMoney(amount)}</td>
+            <td class="num">${fmtMoney(cost)}</td>
+            <td class="num">${fmtNumber(clicks)}</td>
+            <td class="num">${fmtNumber(prints)}</td>
+            <td class="num">${fmtPct(ctr, 2)}</td>
+            <td class="num">${cpc ? fmtMoney(cpc) : "—"}</td>
+            <td class="num">${fmtRatioX(roas || 0, 2)}</td>
+            <td class="num">${fmtPct(acos, 2)}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    tbody.innerHTML = rows;
+  }
+
+  function atualizarGrafico(series, metric) {
     const canvas = document.getElementById("adsMetricsChart");
     if (!canvas) return;
 
     if (typeof Chart === "undefined") {
-      console.warn(
-        "Chart.js não carregado – gráfico de métricas não será exibido."
-      );
+      console.warn("Chart.js não carregado – gráfico não será exibido.");
       return;
     }
 
-    if (!series || !series.length) {
-      if (state.chart) {
-        state.chart.destroy();
-        state.chart = null;
-      }
-      return;
-    }
+    // labels do eixo X: dias do mês (ou dd/mm se cruzar mês)
+    const labels = (series || []).map((row) =>
+      isSameMonth(state.date_from, state.date_to)
+        ? dayOfMonth(row.date)
+        : dayMonth(row.date)
+    );
 
-    const labels = series.map((row) => {
-      const d = row.date || "";
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-      const [y, m, day] = d.split("-");
-      return `${day}/${m}`;
-    });
+    const dataPoints = (series || []).map((r) => Number(r?.[metric] || 0));
 
-    const impressions = series.map((r) => Number(r.prints || 0));
-    const clicks = series.map((r) => Number(r.clicks || 0));
-    const cost = series.map((r) => Number(r.cost || 0));
-    const revenue = series.map((r) => Number(r.total_amount || 0));
+    const label = metricLabel(metric);
 
     const ctx = canvas.getContext("2d");
+    const dataset = {
+      label,
+      data: dataPoints,
+      borderWidth: 2,
+      tension: 0.3,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+    };
 
-    const datasets = [
-      {
-        label: "Impressões",
-        data: impressions,
-        yAxisID: "y2",
-        borderWidth: 2,
-        tension: 0.3,
+    const tickFmt = (v) => Number(v).toLocaleString("pt-BR");
+
+    const valueFormatter = (raw, m) => formatValueForMetric(m, raw);
+
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const val = ctx.parsed?.y;
+              return `${ctx.dataset.label}: ${valueFormatter(val, metric)}`;
+            },
+          },
+        },
+        pointValueLabels: {
+          metric,
+          formatter: (raw) => valueFormatter(raw, metric),
+        },
       },
-      {
-        label: "Cliques",
-        data: clicks,
-        yAxisID: "y1",
-        borderWidth: 2,
-        tension: 0.3,
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: isSameMonth(state.date_from, state.date_to)
+              ? "Dias do mês"
+              : "Dia/Mês",
+          },
+          ticks: { callback: (val) => String(labels[val] ?? "") },
+        },
+        y: {
+          title: { display: true, text: "Valores" },
+          ticks: {
+            callback(value) {
+              return tickFmt(value);
+            },
+          },
+        },
       },
-      {
-        label: "Investimento",
-        data: cost,
-        yAxisID: "y1",
-        borderWidth: 2,
-        tension: 0.3,
-      },
-      {
-        label: "Faturamento",
-        data: revenue,
-        yAxisID: "y1",
-        borderWidth: 2,
-        tension: 0.3,
-      },
-    ];
+    };
 
     if (state.chart) {
       state.chart.data.labels = labels;
-      state.chart.data.datasets = datasets;
+      state.chart.data.datasets = [dataset];
+      state.chart.options = options;
       state.chart.update();
       return;
     }
 
     state.chart = new Chart(ctx, {
       type: "line",
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
-        scales: {
-          y1: {
-            type: "linear",
-            position: "left",
-            ticks: {
-              callback(value) {
-                return Number(value).toLocaleString("pt-BR");
-              },
-            },
-          },
-          y2: {
-            type: "linear",
-            position: "right",
-            grid: { drawOnChartArea: false },
-            ticks: {
-              callback(value) {
-                return Number(value).toLocaleString("pt-BR");
-              },
-            },
-          },
-        },
-        plugins: { legend: { position: "bottom" } },
-      },
+      data: { labels, datasets: [dataset] },
+      options,
+      plugins: [pointValueLabelsPlugin],
     });
+
+    // atualiza hint
+    setText(
+      "chartHint",
+      `X = ${
+        isSameMonth(state.date_from, state.date_to) ? "dias do mês" : "dia/mês"
+      } • Y = valores • labels em cada dia`
+    );
   }
 
   // ==========================================
@@ -912,12 +1026,23 @@
       });
     }
 
-    const btnReload = qs("#btnReloadAds");
-    if (btnReload) {
-      btnReload.addEventListener("click", (ev) => {
-        ev.preventDefault();
+    const btnThisMonth = qs("#btnThisMonth");
+    if (btnThisMonth) {
+      btnThisMonth.addEventListener("click", () => {
+        const inpFrom = qs("#dateFrom");
+        const inpTo = qs("#dateTo");
+        if (inpFrom) inpFrom.value = firstDayOfMonthISO();
+        if (inpTo) inpTo.value = todayISO();
         carregarCampanhas();
         carregarMetricasDiarias();
+      });
+    }
+
+    const selMetric = qs("#metric");
+    if (selMetric) {
+      selMetric.addEventListener("change", () => {
+        const metric = getMetricSelected();
+        atualizarGrafico(state.dailySeries || [], metric);
       });
     }
 
@@ -930,7 +1055,6 @@
 
         const { from, to } = getDateRange();
 
-        // NOVO endpoint (botão no topo da tabela de anúncios)
         const url =
           `/api/publicidade/product-ads/campaigns/${encodeURIComponent(
             id
@@ -939,7 +1063,6 @@
             to
           )}`;
 
-        // baixa em nova aba (simples e confiável)
         window.open(url, "_blank");
       });
     }
@@ -950,7 +1073,10 @@
   // ==========================================
   document.addEventListener("DOMContentLoaded", () => {
     try {
+      // defaults
       getDateRange();
+      state.metric = getMetricSelected();
+
       bindUI();
       carregarCampanhas();
       carregarMetricasDiarias();
