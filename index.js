@@ -531,6 +531,15 @@ console.log("✅ AuthMiddleware aplicado (token ML válido)");
 // Rotas PROTEGIDAS do app
 // ==========================================
 
+// ✅ Dashboard (NOVO) — Projeção de vendas do mês (Total + Ads + Orgânico)
+try {
+  const dashboardRoutes = require("./routes/dashboardRoutes");
+  app.use("/api/dashboard", dashboardRoutes);
+  console.log("✅ DashboardRoutes carregado em /api/dashboard");
+} catch (error) {
+  console.error("❌ Erro ao carregar DashboardRoutes:", error.message);
+}
+
 // ✅ IA • Análise de Anúncio (API)
 try {
   const analiseAnuncioRoutes = require("./routes/AnaliseAnuncioRoutes");

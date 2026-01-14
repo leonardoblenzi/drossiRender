@@ -9,7 +9,6 @@
 <body>
   <!-- TOPO: Conta atual + Status + Trocar Conta -->
   <header class="account-bar">
-
     <div class="account-bar__left">
       <a class="brand" href="/dashboard" aria-label="DAVANTTI">
         <img
@@ -55,48 +54,124 @@
     <!-- DASHBOARD -->
     <section id="tab-dashboard" class="tab-page active">
       <div class="container">
-        <h1>📊 Visão Geral</h1>
-        <div class="account-context">
-          Conta atual: <strong id="account-name-inline">Carregando...</strong>
-        </div>
-        <p class="subtitle">Seu servidor Node.js está operacional.</p>
+        <div class="dash-head">
+          <h1 class="dash-title">📈 Dashboard — Projeção do Mês</h1>
+          <div class="account-context">
+            Conta atual: <strong id="account-name-inline">Carregando...</strong>
+          </div>
+          <p class="dash-subtitle">
+            Total do mês (todas as vendas) + Ads (atribuído) + Orgânico (estimado) e projeção baseada no ritmo atual.
+          </p>
 
-        <div class="endpoints">
-          <div class="endpoint token">
-            <h3>🔑 Gerenciar Token <span class="status warning">Atenção</span></h3>
-            <p>Verifique e renove o ACCESS_TOKEN para manter integrações ativas.</p>
-            <div class="token-actions">
-              <button onclick="verificarToken()">🔍 Verificar Token</button>
-              <button onclick="renovarToken()">🔄 Renovar Token</button>
+          <div class="dash-actions">
+            <span class="dash-chip">
+              <span class="chip-label">Período:</span>
+              <span id="dash-period" class="chip-value">—</span>
+            </span>
+
+            <span class="dash-chip">
+              <span class="chip-label">Dia:</span>
+              <span id="dash-day" class="chip-value">—</span>
+            </span>
+
+            <button id="dash-refresh" class="btn-primary" type="button">🔄 Atualizar</button>
+          </div>
+        </div>
+
+        <div id="dash-alert" style="display:none;"></div>
+
+        <!-- Cards principais -->
+        <div class="dash-grid">
+          <div class="dash-card dash-card--highlight">
+            <div class="dash-card__top">
+              <div class="dash-card__label">Vendas do mês (Total)</div>
+              <span class="pill pill-live">LIVE</span>
+            </div>
+            <div id="dash-total" class="dash-card__value">—</div>
+            <div class="dash-card__meta">Somatório de pedidos pagos no mês.</div>
+          </div>
+
+          <div class="dash-card dash-card--highlight">
+            <div class="dash-card__top">
+              <div class="dash-card__label">Projeção do mês</div>
+              <span class="pill pill-soft" id="dash-proj-pill">estimada</span>
+            </div>
+            <div id="dash-projected" class="dash-card__value">—</div>
+            <div class="dash-card__meta">Base: (Total MTD ÷ dia atual) × dias do mês</div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card__top">
+              <div class="dash-card__label">Ads (atribuído)</div>
+              <span class="pill pill-soft" id="dash-ads-pill">—</span>
+            </div>
+            <div id="dash-ads" class="dash-card__value">—</div>
+            <div class="dash-card__meta">Vendas atribuídas ao Mercado Ads (quando disponível).</div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card__top">
+              <div class="dash-card__label">Orgânico (estimado)</div>
+              <span class="pill pill-soft">estimado</span>
+            </div>
+            <div id="dash-organic" class="dash-card__value">—</div>
+            <div class="dash-card__meta">Estimativa: Total − Ads (atribuído).</div>
+          </div>
+        </div>
+
+        <!-- Progresso do mês -->
+        <div class="dash-panel">
+          <div class="dash-panel__head">
+            <div>
+              <h3 class="dash-panel__title">📊 Ritmo do mês (dia a dia)</h3>
+              <div class="dash-panel__subtitle">Barras: vendas por dia • Hoje em verde • Dias futuros em cinza</div>
+            </div>
+            <span class="dash-chip">
+              <span class="chip-label">Média/dia:</span>
+              <span id="dash-avg" class="chip-value">—</span>
+            </span>
+          </div>
+
+          <div class="dash-progress">
+            <div class="dash-progress__bar">
+              <div id="dash-progress-fill" class="dash-progress__fill"></div>
+            </div>
+            <div id="dash-progress-meta" class="dash-progress__meta">—</div>
+          </div>
+
+          <div class="spark-wrap">
+            <div id="dash-sparkline" class="sparkline"></div>
+            <div id="dash-spark-empty" class="spark-empty" style="display:none;">
+              Sem dados suficientes ainda pra montar o gráfico 😭
             </div>
           </div>
 
-          <div class="endpoint processos">
-            <h3>
-              ⚙️ Processos em Execução
-              <span class="status active">Ativo</span>
-              <span id="process-counter" class="process-counter" style="display:none;">
-                <span id="counter-number">0</span> ativos
-              </span>
-            </h3>
-            <p>Monitore e gerencie todos os processos em massa em tempo real.</p>
-            <div class="token-actions">
-              <button onclick="abrirModalProcessos()">📊 Ver Processos</button>
-              <button onclick="iniciarNovoProcesso()">➕ Novo Processo</button>
+          <div class="dash-panel__foot">
+            <div class="formula-box">
+              <div class="formula-box__title">🧮 Fórmula usada</div>
+              <div class="formula-box__line">
+                <code>( total_vendas_mês_atual / dia_atual ) × dias_do_mês</code>
+              </div>
+              <div id="dash-formula-hint" class="formula-box__hint">—</div>
+            </div>
+
+            <div class="mini-kpis">
+              <div class="mini-kpi">
+                <span class="mini-kpi__label">Pedidos (mês)</span>
+                <span id="dash-orders" class="mini-kpi__value">—</span>
+              </div>
+              <div class="mini-kpi">
+                <span class="mini-kpi__label">Unidades (mês)</span>
+                <span id="dash-units" class="mini-kpi__value">—</span>
+              </div>
+              <div class="mini-kpi">
+                <span class="mini-kpi__label">Ticket médio</span>
+                <span id="dash-ticket" class="mini-kpi__value">—</span>
+              </div>
             </div>
           </div>
-
-          <div class="endpoint info full">
-            <h3>📋 Funcionalidades Disponíveis</h3>
-            <ul class="features">
-              <li><strong>🎯 Promoções:</strong> Criar e remover promoções</li>
-              <li><strong>🔍 Pesquisa:</strong> Buscar texto em títulos/descrições/atributos</li>
-              <li><strong>⚙️ Filas:</strong> Processamento em background</li>
-              <li><strong>📈 Keywords:</strong> Tendências e relacionadas</li>
-              <li><strong>📊 Monitoramento:</strong> Status em tempo real</li>
-            </ul>
-          </div>
         </div>
+
       </div>
     </section>
 
@@ -116,7 +191,6 @@
             <a href="/editar-anuncio">✏️ Acessar Editor</a>
           </div>
 
-          <!-- ✅ AGORA FUNCIONA: aponta pro /analise-ia -->
           <div class="endpoint">
             <h3>📊 Análise de Anúncio (IA) <span class="status active">Ativo</span></h3>
             <p>
@@ -188,8 +262,6 @@
         <h1>🤖 IA & Analytics</h1>
         <p class="subtitle">Ferramentas de análise e pesquisa.</p>
         <div class="endpoints">
-
-
           <div class="endpoint search">
             <h3>🔎 Pesquisa em Descrições <span class="status active">Ativo</span></h3>
             <p>Busque texto específico nas descrições de múltiplos MLBs.</p>
@@ -326,31 +398,6 @@
     </section>
   </main>
 
-  <!-- Modal de Processos -->
-  <div id="modal-processos" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>⚙️ Processos em Execução</h3>
-        <span class="close" onclick="fecharModalProcessos()">&times;</span>
-      </div>
-      <div class="modal-body">
-        <div class="stats-mini" id="stats-processos">
-          <div class="stat-mini"><h4 id="total-processando">0</h4><p>Processando</p></div>
-          <div class="stat-mini"><h4 id="total-aguardando">0</h4><p>Na Fila</p></div>
-          <div class="stat-mini"><h4 id="total-concluidos">0</h4><p>Concluídos</p></div>
-          <div class="stat-mini"><h4 id="total-erros">0</h4><p>Com Erros</p></div>
-        </div>
-        <div style="text-align:center; margin:20px 0;">
-          <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Novo Processo</button>
-          <button class="btn-small btn-warning" onclick="atualizarProcessos()">🔄 Atualizar</button>
-        </div>
-        <div id="lista-processos">
-          <div style="text-align:center; padding:20px;"><p>🔄 Carregando processos...</p></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal de Status (token) -->
   <div id="modal-status" class="modal">
     <div class="modal-content">
@@ -383,7 +430,37 @@
   function hide(el) { if (el) el.style.display = 'none'; }
   function safeAlert(msg) { try { alert(msg); } catch(_) { console.log('ALERT:', msg); } }
 
-  /* ===== Abas (ATUALIZADO: salva hash + lê hash) ===== */
+  const fmtBRL = (v) => {
+    const n = Number(v || 0);
+    try {
+      return new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL' }).format(n);
+    } catch(_) {
+      return 'R$ ' + n.toFixed(2);
+    }
+  };
+
+  const fmtNum = (v) => {
+    const n = Number(v || 0);
+    try { return new Intl.NumberFormat('pt-BR').format(n); } catch(_) { return String(n); }
+  };
+
+  function showDashAlert(type, text){
+    const el = $('dash-alert');
+    if (!el) return;
+    el.className = '';
+    el.style.display = 'block';
+    el.classList.add('dash-alert', type === 'error' ? 'dash-alert--error' : 'dash-alert--info');
+    el.textContent = text;
+  }
+  function hideDashAlert(){
+    const el = $('dash-alert');
+    if (!el) return;
+    el.style.display = 'none';
+    el.textContent = '';
+    el.className = '';
+  }
+
+  /* ===== Abas (salva hash + lê hash) ===== */
   function initTabs() {
     const tabs = qsa('.nav-tab');
     const pages = qsa('.tab-page');
@@ -398,11 +475,7 @@
         const page = $(id);
         if (page) page.classList.add('active');
 
-        // ✅ Atualiza o hash na URL (sem recarregar)
-        if (btn.dataset.tab) {
-          history.replaceState(null, '', '#' + btn.dataset.tab);
-        }
-
+        if (btn.dataset.tab) history.replaceState(null, '', '#' + btn.dataset.tab);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
@@ -411,7 +484,6 @@
   function openTabByHash() {
     const hash = (location.hash || '').replace('#', '').trim();
     if (!hash) return;
-
     const btn = document.querySelector(`.nav-tab[data-tab="${hash}"]`);
     if (btn) btn.click();
   }
@@ -443,9 +515,7 @@
   }
 
   async function trocarConta() {
-    try {
-      await fetch('/api/account/clear', { method: 'POST' });
-    } catch (_) { /* ignora */ }
+    try { await fetch('/api/account/clear', { method: 'POST' }); } catch (_) {}
     window.location.href = '/select-conta';
   }
 
@@ -519,177 +589,100 @@
     }
   }
 
-  /* ===== Modal Processos ===== */
-  let intervalAtualizacao = null;
+  /* ===== Dashboard (novo) ===== */
+  function setText(id, v){ const el = $(id); if (el) el.textContent = v; }
 
-  function abrirModalProcessos() {
-    show($('modal-processos'));
-    atualizarProcessos().catch(e => console.error(e));
-    if (intervalAtualizacao) clearInterval(intervalAtualizacao);
-    intervalAtualizacao = setInterval(
-      () => atualizarProcessos().catch(e => console.error(e)),
-      5000
-    );
-  }
+  function renderSparkline(dailyOrders, dayOfMonth, daysInMonth) {
+    const wrap = $('dash-sparkline');
+    const empty = $('dash-spark-empty');
+    if (!wrap) return;
 
-  function fecharModalProcessos() {
-    hide($('modal-processos'));
-    if (intervalAtualizacao) clearInterval(intervalAtualizacao);
-    intervalAtualizacao = null;
-  }
+    wrap.innerHTML = '';
 
-  async function atualizarProcessos() {
-    try {
-      const response = await fetch('/api/pesquisa-descricao/jobs?limite=20', { cache:'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      if (data && (data.success || data.ok)) {
-        const stats = data.estatisticas_gerais || data.stats || {};
-        atualizarEstatisticas(stats);
-        exibirProcessos(data.jobs || []);
-        atualizarContadorDashboard(data.jobs || []);
-      }
-    } catch (error) {
-      console.error('atualizarProcessos:', error);
-    }
-  }
-
-  function atualizarEstatisticas(stats) {
-    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-    set('total-processando', stats.processando_agora || 0);
-    set('total-aguardando',  stats.fila_aguardando   || 0);
-    set('total-concluidos',  stats.concluidos_recentes || 0);
-    set('total-erros',       stats.falharam_recentes || 0);
-  }
-
-  function exibirProcessos(jobs) {
-    const container = $('lista-processos');
-    if (!container) return;
-    if (!jobs || jobs.length === 0) {
-      container.innerHTML = `
-        <div style="text-align:center; padding:40px;">
-          <p>📭 Nenhum processo encontrado</p>
-          <button class="btn-small btn-primary" onclick="iniciarNovoProcesso()">➕ Iniciar Primeiro Processo</button>
-        </div>`;
+    const arr = Array.isArray(dailyOrders) ? dailyOrders : [];
+    if (!arr.length) {
+      if (empty) empty.style.display = 'block';
       return;
     }
-    container.innerHTML = jobs.map(job => `
-      <div class="process-item ${job.status}">
-        <div class="process-header">
-          <div class="process-title">📋 ${job.job_id || job.id}</div>
-          <div class="process-status ${job.status}">${job.status}</div>
-        </div>
-        <div style="font-size:14px; color:#666; margin:5px 0;">
-          📊 ${((job.concluidos || 0) + (job.falharam || 0))}/${job.total_mlbs || 0} MLBs processados
-          ${job.tempo_decorrido ? `• ⏱️ ${job.tempo_decorrido}` : ''}
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill" style="width:${(job.progresso_percentual || 0)}%"></div>
-        </div>
-        <div class="process-actions">
-          <button class="btn-small btn-primary" onclick="verDetalhesProcesso('${job.job_id || job.id}')">📊 Detalhes</button>
-          ${job.status === 'concluido'
-            ? `<a href="/api/pesquisa-descricao/download/${job.job_id || job.id}" class="btn-small btn-success">📥 Download</a>`
-            : ''}
-          ${(job.status === 'processando' || job.status === 'aguardando')
-            ? `<button class="btn-small btn-danger" onclick="cancelarProcesso('${job.job_id || job.id}')">🚫 Cancelar</button>`
-            : ''}
-        </div>
-      </div>
-    `).join('');
-  }
+    if (empty) empty.style.display = 'none';
 
-  function atualizarContadorDashboard(jobs) {
-    const ativos = (jobs || []).filter(j =>
-      j.status === 'processando' || j.status === 'aguardando'
-    ).length;
-    const counter = $('process-counter');
-    const counterNumber = $('counter-number');
-    if (!counter || !counterNumber) return;
-    if (ativos > 0) {
-      counter.style.display = 'inline-flex';
-      counter.classList.add('pulsing');
-      counterNumber.textContent = String(ativos);
-    } else {
-      counter.style.display = 'none';
-      counter.classList.remove('pulsing');
+    const max = Math.max(1, ...arr.map(x => Number(x.revenue || 0)));
+
+    for (let i = 0; i < arr.length; i++) {
+      const d = arr[i];
+      const value = Number(d.revenue || 0);
+      const pct = Math.max(0.04, value / max); // mínimo visual
+      const bar = document.createElement('div');
+      bar.className = 'spark-bar';
+
+      const dayIndex = i + 1;
+
+      if (dayIndex > dayOfMonth) bar.classList.add('is-future');
+      if (dayIndex === dayOfMonth) bar.classList.add('is-today');
+
+      bar.style.height = Math.round(pct * 100) + '%';
+      bar.title = `${d.date}\nVendas: ${fmtBRL(value)}\nPedidos: ${fmtNum(d.orders || 0)}\nUnidades: ${fmtNum(d.units || 0)}`;
+
+      wrap.appendChild(bar);
     }
+
+    const fill = $('dash-progress-fill');
+    const meta = $('dash-progress-meta');
+    const progress = Math.min(100, Math.max(0, (dayOfMonth / daysInMonth) * 100));
+    if (fill) fill.style.width = progress.toFixed(2) + '%';
+    if (meta) meta.textContent = `Dia ${dayOfMonth} de ${daysInMonth} (${progress.toFixed(0)}% do mês)`;
   }
 
-  function iniciarNovoProcesso() {
-    window.location.href = '/pesquisa-descricao?novo_processo=true';
-  }
-
-  async function verDetalhesProcesso(jobId) {
-    const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 10000);
+  async function carregarDashboard() {
+    hideDashAlert();
 
     try {
-      const response = await fetch(
-        `/api/pesquisa-descricao/status/${encodeURIComponent(jobId)}`,
-        { cache: 'no-store', signal: ctl.signal }
-      );
-
-      if (!response.ok) {
-        const txt = await response.text().catch(() => '');
-        throw new Error(`HTTP ${response.status} ${txt || ''}`.trim());
+      const r = await fetch('/api/dashboard/monthly-sales?tz=America%2FSao_Paulo', { cache: 'no-store' });
+      const data = await r.json();
+      if (!r.ok || !data || !data.ok) {
+        throw new Error((data && data.error) ? data.error : `HTTP ${r.status}`);
       }
 
-      const data = await response.json();
+      const period = data.period || {};
+      const totals = data.totals || {};
+      const breakdown = data.breakdown || {};
+      const ads = data.ads || {};
+      const series = data.series || {};
 
-      if (data && (data.success || data.ok)) {
-        const job = data.status || {};
-        const progresso = Number(job.progresso_percentual ?? 0);
-        const total = Number(job.total_mlbs ?? 0);
-        const concluidos = Number(job.concluidos ?? 0);
-        const falharam = Number(job.falharam ?? 0);
-        const processados = concluidos + falharam;
+      const month = String(period.month || '').padStart(2,'0');
+      setText('dash-period', `${period.year}-${month}`);
+      setText('dash-day', `${period.day_of_month}/${period.days_in_month}`);
 
-        const detalhes =
-`📊 Detalhes do Processo: ${jobId}
+      setText('dash-total', fmtBRL(breakdown.total_all || totals.revenue_month_to_date || 0));
+      setText('dash-projected', fmtBRL(totals.revenue_projected_month || 0));
+      setText('dash-avg', fmtBRL(totals.avg_daily_revenue || 0));
 
-Status: ${job.status ?? '—'}
-Progresso: ${progresso}%
-Total MLBs: ${total}
-Processados: ${processados}
-Sucessos: ${concluidos}
-Erros: ${falharam}
-Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? `\nTempo restante: ${job.tempo_estimado_restante}` : ''}`;
-
-        safeAlert(detalhes);
+      // Ads
+      if (ads.available) {
+        setText('dash-ads', fmtBRL(breakdown.ads_direct_amount || 0));
+        setText('dash-ads-pill', 'ok');
       } else {
-        const msg = (data && (data.message || data.error)) || 'Não foi possível obter os detalhes.';
-        safeAlert('❌ ' + msg);
+        setText('dash-ads', fmtBRL(0));
+        setText('dash-ads-pill', 'indisp.');
       }
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        safeAlert('⏱️ Tempo esgotado ao consultar o status. Tente novamente.');
-      } else if (err instanceof TypeError) {
-        safeAlert('📡 Erro de rede ao consultar o status. Verifique sua conexão e tente novamente.');
-      } else {
-        safeAlert('❌ Erro ao obter detalhes: ' + (err.message || String(err)));
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
 
-  async function cancelarProcesso(jobId) {
-    if (!confirm(`Tem certeza que deseja cancelar o processo ${jobId}?`)) return;
-    try {
-      const response = await fetch(
-        `/api/pesquisa-descricao/cancelar/${encodeURIComponent(jobId)}`,
-        { method: 'POST' }
-      );
-      const data = await response.json();
-      if (data && (data.success || data.ok)) {
-        safeAlert('✅ Processo cancelado com sucesso!');
-        atualizarProcessos();
-      } else {
-        safeAlert('❌ Erro ao cancelar: ' + (data.message || data.error || 'Falha'));
+      setText('dash-organic', fmtBRL(breakdown.organic_estimated || 0));
+
+      setText('dash-orders', fmtNum(totals.orders_count || 0));
+      setText('dash-units', fmtNum(totals.units_sold || 0));
+      setText('dash-ticket', fmtBRL(totals.ticket_medio || 0));
+
+      const hint = `Ex: (${fmtBRL(totals.revenue_month_to_date || 0)} ÷ ${period.day_of_month || 1}) × ${period.days_in_month || 30}`;
+      setText('dash-formula-hint', hint);
+
+      renderSparkline(series.daily_orders || [], period.day_of_month || 1, period.days_in_month || 30);
+
+      if (!ads.available && ads.error) {
+        showDashAlert('info', `ℹ️ Ads: ${ads.error}`);
       }
-    } catch (error) {
-      safeAlert('❌ Erro: ' + error.message);
+    } catch (e) {
+      console.error('carregarDashboard:', e);
+      showDashAlert('error', '❌ Não foi possível carregar o dashboard: ' + (e.message || String(e)));
     }
   }
 
@@ -699,12 +692,6 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
     fecharModalStatus,
     verificarToken,
     renovarToken,
-    abrirModalProcessos,
-    fecharModalProcessos,
-    atualizarProcessos,
-    verDetalhesProcesso,
-    cancelarProcesso,
-    iniciarNovoProcesso,
     trocarConta
   });
 
@@ -716,15 +703,14 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
     });
     safeBind($('account-switch'), 'click', trocarConta);
 
-    // ✅ se alguém mudar o hash (ex: veio de /dashboard#produtos), abre a aba
+    safeBind($('dash-refresh'), 'click', carregarDashboard);
+
     window.addEventListener('hashchange', openTabByHash);
 
-    // Fechar modais ao clicar fora
+    // Fechar modal ao clicar fora
     window.addEventListener('click', (event) => {
-      const m1 = $('modal-processos');
-      const m2 = $('modal-status');
-      if (event.target === m1) fecharModalProcessos();
-      if (event.target === m2) fecharModalStatus();
+      const m = $('modal-status');
+      if (event.target === m) fecharModalStatus();
     });
   }
 
@@ -734,14 +720,11 @@ Tempo decorrido: ${job.tempo_decorrido ?? 'N/A'}${job.tempo_estimado_restante ? 
       initTabs();
       bindStaticListeners();
       carregarContaAtual();
-
-      // ✅ Abre a aba de acordo com o hash (ex: /dashboard#produtos)
       openTabByHash();
+      if (!location.hash) history.replaceState(null, '', '#dashboard');
 
-      // ✅ Se não tem hash, garante um padrão (opcional)
-      if (!location.hash) {
-        history.replaceState(null, '', '#dashboard');
-      }
+      // Carrega dashboard assim que abre
+      carregarDashboard();
     } catch (e) {
       console.error('Erro na inicialização:', e);
     }
