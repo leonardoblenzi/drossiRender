@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Prazo (Dias) - ML</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/prazo.css">
+
+  <!-- ✅ (Opcional) Se você quiser manter o painel de processos com o MESMO CSS base -->
+  <link rel="stylesheet" href="/css/promo-jobs.css">
+</head>
+<body>
+
+<header class="account-bar">
+  <div class="account-bar__left">
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
+  </div>
+  <div class="account-bar__right">
+    <div class="account-bar__current">
+      <span class="lbl">Conta:</span>
+      <span id="account-current" class="val">Carregando...</span>
+    </div>
+    <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+    <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+  </div>
+</header>
+
+<!-- navegacao com abas-->
+<nav class="main-nav">
+  <div class="tabs">
+    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+    <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Produtos</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#full'">FULL</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+  </div>
+</nav>
+
+<!-- Modal Status -->
+<div id="modal-status" class="modal">
+  <div class="modal-content">
+    <div class="modal-header alt">
+      <h3>🟢 Status da Integração</h3>
+      <span class="close" onclick="fecharModalStatus()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div class="status-grid">
+        <div class="stat-mini"><h4 id="status-usuario">—</h4><p>Usuário</p></div>
+        <div class="stat-mini"><h4 id="status-token">—</h4><p>Token (preview)</p></div>
+        <div class="stat-mini"><h4 id="status-msg">—</h4><p>Mensagem</p></div>
+      </div>
+      <div class="modal-controls">
+        <button class="btn-small btn-primary" onclick="verificarToken(true)">🔍 Verificar</button>
+        <button class="btn-small btn-success" onclick="renovarToken(true)">🔄 Renovar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<main class="page-wrap prazo-page">
+  <section class="tab-page active">
+    <div class="container">
+      <h1>⏱️ Prazo (Dias) — Alteração em Massa</h1>
+      <p class="subtitle">
+        Atualize o <strong>prazo em dias</strong> do anúncio no Mercado Livre, por MLB (unitário) ou lista (lote).
+      </p>
+
+      <div class="grid-2">
+        <!-- LADO A: UNITÁRIO -->
+        <div class="panel panel--single">
+          <div class="panel__head">
+            <div>
+              <h2>🎯 Alterar unitário</h2>
+              <p class="muted">Informe um MLB e o novo prazo (em dias).</p>
+            </div>
+            <span class="badge badge--single">Unitário</span>
+          </div>
+
+          <div class="form-group">
+            <label for="prazoMlbId">MLB ID do Anúncio</label>
+            <input id="prazoMlbId" placeholder="Ex: MLB1234567890" type="text" />
+            <small>Você pode colar texto; vamos pegar o primeiro MLB válido.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="prazoDiasSingle">Prazo (dias)</label>
+            <input id="prazoDiasSingle" placeholder="Ex: 3" type="number" min="0" step="1" />
+            <small>Dica: use valores inteiros (ex.: 0, 1, 2, 3...).</small>
+          </div>
+
+          <div class="actions">
+            <button id="btnPrazoSingle" class="btn-primary" onclick="prazoSingle()">⏱️ Atualizar Prazo</button>
+            <button class="btn-ghost" onclick="limparSingle()">🧼 Limpar</button>
+          </div>
+        </div>
+
+        <!-- LADO B: LOTE -->
+        <div class="panel panel--bulk">
+          <div class="panel__head">
+            <div>
+              <h2>🚀 Alterar em lote</h2>
+              <p class="muted">Cole vários MLBs (um por linha) e aplique o mesmo prazo para todos.</p>
+            </div>
+            <span class="badge badge--bulk">Em lote</span>
+          </div>
+
+          <div class="form-group">
+            <label for="prazoDiasBulk">Prazo (dias) para aplicar no lote</label>
+            <input id="prazoDiasBulk" placeholder="Ex: 5" type="number" min="0" step="1" />
+            <small>Esse valor será aplicado em todos os MLBs do campo abaixo.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="prazoMlbIds">Múltiplos MLB IDs (um por linha)</label>
+            <textarea id="prazoMlbIds" placeholder="MLB1234567890
+MLB0987654321
+MLB1122334455" rows="7"></textarea>
+            <small>O sistema remove duplicados e ignora linhas inválidas.</small>
+          </div>
+
+          <div class="actions">
+            <button id="btnPrazoBulk" class="btn-warning" onclick="prazoBulk()">🚀 Atualizar em Lote</button>
+            <button class="btn-secondary" onclick="verificarStatus()">📊 Status</button>
+            <button class="btn-ghost" onclick="limparBulk()">🧹 Limpar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resultado -->
+      <div id="resultado" class="result-area"></div>
+
+      <!-- Ajuda rápida -->
+      <div class="hint">
+        <div class="hint__title">💡 Atalhos</div>
+        <ul class="hint__list">
+          <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> → aplicar unitário</li>
+          <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> → aplicar lote</li>
+          <li><kbd>Esc</kbd> → limpar resultados</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ✅ Painel de processos fixo no canto -->
+<div id="bulkJobsPanel" class="jobs-panel"></div>
+
+<!-- Conta atual + Trocar conta + Status token (mesmo padrão do seu html) -->
+<script>
+  const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
+
+  async function carregarContaAtual() {
+    const currentEl = document.getElementById('account-current');
+    try {
+      const r = await fetch('/api/account/current', { cache: 'no-store' });
+      const data = await r.json();
+      let shown = 'Não selecionada';
+      if (data && (data.ok || data.success)) {
+        shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
+      } else if (data) {
+        shown = data.label || data.accountKey || 'Desconhecida';
+      }
+      currentEl.textContent = shown;
+    } catch(e) { currentEl.textContent = 'Indisponível'; }
+  }
+
+  async function trocarConta() {
+    try { await fetch('/api/account/clear', { method: 'POST' }); }
+    finally { window.location.href = '/select-conta'; }
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    carregarContaAtual();
+    var switchBtn = document.getElementById('account-switch');
+    if (switchBtn) switchBtn.addEventListener('click', trocarConta);
+  });
+
+  function abrirModalStatus(){ document.getElementById('modal-status').style.display = 'block'; }
+  function fecharModalStatus(){ document.getElementById('modal-status').style.display = 'none'; }
+
+  document.getElementById('btn-status').addEventListener('click', async () => {
+    abrirModalStatus();
+    await verificarToken(true);
+  });
+
+  async function verificarToken(updateModal=false) {
+    try {
+      const response = await fetch('/verificar-token');
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          document.getElementById('status-usuario').textContent = data.nickname || '—';
+          document.getElementById('status-token').textContent = data.token_preview || '—';
+          document.getElementById('status-msg').textContent = data.message || 'OK';
+        } else {
+          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+        }
+      } else {
+        if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
+        else alert('❌ ' + (data.error || 'Falha ao verificar'));
+      }
+    } catch (error) {
+      if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+      else alert('❌ Erro: ' + error.message);
+    }
+  }
+
+  async function renovarToken(updateModal=false) {
+    try {
+      const response = await fetch('/renovar-token-automatico', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          document.getElementById('status-usuario').textContent = data.nickname || '—';
+          document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
+          document.getElementById('status-msg').textContent = data.message || 'Token renovado';
+        } else {
+          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+        }
+      } else {
+        if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
+        else alert('❌ ' + (data.error || 'Falha ao renovar'));
+      }
+    } catch (error) {
+      if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+      else alert('❌ Erro: ' + error.message);
+    }
+  }
+
+  window.addEventListener('click', function(event){
+    const m2 = document.getElementById('modal-status');
+    if (event.target === m2) fecharModalStatus();
+  });
+</script>
+
+<!-- ✅ Scripts do painel e da fila (mesmo padrão) -->
+<script src="/js/jobs-panel.js" defer></script>
+<script src="/js/prazo-bulk.js" defer></script>
+
+<!-- ✅ Script da feature -->
+<script src="/js/prazo.js" defer></script>
+
+</body>
+</html>

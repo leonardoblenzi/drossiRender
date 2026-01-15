@@ -1,0 +1,258 @@
+/* ===== Prazo (Dias) — identidade própria (roxo/teal) ===== */
+:root{
+  --pz-primary:#6d28d9;      /* roxo */
+  --pz-primary-2:#7c3aed;
+  --pz-accent:#14b8a6;       /* teal */
+  --pz-dark:#0f172a;
+  --pz-text:#1f2937;
+  --pz-muted:#6b7280;
+  --pz-bg:#f6f7fb;
+  --pz-card:#ffffff;
+  --pz-border:#e5e7eb;
+
+  --success:#2e7d32;
+  --warn:#f59e0b;
+  --danger:#dc2626;
+}
+
+*,
+*::before,
+*::after{ box-sizing:border-box; }
+
+body{
+  font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--pz-bg);
+  color: var(--pz-text);
+  margin:0;
+}
+
+/* Guard navbar */
+.account-bar{ z-index: 1200; }
+.main-nav{
+  z-index: 1100;
+  background:#fff;
+  border-bottom:1px solid var(--pz-border);
+}
+.main-nav .tabs{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 16px;
+  overflow:auto;
+}
+
+/* Conteúdo */
+.page-wrap{
+  padding-left:16px;
+  padding-right:16px;
+  padding-bottom:24px;
+}
+
+.prazo-page .container{
+  background: var(--pz-card);
+  padding: 28px;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(2,6,23,0.06);
+  max-width: 1100px;
+  margin: 0 auto 24px auto;
+  border:1px solid var(--pz-border);
+}
+
+.prazo-page h1{
+  color: var(--pz-dark);
+  text-align:center;
+  font-size: 2rem;
+  margin: 0 0 6px 0;
+}
+.prazo-page h1::after{
+  content:'';
+  display:block;
+  width:120px;
+  height:3px;
+  background: linear-gradient(90deg, var(--pz-primary), var(--pz-accent));
+  margin: 12px auto 0;
+  border-radius: 999px;
+}
+
+.subtitle{
+  text-align:center;
+  margin: 10px 0 22px 0;
+  color: var(--pz-muted);
+}
+
+.grid-2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:16px;
+}
+
+.panel{
+  border:1px solid var(--pz-border);
+  border-radius: 16px;
+  padding: 18px;
+  background: #fff;
+}
+
+.panel__head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 12px;
+}
+.panel__head h2{
+  margin:0;
+  font-size: 1.2rem;
+  color: var(--pz-dark);
+}
+.panel__head .muted{
+  margin:6px 0 0 0;
+  color: var(--pz-muted);
+  font-size: .92rem;
+}
+
+.badge{
+  font-weight: 800;
+  font-size: .8rem;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border:1px solid;
+  white-space:nowrap;
+}
+.badge--single{
+  color: var(--pz-primary);
+  background: rgba(109,40,217,.08);
+  border-color: rgba(109,40,217,.25);
+}
+.badge--bulk{
+  color: var(--pz-accent);
+  background: rgba(20,184,166,.08);
+  border-color: rgba(20,184,166,.25);
+}
+
+.form-group{ margin-bottom: 14px; }
+label{
+  display:block;
+  margin-bottom:8px;
+  font-weight:800;
+  color: var(--pz-dark);
+}
+input, textarea{
+  width:100%;
+  padding:12px 14px;
+  border:1px solid var(--pz-border);
+  border-radius: 12px;
+  font-size: 15px;
+  background:#fff;
+  color: var(--pz-text);
+  transition: border .2s, box-shadow .2s;
+}
+input:focus, textarea:focus{
+  outline:none;
+  border-color: rgba(109,40,217,.65);
+  box-shadow: 0 0 0 3px rgba(109,40,217,.16);
+}
+small{
+  display:block;
+  margin-top:6px;
+  color: var(--pz-muted);
+}
+
+.actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top: 8px;
+}
+
+/* Botões */
+button{
+  border:none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-weight: 900;
+  cursor:pointer;
+  transition: transform .06s, opacity .2s, box-shadow .2s;
+}
+button:hover{
+  opacity:.96;
+  transform: translateY(-1px);
+}
+
+.btn-primary{
+  background: linear-gradient(90deg, var(--pz-primary), var(--pz-primary-2));
+  color:#fff;
+  box-shadow: 0 10px 25px rgba(109,40,217,.18);
+}
+.btn-primary:hover{ box-shadow: 0 14px 28px rgba(109,40,217,.22); }
+
+.btn-warning{
+  background: var(--warn);
+  color:#1f2937;
+}
+
+.btn-secondary{
+  background:#64748b;
+  color:#fff;
+}
+
+.btn-ghost{
+  background: rgba(15,23,42,.05);
+  color: var(--pz-dark);
+  border:1px solid rgba(15,23,42,.08);
+}
+
+/* Resultados */
+.result-area{ margin-top: 14px; }
+
+.result{
+  margin-top:12px;
+  padding: 14px;
+  border-radius: 14px;
+  border-left: 4px solid;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.result.success{ background:#e8f5e9; border-color: var(--success); color:#1b5e20; }
+.result.error{ background:#fdecea; border-color: var(--danger); color:#7f1d1d; }
+.result.info{ background:#eef2ff; border-color: var(--pz-primary); color:#3730a3; }
+.result.warning{ background:#fff8e1; border-color: var(--warn); color:#8d6e00; }
+
+/* Hint */
+.hint{
+  margin-top: 18px;
+  border:1px dashed rgba(109,40,217,.25);
+  background: rgba(109,40,217,.05);
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+.hint__title{
+  font-weight: 900;
+  color: var(--pz-dark);
+  margin-bottom: 8px;
+}
+.hint__list{
+  margin:0;
+  padding-left: 18px;
+  color: var(--pz-muted);
+}
+kbd{
+  background:#fff;
+  border:1px solid var(--pz-border);
+  border-bottom-width:2px;
+  padding:2px 6px;
+  border-radius: 6px;
+  font-weight: 800;
+  color: var(--pz-dark);
+}
+
+/* Responsive */
+@media (max-width: 920px){
+  .grid-2{ grid-template-columns: 1fr; }
+}
+@media (max-width: 768px){
+  .page-wrap{ padding-left:10px; padding-right:10px; padding-bottom:20px; }
+  .prazo-page .container{ padding: 18px; }
+  button{ width:100%; }
+}

@@ -41,6 +41,11 @@ router.get("/dashboard", noCache, HtmlController.servirDashboard);
 router.get("/remover-promocao", noCache, HtmlController.servirRemoverPromocao);
 router.get("/criar-promocao", noCache, HtmlController.criarPromocao);
 
+// ✅ NOVO: Prazo (HTML)
+router.get("/prazo", noCache, (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "views", "prazo.html"));
+});
+
 // Utilitários de geração/diagnóstico
 router.get("/criar-dashboard", noCache, HtmlController.criarDashboard);
 router.get(
