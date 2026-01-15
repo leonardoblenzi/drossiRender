@@ -96,6 +96,13 @@ class JardinagemController {
     return Object.keys(out).length ? out : null;
   }
 
+  static _csvEscape(v) {
+    const s = v == null ? "" : String(v);
+    // se tiver aspas, vírgula, \n, ou \r, coloca entre aspas e duplica aspas
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+
   /**
    * POST /api/jardinagem/item
    * Body:
@@ -135,8 +142,6 @@ class JardinagemController {
         mlb,
         mode,
         clone_overrides,
-        // se você precisar do token do ML aqui, o service pode pegar via authFetch do seu projeto;
-        // ou você pode passar algo como req.ml.accessToken se o seu service for puro.
         req,
       });
 
@@ -155,7 +160,7 @@ class JardinagemController {
   }
 
   /**
-   * POST /api/jardinagem/lote
+   * POST /api/jardinagem/lote (alias) ou /api/jardinagem/bulk
    * Body: { mlbs: [...], mode, delay_ms?: number }
    * Dispara processamento assíncrono em memória usando JardinagemService.processBulk.
    */
@@ -211,7 +216,7 @@ class JardinagemController {
         erros: 0,
         progresso: 0,
         iniciado_em: new Date(),
-        resultados: [],
+        resultados: [], // ✅ vai alimentar CSV
       };
 
       // responde imediatamente pro front
@@ -263,6 +268,50 @@ class JardinagemController {
       });
     }
     return res.json(proc);
+  }
+
+  /**
+   * ✅ NOVO
+   * GET /api/jardinagem/download/:id
+   * Baixa CSV com: mlb_old, mlb_new, status, error
+   */
+  static async downloadCsv(req, res) {
+    const proc = processosJardinagem[req.params.id];
+    if (!proc) {
+      return res.status(404).json({
+        ok: false,
+        success: false,
+        error: "Processo não encontrado",
+        id: req.params.id,
+      });
+    }
+
+    const rows = Array.isArray(proc.resultados) ? proc.resultados : [];
+
+    const header = ["mlb_old", "mlb_new", "status", "error"].join(",");
+    const lines = rows.map((r) => {
+      const mlbOld = r?.mlb_old ?? r?.old_mlb ?? r?.old_id ?? r?.mlb ?? "";
+      const mlbNew =
+        r?.mlb_new ?? r?.new_mlb ?? r?.new_id ?? r?.relisted_id ?? "";
+      const status =
+        r?.status ||
+        (r?.ok === true || r?.success === true ? "success" : "error");
+      const error = r?.error || r?.message || "";
+
+      return [
+        JardinagemController._csvEscape(mlbOld),
+        JardinagemController._csvEscape(mlbNew),
+        JardinagemController._csvEscape(status),
+        JardinagemController._csvEscape(error),
+      ].join(",");
+    });
+
+    const csv = [header, ...lines].join("\n");
+    const filename = `jardinagem_${proc.id}_${proc.mode || "lote"}.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.status(200).send(csv);
   }
 }
 

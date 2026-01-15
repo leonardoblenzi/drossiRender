@@ -327,9 +327,6 @@ function buildCloneItemBody(item, overrides) {
   if (typeof item?.catalog_listing === "boolean")
     body.catalog_listing = item.catalog_listing;
 
-  // evita copiar campos que quebram criação
-  // (warranty e others às vezes precisam ser sale_terms; então não forçamos)
-
   return body;
 }
 
@@ -426,16 +423,22 @@ async function cloneNewThenCloseOld(mlb, accessToken, overrides) {
 }
 
 // ============================================================================
+// Helpers (IDs)
+// ============================================================================
+function pickNewMlbFromRelist(out) {
+  return out?.relisted?.id || out?.relisted?.item_id || null;
+}
+
+function pickNewMlbFromClone(out) {
+  return out?.new_id || out?.created?.id || null;
+}
+
+// ============================================================================
 // Public API (used by controller)
 // ============================================================================
 class JardinagemService {
   /**
    * Processa 1 item
-   * @param {object} params
-   * @param {string} params.mlb
-   * @param {string} params.mode
-   * @param {object|null} params.clone_overrides
-   * @param {object} params.req
    */
   static async processSingle({ mlb, mode, clone_overrides, req }) {
     const accessToken = await resolveAccessToken(req);
@@ -472,6 +475,10 @@ class JardinagemService {
           success: true,
           mode,
           mlb,
+          // ✅ padronização (unitário)
+          mlb_old: mlb,
+          mlb_new: null,
+          new_mlb: null,
           result: out,
           steps,
           meta: { started_at: startedAt, finished_at: new Date() },
@@ -486,6 +493,10 @@ class JardinagemService {
           success: true,
           mode,
           mlb,
+          // ✅ padronização (unitário)
+          mlb_old: mlb,
+          mlb_new: null,
+          new_mlb: null,
           result: out,
           steps,
           meta: { started_at: startedAt, finished_at: new Date() },
@@ -494,15 +505,20 @@ class JardinagemService {
 
       if (mode === "CLOSE_RELIST") {
         const out = await closeThenRelist(mlb, accessToken, clone_overrides);
-        step("close_relist", {
-          new_id: out?.relisted?.id || out?.relisted?.item_id,
-        });
+        const newId = pickNewMlbFromRelist(out);
+
+        step("close_relist", { new_id: newId });
+
         return {
           ok: true,
           success: true,
           mode,
           mlb,
-          relisted_id: out?.relisted?.id || out?.relisted?.item_id,
+          relisted_id: newId,
+          // ✅ padronização (unitário)
+          mlb_old: mlb,
+          mlb_new: newId,
+          new_mlb: newId,
           result: out,
           steps,
           meta: { started_at: startedAt, finished_at: new Date() },
@@ -511,16 +527,23 @@ class JardinagemService {
 
       if (mode === "PAUSE_RELIST") {
         const out = await pauseThenRelist(mlb, accessToken, clone_overrides);
+        const newId = pickNewMlbFromRelist(out);
+
         step("pause_relist", {
-          new_id: out?.relisted?.id || out?.relisted?.item_id,
+          new_id: newId,
           fallback_closed: out?.fallback_closed || false,
         });
+
         return {
           ok: true,
           success: true,
           mode,
           mlb,
-          relisted_id: out?.relisted?.id || out?.relisted?.item_id,
+          relisted_id: newId,
+          // ✅ padronização (unitário)
+          mlb_old: mlb,
+          mlb_new: newId,
+          new_mlb: newId,
           result: out,
           steps,
           meta: { started_at: startedAt, finished_at: new Date() },
@@ -533,16 +556,23 @@ class JardinagemService {
           accessToken,
           clone_overrides
         );
+        const newId = pickNewMlbFromClone(out);
+
         step("clone_new_close_old", {
-          new_id: out?.new_id,
+          new_id: newId,
           desc_copied: out?.desc_copied,
         });
+
         return {
           ok: true,
           success: true,
           mode,
           mlb,
-          new_id: out?.new_id,
+          new_id: newId,
+          // ✅ padronização (unitário)
+          mlb_old: mlb,
+          mlb_new: newId,
+          new_mlb: newId,
           result: out,
           steps,
           meta: { started_at: startedAt, finished_at: new Date() },
@@ -575,13 +605,6 @@ class JardinagemService {
 
   /**
    * Processa lote (sem clone)
-   * @param {object} params
-   * @param {string[]} params.mlbs
-   * @param {string} params.mode
-   * @param {string} params.processId
-   * @param {object} params.procRef
-   * @param {number} params.delayMs
-   * @param {object} params.req
    */
   static async processBulk({
     mlbs,
@@ -615,20 +638,36 @@ class JardinagemService {
           out = await pauseThenRelist(mlb, accessToken, null);
         else throw new Error("Modo inválido no lote.");
 
+        const newId =
+          mode === "CLOSE_RELIST" || mode === "PAUSE_RELIST"
+            ? pickNewMlbFromRelist(out)
+            : null;
+
         procRef.sucessos += 1;
+
+        // ✅ formato padrão pro CSV
         procRef.resultados.push({
-          mlb,
-          ok: true,
+          mlb_old: mlb,
+          mlb_new: newId,
+          status: "success",
+          error: "",
           mode,
-          relisted_id: out?.relisted?.id || out?.relisted?.item_id,
+          // mantém compat (se você ainda usa em algum lugar)
+          ok: true,
+          relisted_id: newId,
         });
       } catch (err) {
         procRef.erros += 1;
+
+        // ✅ formato padrão pro CSV
         procRef.resultados.push({
-          mlb,
-          ok: false,
-          mode,
+          mlb_old: mlb,
+          mlb_new: null,
+          status: "error",
           error: err.message || "Erro no processamento",
+          mode,
+          // mantém compat
+          ok: false,
           raw: err.raw || undefined,
         });
       } finally {

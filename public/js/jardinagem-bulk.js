@@ -3,21 +3,25 @@
   console.log("🪴 jardinagem-bulk.js carregado");
 
   // =========================
-  // Config (ajuste se seu backend usar outro path)
+  // Config
   // =========================
   // ✅ Lote: NÃO permite CLONE_NEW_CLOSE_OLD
-  const API_BULK = "/api/jardinagem/lote";
+  // ✅ FIX: rota no backend é /api/jardinagem/bulk (não /lote)
+  const API_BULK = "/api/jardinagem/bulk";
 
-  // (Opcional) Status legado por process_id, se você tiver
+  // Status por process_id
   const API_STATUS = (id) => `/api/jardinagem/status/${encodeURIComponent(id)}`;
 
   const DEFAULT_DELAY_MS = 250;
 
   // =========================
-  // State (para fallback legado)
+  // State
   // =========================
   let currentProcessId = null;
   let monitorInterval = null;
+
+  // manter último report do lote (para CSV)
+  let lastBulkResults = null; // [{ mlb_old, mlb_new, status }]
 
   // =========================
   // Helpers DOM
@@ -50,8 +54,118 @@
     elRes().innerHTML = `<div class="result ${type}">${msg}</div>`;
   }
 
+  // botão de baixar CSV (injeta abaixo do box)
+  function renderDownloadButtonIfAny() {
+    if (!elRes()) return;
+
+    // remove botão anterior se existir
+    const old = elRes().querySelector('[data-jg-download="1"]');
+    if (old) old.remove();
+
+    if (!Array.isArray(lastBulkResults) || lastBulkResults.length === 0) return;
+
+    const wrap = document.createElement("div");
+    wrap.setAttribute("data-jg-download", "1");
+    wrap.style.marginTop = "12px";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-primary";
+    btn.textContent = "⬇️ Baixar Resultado";
+    btn.addEventListener("click", () => downloadCsv(lastBulkResults));
+
+    wrap.appendChild(btn);
+    elRes().appendChild(wrap);
+  }
+
+  // CSV download (client-side)
+  function csvEscape(v) {
+    const s = String(v ?? "");
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+
+  function downloadCsv(rows) {
+    const header = ["mlb_old", "mlb_new", "status"];
+    const lines = [header.join(",")];
+
+    for (const r of rows) {
+      lines.push([r.mlb_old, r.mlb_new, r.status].map(csvEscape).join(","));
+    }
+
+    const csv = lines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `jardinagem_resultado_${new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/[:T]/g, "-")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // ✅ normalizar resultados do lote (mlb_old, mlb_new, status)
+  function normalizeBulkResults(results, fallbackMode) {
+    if (!Array.isArray(results)) return [];
+
+    return results
+      .map((r) => {
+        if (!r || typeof r !== "object") return null;
+
+        const mlbOld =
+          r.mlb_old ||
+          r.mlb ||
+          r.old_mlb ||
+          r.mlbId ||
+          r.item ||
+          r.id ||
+          r.original_mlb;
+
+        const mlbNew =
+          r.mlb_new ||
+          r.new_mlb ||
+          r.relisted_id ||
+          r?.result?.relisted?.id ||
+          r?.relisted?.id ||
+          r?.detail?.new_id ||
+          r?.detail?.newId;
+
+        // ✅ FIX: se já vier "status" do backend (success|error), usa ele
+        let status = "";
+        if (typeof r.status === "string" && r.status.trim()) {
+          status = String(r.status).trim().toLowerCase();
+          if (status !== "success" && status !== "error") {
+            // fallback se vier algo fora do esperado
+            status = r.ok === true || r.success === true ? "success" : "error";
+          }
+        } else {
+          status = r.ok === true || r.success === true ? "success" : "error";
+        }
+
+        const oldNorm = String(mlbOld || "")
+          .trim()
+          .toUpperCase();
+        const newNorm = String(mlbNew || "")
+          .trim()
+          .toUpperCase();
+
+        return {
+          mlb_old: /^MLB\d{6,}$/.test(oldNorm) ? oldNorm : oldNorm || "",
+          mlb_new: /^MLB\d{6,}$/.test(newNorm) ? newNorm : newNorm || "",
+          status,
+          _mode: fallbackMode || r.mode || r.modo || "",
+        };
+      })
+      .filter(Boolean);
+  }
+
   // =========================
-  // Notifications (replica do jardinagem.js se ele não existir)
+  // Notifications
   // =========================
   function injectNotifKeyframes() {
     if (document.getElementById("jgNotifKeyframes")) return;
@@ -174,9 +288,10 @@
       btn.style.opacity = "0.75";
     }
 
+    // reset report anterior
+    lastBulkResults = null;
+
     // Preferência: Painel/fila (JobsPanel)
-    // - Se você já tem um padrão tipo window.<Feature>Bulk.enqueue()
-    // - Aqui usamos um wrapper "JardinagemBulk" (fácil de plugar depois)
     if (
       window.JardinagemBulk &&
       typeof window.JardinagemBulk.enqueue === "function"
@@ -222,7 +337,7 @@
         delay_ms: DEFAULT_DELAY_MS,
       });
 
-      // Caso você retorne um process_id (assíncrono)
+      // Caso retorne process_id (assíncrono)
       if (data.process_id || data.job_id || data.id) {
         currentProcessId = data.process_id || data.job_id || data.id;
         monitorarProgresso(currentProcessId);
@@ -234,19 +349,29 @@
         return;
       }
 
-      // Caso o backend responda direto um report/results
-      const results = data.results || data.report || null;
+      // Caso responda direto um report/results/resultados
+      const results =
+        data.resultados || data.results || data.report || data.itens || null;
+
       if (Array.isArray(results)) {
-        const okCount = results.filter(
-          (r) => r && (r.ok === true || r.success === true)
-        ).length;
+        const okCount = results.filter((r) => {
+          if (!r) return false;
+          if (typeof r.status === "string")
+            return String(r.status).toLowerCase() === "success";
+          return r.ok === true || r.success === true;
+        }).length;
         const errCount = results.length - okCount;
+
+        // normaliza e guarda para CSV
+        lastBulkResults = normalizeBulkResults(results, mode);
 
         box(
           errCount ? "warning" : "success",
           `✅ Lote finalizado!\n\nItens: ${mlbs.length}\nModo: ${mode}\nSucesso: ${okCount}\nErros: ${errCount}\n\n` +
-            `Dica: implemente o painel de processos para ver detalhes por item.`
+            `Arquivo: você pode baixar o CSV do resultado abaixo.`
         );
+
+        renderDownloadButtonIfAny();
       } else {
         box(
           "success",
@@ -287,10 +412,13 @@
       if (!r.ok)
         throw new Error(data.error || data.message || `HTTP ${r.status}`);
 
+      // ✅ FIX: considerar erro também como "finalizado"
       const done =
         data.status === "concluido" ||
         data.status === "done" ||
-        data.status === "completed";
+        data.status === "completed" ||
+        data.status === "erro" ||
+        data.status === "error";
 
       const msg =
         `📊 STATUS\n\nProcesso: ${data.id || currentProcessId}\nStatus: ${
@@ -303,7 +431,32 @@
         `Sucessos: ${data.sucessos ?? data.success ?? "—"}\n` +
         `Erros: ${data.erros ?? data.errors ?? "—"}`;
 
-      box(done ? "success" : "info", msg);
+      box(
+        done
+          ? data.status === "erro" || data.status === "error"
+            ? "error"
+            : "success"
+          : "info",
+        msg
+      );
+
+      // ✅ FIX: status endpoint do seu controller retorna "resultados"
+      if (done) {
+        const results =
+          data.resultados || data.results || data.report || data.itens || null;
+
+        if (Array.isArray(results)) {
+          const modeGuess =
+            data.mode ||
+            data.modo ||
+            data?.meta?.mode ||
+            data?.meta?.modo ||
+            "";
+          lastBulkResults = normalizeBulkResults(results, modeGuess);
+          renderDownloadButtonIfAny();
+        }
+      }
+
       notify("info", "Status atualizado.");
     } catch (e) {
       box("error", `❌ Erro ao buscar status.\n\n${e.message}`);
@@ -346,7 +499,6 @@
   window.jardinagemBulk = jardinagemBulk;
 
   // Também reaproveita o botão Status do HTML
-  // (se o jardinagem.js já expõe verificarStatus, beleza — aqui garantimos)
   if (typeof window.verificarStatus !== "function")
     window.verificarStatus = verificarStatus;
 

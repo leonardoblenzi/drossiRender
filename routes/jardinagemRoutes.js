@@ -15,8 +15,14 @@ router.post("/single", JardinagemController.single);
 // POST /api/jardinagem/bulk
 router.post("/bulk", JardinagemController.bulk);
 
+// ✅ NOVO: alias pro front atual (bulk.js chama /lote)
+router.post("/lote", JardinagemController.bulk);
+
 // GET /api/jardinagem/status/:id
 router.get("/status/:id", JardinagemController.status);
+
+// ✅ NOVO: baixar CSV do resultado do lote
+router.get("/download/:id", JardinagemController.downloadCsv);
 
 // ping
 router.get("/ping", (_req, res) =>

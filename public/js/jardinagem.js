@@ -69,6 +69,33 @@
   }
 
   // =========================
+  // ✅ NOVO: extrair MLB novo do payload real
+  // (o seu retorno mostrou relisted_id e result.relisted.id)
+  // =========================
+  function pickNewMlb(payload) {
+    if (!payload || typeof payload !== "object") return null;
+
+    const candidates = [
+      payload.relisted_id,
+      payload?.result?.relisted?.id,
+      payload?.result?.relisted_id,
+      payload?.result?.new_id,
+      payload?.new_mlb,
+      payload?.new_id,
+      payload?.created_mlb,
+      payload?.mlb_new,
+    ];
+
+    for (const c of candidates) {
+      const s = String(c || "")
+        .trim()
+        .toUpperCase();
+      if (/^MLB\d{6,}$/.test(s)) return s;
+    }
+    return null;
+  }
+
+  // =========================
   // UI result
   // =========================
   function box(type, msg) {
@@ -238,7 +265,9 @@
         throw new Error(data.error || data.message || "Falha ao executar");
 
       const oldId = data.old_mlb || data.old_id || data.mlb || mlb;
-      const newId = data.new_mlb || data.new_id || data.created_mlb || "";
+
+      // ✅ ALTERADO: pega o novo MLB do payload real
+      const newId = pickNewMlb(data) || "";
 
       const extra = newId ? `\nNovo MLB: ${newId}` : "";
 
