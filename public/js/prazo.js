@@ -2,9 +2,12 @@
 (() => {
   console.log("⏱️ prazo.js carregado");
 
-  // ===== Config (ajuste depois quando fecharmos as rotas reais)
-  const API_SINGLE = "/api/prazo/update";
-  const API_BULK_LEGACY = "/api/prazo/bulk"; // fallback sem painel
+  // ===== Config (agora alinhado com as rotas reais do backend)
+  const API_SINGLE = "/anuncio/prazo-producao";
+  const API_BULK_LEGACY = "/anuncios/prazo-producao-lote"; // fallback sem painel
+  const API_STATUS = (id) =>
+    `/anuncios/status-prazo-producao/${encodeURIComponent(id)}`;
+
   const DEFAULT_DELAY_MS = 250;
 
   // ===== State
@@ -158,7 +161,6 @@
     try {
       const data = await postJson(API_SINGLE, { mlb_id: mlb, days });
 
-      // esperado: { ok:true, mlb_id, days, message, ... }
       const ok = data.ok ?? data.success ?? true;
       if (!ok)
         throw new Error(data.error || data.message || "Falha ao atualizar");
@@ -250,7 +252,6 @@
         currentProcessId = data.process_id;
         monitorarProgresso(currentProcessId);
       } else {
-        // caso retorne algo direto
         box(
           "success",
           `✅ Lote enviado!\n\nItens: ${mlbs.length}\nPrazo: ${days} dia(s)\n${
@@ -271,7 +272,7 @@
     }
   }
 
-  // ===== Status legado (se existir no backend)
+  // ===== Status legado
   async function verificarStatus() {
     injectNotifKeyframes();
 
@@ -281,7 +282,7 @@
     }
 
     try {
-      const r = await fetch(`/api/prazo/status/${currentProcessId}`, {
+      const r = await fetch(API_STATUS(currentProcessId), {
         cache: "no-store",
       });
       const data = await r.json().catch(() => ({}));
@@ -324,9 +325,7 @@
 
     monitorInterval = setInterval(async () => {
       try {
-        const r = await fetch(`/api/prazo/status/${processId}`, {
-          cache: "no-store",
-        });
+        const r = await fetch(API_STATUS(processId), { cache: "no-store" });
         const data = await r.json().catch(() => ({}));
         if (!r.ok)
           throw new Error(data.error || data.message || `HTTP ${r.status}`);

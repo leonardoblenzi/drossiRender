@@ -558,6 +558,15 @@ try {
   console.error("❌ Erro ao carregar EditarAnuncioRoutes:", error.message);
 }
 
+// ✅ Prazo de Produção (MANUFACTURING_TIME)
+try {
+  const prazoProducaoRoutes = require("./routes/prazoProducaoRoutes");
+  app.use(prazoProducaoRoutes); // <- como as rotas já vêm com /anuncio/* e /anuncios/*
+  console.log("✅ PrazoProducaoRoutes carregado");
+} catch (error) {
+  console.error("❌ Erro ao carregar PrazoProducaoRoutes:", error.message);
+}
+
 // Token
 try {
   const tokenRoutes = require("./routes/tokenRoutes");
