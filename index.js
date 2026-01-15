@@ -549,6 +549,17 @@ try {
   console.error("❌ Erro ao carregar AnaliseAnuncioRoutes:", error.message);
 }
 
+// ✅ Jardinagem (ADMIN|MASTER)
+try {
+  const jardinagemRoutes = require("./routes/jardinagemRoutes");
+  app.use("/api/jardinagem", ensurePermission.requireAdmin(), jardinagemRoutes);
+  console.log(
+    "✅ JardinagemRoutes carregado em /api/jardinagem (ADMIN|MASTER)"
+  );
+} catch (error) {
+  console.error("❌ Erro ao carregar JardinagemRoutes:", error.message);
+}
+
 // ✅ Editar Anúncio (Edição oficial + Premium)
 try {
   const editarAnuncioRoutes = require("./routes/editarAnuncioRoutes");

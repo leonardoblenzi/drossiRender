@@ -41,12 +41,12 @@ router.get("/dashboard", noCache, HtmlController.servirDashboard);
 router.get("/remover-promocao", noCache, HtmlController.servirRemoverPromocao);
 router.get("/criar-promocao", noCache, HtmlController.criarPromocao);
 
-// ✅ NOVO: Prazo (HTML)
+// ✅ Prazo (HTML)
 router.get("/prazo", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "prazo.html"));
 });
 
-// ✅ NOVO: Jardinagem (HTML) — ADMIN|MASTER (ação sensível)
+// ✅ Jardinagem (HTML) — ADMIN|MASTER (sensível) → redireciona p/ /nao-autorizado via middleware
 router.get(
   "/jardinagem",
   noCache,
@@ -75,7 +75,7 @@ router.get("/estrategicos", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "estrategicos.html"));
 });
 
-// ✅ PROTEGIDO: Página Exclusão de Anúncios (HTML) — ADMIN|MASTER
+// ✅ Exclusão de Anúncios (HTML) — ADMIN|MASTER (sensível)
 router.get(
   "/excluir-anuncio",
   noCache,
@@ -85,7 +85,7 @@ router.get(
   }
 );
 
-// ✅ Página Editar Anúncio (HTML) — ADMIN|MASTER (ação sensível)
+// ✅ Editar Anúncio (HTML) — ADMIN|MASTER (sensível)
 router.get(
   "/editar-anuncio",
   noCache,
