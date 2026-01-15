@@ -535,3 +535,81 @@ Notas de segurança/permissão:
 ================================================================================
 (Seções 1–10 permanecem iguais ao seu texto; foi adicionado o item 11 no final)
 ================================================================================
+================================================================================
+12) ✅ NOVO — Prazo de Produção / Fabricação (MANUFACTURING_TIME) — Individual + Lote + Status
+================================================================================
+
+Objetivo
+Permitir atualizar o “prazo de fabricação/produção” exibido ao comprador como “fabricado em X dias”.
+No Mercado Livre, este valor costuma ser representado por um sale_term do item:
+• MANUFACTURING_TIME (dias)
+
+Proteções (padrão do seu pipeline)
+✅ ensureAuth (JWT do app) aplicado globalmente abaixo das rotas públicas mínimas
+✅ ensureAccount (conta ML selecionada via cookie meli_conta_id)
+✅ authMiddleware (token ML válido/renovável) para rotas do app
+
+Observação importante (rota do front x rota do backend)
+Seu front (prazo.js) originalmente chamava /api/prazo/update, mas as rotas reais foram padronizadas SEM prefixo /api:
+✅ POST /anuncio/prazo-producao
+✅ POST /anuncios/prazo-producao-lote
+✅ GET  /anuncios/status-prazo-producao/:id
+
+/ (raiz do projeto)
+├─ index.js
+│ ├─ (onde plugar) após app.use(authMiddleware)
+│ │ • app.use(prazoProducaoRoutes)
+│ │
+│ └─ Proteções herdadas do pipeline do app:
+│ ensureAuth -> ensureAccount -> authMiddleware
+│
+├─ routes/
+│ └─ prazoProducaoRoutes.js ✅
+│ • POST /anuncio/prazo-producao
+│   -> PrazoProducaoController.setPrazoProducaoSingle
+│ • POST /anuncios/prazo-producao-lote
+│   -> PrazoProducaoController.setPrazoProducaoLote
+│ • GET  /anuncios/status-prazo-producao/:id
+│   -> PrazoProducaoController.statusPrazoProducao
+│
+├─ controllers/
+│ └─ PrazoProducaoController.js ✅
+│ • setPrazoProducaoSingle(req,res)
+│   - input esperado: { mlb_id, days }
+│   - valida mlb (MLB\d+) e days (int >= 0)
+│   - aplica alteração no item para o sale_term MANUFACTURING_TIME
+│   - retorna { ok:true, mlb_id, days, message }
+│
+│ • setPrazoProducaoLote(req,res)
+│   - input esperado: { mlb_ids:[], days, delay_ms? }
+│   - dispara processo em lote e retorna { ok:true, process_id }
+│   - respeita delay para evitar rate-limit
+│
+│ • statusPrazoProducao(req,res)
+│   - retorna status do lote para monitoramento/painel:
+│     { id, status, progresso, total_anuncios, processados, sucessos, erros, iniciado_em, concluido_em? }
+│
+├─ services/
+│ └─ (camada esperada) PrazoProducaoService.js (ou lógica dentro do controller)
+│ • Responsável por chamar a API oficial do Mercado Livre:
+│   - GET /items/:mlb (ler item e sale_terms atuais)
+│   - PUT /items/:mlb (atualizar sale_terms incluindo MANUFACTURING_TIME)
+│ • Usa token em req.ml.accessToken (injetado pelo authMiddleware)
+│ • Mantém consistência de sale_terms (preserva outros termos e substitui apenas MANUFACTURING_TIME)
+
+└─ public/
+   ├─ js/prazo.js ✅
+   │ • API_SINGLE = /anuncio/prazo-producao
+   │ • API_BULK_LEGACY = /anuncios/prazo-producao-lote
+   │ • status: /anuncios/status-prazo-producao/:id
+   │ • funções expostas: prazoSingle(), prazoBulk(), verificarStatus(), limparSingle(), limparBulk()
+   │ • notificações (toast) e resultado em painel
+   │
+   └─ (opcional) prazo-bulk.js ✅ (se implementar JobsPanel como no remover/excluir)
+      • enqueue em painel com badge da conta (JobsPanel)
+      • status via GET /anuncios/status-prazo-producao/:id
+
+Notas de permissão (opcional)
+- Por padrão é “app normal” (não admin-only).
+- Se quiser restringir atualização de prazo apenas para ADMIN|MASTER:
+  • aplicar ensurePermission.requireAdmin() no mount dessas rotas (index.js) OU no próprio router.

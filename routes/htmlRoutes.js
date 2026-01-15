@@ -46,6 +46,16 @@ router.get("/prazo", noCache, (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "views", "prazo.html"));
 });
 
+// ✅ NOVO: Jardinagem (HTML) — ADMIN|MASTER (ação sensível)
+router.get(
+  "/jardinagem",
+  noCache,
+  ensurePermission.requireAdmin(),
+  (_req, res) => {
+    res.sendFile(path.join(__dirname, "..", "views", "jardinagem.html"));
+  }
+);
+
 // Utilitários de geração/diagnóstico
 router.get("/criar-dashboard", noCache, HtmlController.criarDashboard);
 router.get(

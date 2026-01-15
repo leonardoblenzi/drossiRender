@@ -1,0 +1,315 @@
+<!-- views/jardinagem.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jardinagem — Anúncios (ML)</title>
+
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/jardinagem.css">
+
+  <!-- (Opcional) Painel de processos (mesmo CSS base do jobs-panel) -->
+  <link rel="stylesheet" href="/css/promo-jobs.css">
+</head>
+<body>
+
+<header class="account-bar">
+  <div class="account-bar__left">
+    <a class="brand" href="/dashboard" aria-label="DAVANTTI">
+      <img
+        src="/img/davantti.png"
+        alt="DAVANTTI"
+        class="brand__logo"
+        width="170"
+        height="42"
+        decoding="async"
+        loading="eager"
+      />
+    </a>
+  </div>
+  <div class="account-bar__right">
+    <div class="account-bar__current">
+      <span class="lbl">Conta:</span>
+      <span id="account-current" class="val">Carregando...</span>
+    </div>
+    <button id="btn-status" class="account-bar__status" title="Ver status do token">Status</button>
+    <button id="account-switch" class="account-bar__switch" title="Trocar de conta">Trocar Conta</button>
+  </div>
+</header>
+
+<!-- NAV TABS -->
+<nav class="main-nav">
+  <div class="tabs">
+    <button class="nav-tab" onclick="location.href='/dashboard#dashboard'">Dashboard</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#anuncios'">Anúncios</button>
+    <button class="nav-tab active" onclick="location.href='/dashboard#produtos'">Alterações Massivas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ia'">IA & Analytics</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#publicidade'">Publicidade</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#benchmarking'">Benchmarking</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#alertas'">Alertas</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#ml'">ML</button>
+    <button class="nav-tab" onclick="location.href='/full'">FULL</button>
+    <button class="nav-tab" onclick="location.href='/dashboard#admin'">Admin</button>
+  </div>
+</nav>
+
+<!-- Modal Status (mesmo padrão) -->
+<div id="modal-status" class="modal">
+  <div class="modal-content">
+    <div class="modal-header alt">
+      <h3>🟢 Status da Integração</h3>
+      <span class="close" onclick="fecharModalStatus()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div class="status-grid">
+        <div class="stat-mini"><h4 id="status-usuario">—</h4><p>Usuário</p></div>
+        <div class="stat-mini"><h4 id="status-token">—</h4><p>Token (preview)</p></div>
+        <div class="stat-mini"><h4 id="status-msg">—</h4><p>Mensagem</p></div>
+      </div>
+      <div class="modal-controls">
+        <button class="btn-small btn-primary" onclick="verificarToken(true)">🔍 Verificar</button>
+        <button class="btn-small btn-success" onclick="renovarToken(true)">🔄 Renovar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<main class="page-wrap jard-page">
+  <section class="tab-page active">
+    <div class="container">
+      <h1>🪴 Jardinagem — Anúncios</h1>
+      <p class="subtitle">
+        Execute ações em anúncios do Mercado Livre com foco em “renovar” listagens:
+        <strong>pausar</strong>, <strong>finalizar</strong> e <strong>relistar</strong>.
+        No modo <strong>unitário</strong>, você também pode <strong>clonar manualmente</strong>.
+      </p>
+
+      <div class="grid-2">
+        <!-- LADO A: UNITÁRIO (com clone) -->
+        <div class="panel panel--single">
+          <div class="panel__head">
+            <div>
+              <h2>🎯 Jardinagem unitária</h2>
+              <p class="muted">Escolha o modo e execute em um único MLB.</p>
+            </div>
+            <span class="badge badge--single">Unitário</span>
+          </div>
+
+          <div class="form-group">
+            <label for="jardMlbId">MLB do anúncio</label>
+            <input id="jardMlbId" placeholder="Ex: MLB1234567890" type="text" />
+            <small>Cole qualquer texto: vamos capturar o primeiro MLB válido.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="jardModeSingle">Modo (unitário)</label>
+            <select id="jardModeSingle">
+              <option value="CLOSE_RELIST">CLOSE_RELIST — Encerrar e Relistar (novo MLB)</option>
+              <option value="PAUSE_RELIST">PAUSE_RELIST — Pausar e Relistar</option>
+              <option value="CLONE_NEW_CLOSE_OLD">CLONE_NEW_CLOSE_OLD — Clonar manual e Encerrar antigo</option>
+              <option value="ONLY_CLOSE">ONLY_CLOSE — Só Encerrar (finalizar)</option>
+              <option value="ONLY_PAUSE">ONLY_PAUSE — Só Pausar</option>
+            </select>
+            <small>
+              Dica: <strong>CLOSE_RELIST</strong> é o “renascer” mais rápido. <strong>CLONE_NEW_CLOSE_OLD</strong> é o mais controlável.
+            </small>
+          </div>
+
+          <!-- Overrides (só para clone manual) -->
+          <div id="cloneOverrides" class="clone-box">
+            <div class="clone-box__head">
+              <div class="clone-box__title">🧬 Ajustes do clone (opcional)</div>
+              <div class="clone-box__pill">apenas no CLONE_NEW_CLOSE_OLD</div>
+            </div>
+
+            <div class="grid-2 mini">
+              <div class="form-group">
+                <label for="clonePrice">Preço do novo</label>
+                <input id="clonePrice" placeholder="Ex: 199.90" type="number" step="0.01" min="0" />
+              </div>
+              <div class="form-group">
+                <label for="cloneQty">Quantidade do novo</label>
+                <input id="cloneQty" placeholder="Ex: 10" type="number" step="1" min="0" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="cloneTitle">Título do novo (opcional)</label>
+              <input id="cloneTitle" placeholder="Se vazio, usa o título atual do anúncio" type="text" />
+            </div>
+
+            <small class="muted">
+              Esses campos não existem nos outros modos. Se o modo não for clone, eles serão ignorados/limpos no front.
+            </small>
+          </div>
+
+          <div class="actions">
+            <button id="btnJardSingle" class="btn-primary" onclick="jardinagemSingle()">🪴 Executar</button>
+            <button class="btn-ghost" onclick="limparSingle()">🧼 Limpar</button>
+          </div>
+        </div>
+
+        <!-- LADO B: LOTE (sem clone) -->
+        <div class="panel panel--bulk">
+          <div class="panel__head">
+            <div>
+              <h2>🚀 Jardinagem em lote</h2>
+              <p class="muted">Aplique um modo em vários MLBs (clone não entra no lote).</p>
+            </div>
+            <span class="badge badge--bulk">Em lote</span>
+          </div>
+
+          <div class="form-group">
+            <label for="jardModeBulk">Modo (lote)</label>
+            <select id="jardModeBulk">
+              <option value="CLOSE_RELIST">CLOSE_RELIST — Encerrar e Relistar (novo MLB)</option>
+              <option value="PAUSE_RELIST">PAUSE_RELIST — Pausar e Relistar</option>
+              <option value="ONLY_CLOSE">ONLY_CLOSE — Só Encerrar</option>
+              <option value="ONLY_PAUSE">ONLY_PAUSE — Só Pausar</option>
+            </select>
+            <small>O modo <strong>CLONE_NEW_CLOSE_OLD</strong> é unitário por design (mais controle, menos risco).</small>
+          </div>
+
+          <div class="form-group">
+            <label for="jardMlbIds">Múltiplos MLBs (um por linha)</label>
+            <textarea id="jardMlbIds" placeholder="MLB1234567890
+MLB0987654321
+MLB1122334455" rows="7"></textarea>
+            <small>Removemos duplicados e ignoramos linhas inválidas.</small>
+          </div>
+
+          <div class="actions">
+            <button id="btnJardBulk" class="btn-warning" onclick="jardinagemBulk()">🚀 Executar em Lote</button>
+            <button class="btn-secondary" onclick="verificarStatus()">📊 Status</button>
+            <button class="btn-ghost" onclick="limparBulk()">🧹 Limpar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resultado -->
+      <div id="resultado" class="result-area"></div>
+
+      <!-- Ajuda rápida -->
+      <div class="hint">
+        <div class="hint__title">💡 Atalhos</div>
+        <ul class="hint__list">
+          <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> → executar unitário</li>
+          <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> → executar lote</li>
+          <li><kbd>Esc</kbd> → limpar resultados</li>
+        </ul>
+      </div>
+
+      <!-- Avisos -->
+      <div class="note">
+        <div class="note__title">⚠️ Atenção</div>
+        <ul class="note__list">
+          <li><strong>CLOSE_RELIST</strong> tende a criar um <strong>novo MLB</strong> (o antigo fica encerrado).</li>
+          <li><strong>ONLY_CLOSE</strong> encerra sem recriar; ideal pra “limpeza” sem relist.</li>
+          <li><strong>PAUSE_RELIST</strong> é útil quando você quer manter rollback (depende das regras do ML por status).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Painel de processos fixo no canto (mesmo padrão) -->
+<div id="bulkJobsPanel" class="jobs-panel"></div>
+
+<!-- Conta atual + Trocar conta + Status token (mesmo padrão do seu html) -->
+<script>
+  const ACCOUNT_LABELS = { drossi: 'DRossi Interiores', diplany: 'Diplany', rossidecor: 'Rossi Decor' };
+
+  async function carregarContaAtual() {
+    const currentEl = document.getElementById('account-current');
+    try {
+      const r = await fetch('/api/account/current', { cache: 'no-store' });
+      const data = await r.json();
+      let shown = 'Não selecionada';
+      if (data && (data.ok || data.success)) {
+        shown = data.label || ACCOUNT_LABELS[data.accountKey] || data.accountKey || 'Desconhecida';
+      } else if (data) {
+        shown = data.label || data.accountKey || 'Desconhecida';
+      }
+      currentEl.textContent = shown;
+    } catch(e) { currentEl.textContent = 'Indisponível'; }
+  }
+
+  async function trocarConta() {
+    try { await fetch('/api/account/clear', { method: 'POST' }); }
+    finally { window.location.href = '/select-conta'; }
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    carregarContaAtual();
+    var switchBtn = document.getElementById('account-switch');
+    if (switchBtn) switchBtn.addEventListener('click', trocarConta);
+  });
+
+  function abrirModalStatus(){ document.getElementById('modal-status').style.display = 'block'; }
+  function fecharModalStatus(){ document.getElementById('modal-status').style.display = 'none'; }
+
+  document.getElementById('btn-status').addEventListener('click', async () => {
+    abrirModalStatus();
+    await verificarToken(true);
+  });
+
+  async function verificarToken(updateModal=false) {
+    try {
+      const response = await fetch('/verificar-token');
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          document.getElementById('status-usuario').textContent = data.nickname || '—';
+          document.getElementById('status-token').textContent = data.token_preview || '—';
+          document.getElementById('status-msg').textContent = data.message || 'OK';
+        } else {
+          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nToken: ' + data.token_preview);
+        }
+      } else {
+        if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao verificar';
+        else alert('❌ ' + (data.error || 'Falha ao verificar'));
+      }
+    } catch (error) {
+      if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+      else alert('❌ Erro: ' + error.message);
+    }
+  }
+
+  async function renovarToken(updateModal=false) {
+    try {
+      const response = await fetch('/renovar-token-automatico', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        if (updateModal) {
+          document.getElementById('status-usuario').textContent = data.nickname || '—';
+          document.getElementById('status-token').textContent = (data.access_token || '').substring(0, 20) + '...';
+          document.getElementById('status-msg').textContent = data.message || 'Token renovado';
+        } else {
+          alert('✅ ' + data.message + '\nUser: ' + data.nickname + '\nNovo token: ' + data.access_token.substring(0, 20) + '...');
+        }
+      } else {
+        if (updateModal) document.getElementById('status-msg').textContent = data.error || 'Falha ao renovar';
+        else alert('❌ ' + (data.error || 'Falha ao renovar'));
+      }
+    } catch (error) {
+      if (updateModal) document.getElementById('status-msg').textContent = 'Erro: ' + error.message;
+      else alert('❌ Erro: ' + error.message);
+    }
+  }
+
+  window.addEventListener('click', function(event){
+    const m2 = document.getElementById('modal-status');
+    if (event.target === m2) fecharModalStatus();
+  });
+</script>
+
+<!-- Scripts do painel e da fila (mesmo padrão) -->
+<script src="/js/jobs-panel.js" defer></script>
+<script src="/js/jardinagem-bulk.js" defer></script>
+
+<!-- Script da feature -->
+<script src="/js/jardinagem.js" defer></script>
+
+</body>
+</html>
