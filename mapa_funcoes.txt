@@ -613,3 +613,146 @@ Notas de permissão (opcional)
 - Por padrão é “app normal” (não admin-only).
 - Se quiser restringir atualização de prazo apenas para ADMIN|MASTER:
   • aplicar ensurePermission.requireAdmin() no mount dessas rotas (index.js) OU no próprio router.
+✅ NOVA MODIFICAÇÃO (2026-01-15) — JARDINAGEM (Unitário + Lote + CSV Resultado)
+
+Objetivo
+Automatizar “jardinagem” de anúncios do Mercado Livre com modos:
+• CLOSE_RELIST (fecha e relista)
+• PAUSE_RELIST (pausa e relista; fallback fecha e relista se necessário)
+• ONLY_CLOSE (apenas fecha)
+• ONLY_PAUSE (apenas pausa)
+• CLONE_NEW_CLOSE_OLD (SOMENTE unitário: cria novo anúncio clonando o antigo e fecha o antigo)
+
+No lote, ao concluir, disponibiliza botão “Baixar Resultado” gerando CSV (client-side) com:
+mlb_old, mlb_new, status(success|error)
+
+No unitário, o resultado passa a exibir explicitamente o novo MLB quando existir.
+
+Proteções (padrão do seu pipeline)
+✅ ensureAuth (JWT app)
+✅ ensureAccount (cookie meli_conta_id)
+✅ authMiddleware (token ML válido/renovável em req.ml.accessToken)
+(sem admin-only por padrão; se quiser restringir, aplicar ensurePermission.requireAdmin() no mount/HTML)
+
+/ (raiz do projeto)
+├─ index.js
+│ ├─ (onde plugar) app.use('/api/jardinagem', jardinagemRoutes)
+│ └─ pipeline já aplicado no app:
+│ ensureAuth -> ensureAccount -> authMiddleware -> routes
+│
+├─ routes/
+│ └─ jardinagemRoutes.js ✅
+│ • POST /api/jardinagem/item
+│ -> JardinagemController.single
+│
+│ • POST /api/jardinagem/single (alias)
+│ -> JardinagemController.single
+│
+│ • POST /api/jardinagem/bulk ✅ (rota real do backend)
+│ -> JardinagemController.bulk
+│
+│ • GET /api/jardinagem/status/:id
+│ -> JardinagemController.status
+│
+│ • GET /api/jardinagem/ping
+│ -> { ok:true, feature:"jardinagem" }
+│
+├─ controllers/
+│ └─ JardinagemController.js ✅
+│ • single(req,res)
+│ - valida mlb (MLB\d+)
+│ - valida mode (inclui CLONE_NEW_CLOSE_OLD)
+│ - se mode == CLONE_NEW_CLOSE_OLD:
+│ • aceita clone_overrides { price?, quantity?, title? }
+│ - chama JardinagemService.processSingle({ mlb, mode, clone_overrides, req })
+│ - retorna JSON do resultado (inclui ids novos quando aplicável)
+│
+│ • bulk(req,res)
+│ - valida lista mlbs (dedup + valida MLB)
+│ - valida mode (SEM CLONE_NEW_CLOSE_OLD)
+│ - cria process_id e guarda snapshot em memória (processosJardinagem[processId])
+│ - dispara JardinagemService.processBulk({ mlbs, mode, processId, procRef, delayMs, req })
+│ - responde imediato:
+│ { ok:true, process_id, message }
+│
+│ • status(req,res)
+│ - retorna snapshot do processo em memória, incluindo:
+│ { id,status,mode,total,processados,sucessos,erros,progresso,resultados[] }
+│
+├─ services/
+│ └─ jardinagemService.js ✅
+│ • resolveAccessToken(req)
+│ - pega req.ml.accessToken (padrão do app)
+│ - fallback: TokenService.renovarTokenSeNecessario()
+│
+│ • processSingle({ mlb, mode, clone_overrides, req })
+│ - ONLY_PAUSE: PUT /items/:mlb {status:"paused"}
+│ - ONLY_CLOSE: PUT /items/:mlb {status:"closed"}
+│ - CLOSE_RELIST:
+│ • GET /items/:mlb
+│ • garante closed
+│ • POST /items/:mlb/relist (body preserva listing_type_id + variações/qty/preço)
+│ -> retorna relisted_id (novo MLB quando existir no retorno)
+│ - PAUSE_RELIST:
+│ • GET /items/:mlb
+│ • PUT paused
+│ • tenta POST relist; se falhar, fecha e relista (fallback)
+│ -> retorna relisted_id + flag fallback_closed
+│ - CLONE_NEW_CLOSE_OLD (unitário):
+│ • GET /items/:mlb
+│ • POST /items (cria novo anúncio clonado)
+│ • copia descrição (best effort)
+│ • PUT /items/:mlb {status:"closed"} (fecha antigo)
+│ -> retorna new_id (novo MLB)
+│
+│ • processBulk({ mlbs, mode, processId, procRef, delayMs, req })
+│ - processa sequencial com delay (evita rate-limit)
+│ - SEM clone
+│ - para cada mlb adiciona procRef.resultados[]:
+│ { mlb, ok:true/false, mode, relisted_id?, error? }
+│ - status final: "concluido" (ou "erro" se quebrar fora do loop)
+│
+├─ public/
+│ ├─ js/jardinagem.js ✅ (Unitário)
+│ │ • API_SINGLE = /api/jardinagem/item
+│ │ • jardinagemSingle()
+│ │ - executa POST e renderiza resultado
+│ │ - ✅ agora exibe “Novo MLB” quando existir:
+│ │ • lê new_mlb/new_id/relisted_id (conforme retorno)
+│ │
+│ └─ js/jardinagem-bulk.js ✅ (Lote)
+│ • ✅ FIX rota:
+│ API_BULK = /api/jardinagem/bulk
+│
+│ • jardinagemBulk()
+│ - POST /api/jardinagem/bulk { mlbs, mode, delay_ms }
+│ - se retornar process_id:
+│ • monitora GET /api/jardinagem/status/:id
+│ - ao finalizar (status concluido/erro):
+│ • lê data.resultados (ou results/report fallback)
+│ • normaliza para:
+│ [{ mlb_old, mlb_new, status(success|error) }]
+│ • ✅ injeta botão “⬇️ Baixar Resultado”
+│ - gera CSV no navegador (Blob + download)
+│
+│ • verificarStatus()
+│ - ✅ considera finalizado também quando status == erro/error
+│ - ✅ se vier resultados, habilita download CSV
+│
+└─ views/
+└─ (tela existente de Jardinagem)
+• mantém o painel #resultado como container do box + botão download
+• IDs esperados:
+- #jardModeSingle, #jardMlbId, #btnJardSingle
+- #jardModeBulk, #jardMlbIds, #btnJardBulk
+- #resultado
+- (clone) #cloneOverrides, #clonePrice, #cloneQty, #cloneTitle
+
+Formato do CSV (Lote)
+• Cabeçalho: mlb_old, mlb_new, status
+• status: success | error
+• mlb_new será preenchido quando houver relist_id/new_id retornado pelo backend.
+
+Observações importantes (consistência de rotas)
+✅ Backend confirmado: POST /api/jardinagem/bulk
+⚠️ Se algum front antigo ainda chamar /api/jardinagem/lote, manter alias no router (opcional) OU atualizar o JS (feito).
