@@ -13,6 +13,9 @@ const { ensureAuth } = require("./middleware/ensureAuth"); // ✅ JWT do app (au
 // ✅ NOVO: permissões padrao/admin/master
 const ensurePermission = require("./middleware/ensurePermission");
 
+// ✅ BOOTSTRAP MASTER (usuario + empresa + vinculo)
+const { ensureMasterUser } = require("./services/bootstrapMaster");
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -46,11 +49,11 @@ try {
   const { getAccessTokenForAccount } = require("./services/ml-auth");
   app.set("getAccessTokenForAccount", getAccessTokenForAccount);
   console.log(
-    '✅ ML Token Adapter injetado em app.get("getAccessTokenForAccount")'
+    '✅ ML Token Adapter injetado em app.get("getAccessTokenForAccount")',
   );
 } catch (err) {
   console.warn(
-    "⚠️ Não foi possível injetar ml-auth. Rotas que dependem de tokens usarão fallbacks/env."
+    "⚠️ Não foi possível injetar ml-auth. Rotas que dependem de tokens usarão fallbacks/env.",
   );
 }
 
@@ -73,7 +76,7 @@ function noCache(_req, res, next) {
 try {
   if (!process.env.JWT_SECRET) {
     console.warn(
-      "⚠️ JWT_SECRET não definido no .env / Render. Login JWT não vai funcionar corretamente."
+      "⚠️ JWT_SECRET não definido no .env / Render. Login JWT não vai funcionar corretamente.",
     );
   }
   const authRoutes = require("./routes/authRoutes");
@@ -87,14 +90,6 @@ try {
  * ==========================================
  * ✅ GATE GLOBAL: TUDO EXIGE LOGIN
  * ==========================================
- * A única exceção é um allowlist mínimo para conseguir:
- * - abrir a tela /login
- * - chamar /api/auth/login
- * - carregar CSS/JS/IMG do login
- *
- * Se você quiser “travar até os assets”, você precisa separar
- * assets do login em uma pasta pública específica (ex: /public-auth)
- * e mover o resto pra trás do gate.
  */
 function isPublicPath(req) {
   const p = req.path || "";
@@ -110,7 +105,6 @@ function isPublicPath(req) {
   if (p.startsWith("/api/auth")) return true;
 
   // 2) assets estáticos para a tela de login/cadastro funcionar
-  // (se você quiser ser ultra-restrito, crie /public-auth e só libere ele)
   if (
     p.startsWith("/css/") ||
     p.startsWith("/js/") ||
@@ -184,12 +178,12 @@ try {
     .iniciarProcessamento()
     .then(() => console.log("🚀 Sistema de filas iniciado com sucesso"))
     .catch((error) =>
-      console.error("❌ Erro ao iniciar sistema de filas:", error.message)
+      console.error("❌ Erro ao iniciar sistema de filas:", error.message),
     );
 } catch (error) {
   console.error("❌ Erro ao carregar QueueService:", error.message);
   console.warn(
-    "⚠️ Sistema de filas não disponível - processamento será apenas direto"
+    "⚠️ Sistema de filas não disponível - processamento será apenas direto",
   );
 }
 
@@ -320,7 +314,7 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(path.join(__dirname, "views", "admin-usuarios.html"));
-  }
+  },
 );
 
 app.get(
@@ -329,14 +323,14 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(path.join(__dirname, "views", "admin-empresas.html"));
-  }
+  },
 );
 
 try {
   const adminEmpresasRoutes = require("./routes/adminEmpresasRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminEmpresasRoutes);
   console.log(
-    "✅ AdminEmpresasRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminEmpresasRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminEmpresasRoutes:", e.message);
@@ -348,14 +342,14 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(path.join(__dirname, "views", "admin-vinculos.html"));
-  }
+  },
 );
 
 try {
   const adminVinculosRoutes = require("./routes/adminVinculosRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminVinculosRoutes);
   console.log(
-    "✅ AdminVinculosRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminVinculosRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminVinculosRoutes:", e.message);
@@ -367,9 +361,9 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(
-      path.join(__dirname, "views", "admin-meli-contas.html")
+      path.join(__dirname, "views", "admin-meli-contas.html"),
     );
-  }
+  },
 );
 
 try {
@@ -377,10 +371,10 @@ try {
   app.use(
     "/api/admin",
     ensurePermission.requireMaster(),
-    adminMeliContasRoutes
+    adminMeliContasRoutes,
   );
   console.log(
-    "✅ AdminMeliContasRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminMeliContasRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminMeliContasRoutes:", e.message);
@@ -392,9 +386,9 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(
-      path.join(__dirname, "views", "admin-meli-tokens.html")
+      path.join(__dirname, "views", "admin-meli-tokens.html"),
     );
-  }
+  },
 );
 
 try {
@@ -402,10 +396,10 @@ try {
   app.use(
     "/api/admin",
     ensurePermission.requireMaster(),
-    adminMeliTokensRoutes
+    adminMeliTokensRoutes,
   );
   console.log(
-    "✅ AdminMeliTokensRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminMeliTokensRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminMeliTokensRoutes:", e.message);
@@ -417,9 +411,9 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(
-      path.join(__dirname, "views", "admin-oauth-states.html")
+      path.join(__dirname, "views", "admin-oauth-states.html"),
     );
-  }
+  },
 );
 
 try {
@@ -427,10 +421,10 @@ try {
   app.use(
     "/api/admin",
     ensurePermission.requireMaster(),
-    adminOAuthStatesRoutes
+    adminOAuthStatesRoutes,
   );
   console.log(
-    "✅ AdminOAuthStatesRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminOAuthStatesRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminOAuthStatesRoutes:", e.message);
@@ -442,14 +436,14 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(path.join(__dirname, "views", "admin-migracoes.html"));
-  }
+  },
 );
 
 try {
   const adminMigracoesRoutes = require("./routes/adminMigracoesRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminMigracoesRoutes);
   console.log(
-    "✅ AdminMigracoesRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminMigracoesRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminMigracoesRoutes:", e.message);
@@ -461,14 +455,14 @@ app.get(
   ensurePermission.requireMaster(),
   (req, res) => {
     return res.sendFile(path.join(__dirname, "views", "admin-backup.html"));
-  }
+  },
 );
 
 try {
   const adminBackupRoutes = require("./routes/adminBackupRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminBackupRoutes);
   console.log(
-    "✅ AdminBackupRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminBackupRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminBackupRoutes:", e.message);
@@ -478,7 +472,7 @@ try {
   const adminUsuariosRoutes = require("./routes/adminUsuariosRoutes");
   app.use("/api/admin", ensurePermission.requireMaster(), adminUsuariosRoutes);
   console.log(
-    "✅ AdminUsuariosRoutes carregado (MASTER ONLY via ensurePermission)"
+    "✅ AdminUsuariosRoutes carregado (MASTER ONLY via ensurePermission)",
   );
 } catch (e) {
   console.error("❌ Erro ao carregar AdminUsuariosRoutes:", e.message);
@@ -531,7 +525,7 @@ console.log("✅ AuthMiddleware aplicado (token ML válido)");
 // Rotas PROTEGIDAS do app
 // ==========================================
 
-// ✅ Dashboard (NOVO) — Projeção de vendas do mês (Total + Ads + Orgânico)
+// ✅ Dashboard (NOVO)
 try {
   const dashboardRoutes = require("./routes/dashboardRoutes");
   app.use("/api/dashboard", dashboardRoutes);
@@ -554,13 +548,13 @@ try {
   const jardinagemRoutes = require("./routes/jardinagemRoutes");
   app.use("/api/jardinagem", ensurePermission.requireAdmin(), jardinagemRoutes);
   console.log(
-    "✅ JardinagemRoutes carregado em /api/jardinagem (ADMIN|MASTER)"
+    "✅ JardinagemRoutes carregado em /api/jardinagem (ADMIN|MASTER)",
   );
 } catch (error) {
   console.error("❌ Erro ao carregar JardinagemRoutes:", error.message);
 }
 
-// ✅ Editar Anúncio (Edição oficial + Premium)
+// ✅ Editar Anúncio
 try {
   const editarAnuncioRoutes = require("./routes/editarAnuncioRoutes");
   app.use("/api/editar-anuncio", editarAnuncioRoutes);
@@ -569,10 +563,10 @@ try {
   console.error("❌ Erro ao carregar EditarAnuncioRoutes:", error.message);
 }
 
-// ✅ Prazo de Produção (MANUFACTURING_TIME)
+// ✅ Prazo de Produção
 try {
   const prazoProducaoRoutes = require("./routes/prazoProducaoRoutes");
-  app.use(prazoProducaoRoutes); // <- como as rotas já vêm com /anuncio/* e /anuncios/*
+  app.use(prazoProducaoRoutes);
   console.log("✅ PrazoProducaoRoutes carregado");
 } catch (error) {
   console.error("❌ Erro ao carregar PrazoProducaoRoutes:", error.message);
@@ -601,11 +595,11 @@ try {
   app.use(
     "/api/excluir-anuncio",
     ensurePermission.requireAdmin(),
-    excluirAnuncioRoutes
+    excluirAnuncioRoutes,
   );
 
   console.log(
-    "✅ ExcluirAnuncioRoutes carregado em /api/excluir-anuncio (ADMIN|MASTER via ensurePermission)"
+    "✅ ExcluirAnuncioRoutes carregado em /api/excluir-anuncio (ADMIN|MASTER via ensurePermission)",
   );
 } catch (error) {
   console.error("❌ Erro ao carregar ExcluirAnuncioRoutes:", error.message);
@@ -620,7 +614,7 @@ try {
   console.error("❌ Erro ao carregar PromocaoRoutes:", error.message);
 }
 
-// Criar Promoção (API de jobs)
+// Criar Promoção
 try {
   const criarPromocaoRoutes = require("./routes/criarPromocaoRoutes");
   app.use("/api/criar-promocao", criarPromocaoRoutes);
@@ -629,7 +623,7 @@ try {
   console.error("❌ Erro ao carregar CriarPromocaoRoutes:", error.message);
 }
 
-// Rotas novas: Items e Promoções (cards)
+// Items e Promoções (cards)
 try {
   const itemsRoutes = require("./routes/itemsRoutes");
   app.use(itemsRoutes);
@@ -664,7 +658,7 @@ try {
   console.error("❌ Erro ao carregar PesquisaDescricaoRoutes:", error.message);
 }
 
-// Interfaces HTML auxiliares (se quiser, pode remover e deixar só via htmlRoutes)
+// Interfaces HTML auxiliares
 try {
   app.get("/pesquisa-descricao", (req, res) => {
     res.sendFile(path.join(__dirname, "views", "pesquisa-descricao.html"));
@@ -682,7 +676,7 @@ try {
 } catch (error) {
   console.error(
     "❌ Erro ao carregar interface de validar dimensões:",
-    error.message
+    error.message,
   );
 }
 
@@ -703,7 +697,7 @@ try {
 } catch (error) {
   console.error(
     "❌ Erro ao carregar interface de keyword analytics:",
-    error.message
+    error.message,
   );
 }
 
@@ -785,12 +779,31 @@ app.use((req, res) => {
 });
 
 // ==========================================
-// INICIALIZAÇÃO
+// INICIALIZAÇÃO (com BOOTSTRAP antes do listen)
 // ==========================================
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 ================================");
-  console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
-  console.log("🚀 ================================");
+let server;
+
+async function startServer() {
+  // ✅ roda antes de aceitar trafego
+  try {
+    await ensureMasterUser();
+    console.log("✅ [BOOTSTRAP] finalizado");
+  } catch (e) {
+    console.error("❌ [BOOTSTRAP] falhou:", e?.message || e);
+    // "soft": nao derruba o servidor
+    // se quiser "hard": process.exit(1);
+  }
+
+  server = app.listen(PORT, "0.0.0.0", () => {
+    console.log("🚀 ================================");
+    console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
+    console.log("🚀 ================================");
+  });
+}
+
+startServer().catch((e) => {
+  console.error("❌ Falha ao iniciar servidor:", e?.message || e);
+  process.exit(1);
 });
 
 async function gracefulShutdown(signal) {
@@ -804,10 +817,17 @@ async function gracefulShutdown(signal) {
       console.error("❌ Erro ao pausar sistema de filas:", error.message);
     }
   }
+
+  if (!server) {
+    process.exit(0);
+    return;
+  }
+
   server.close(() => {
     console.log("✅ Servidor encerrado com sucesso");
     process.exit(0);
   });
+
   setTimeout(() => {
     console.log("⏰ Forçando encerramento...");
     process.exit(1);
